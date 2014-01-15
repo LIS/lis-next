@@ -1,0 +1,17 @@
+echo "Git add  Files"
+echo "Invoke this script from drivers/hv directory"
+
+git add copy_files
+git add remove_files
+git add git_add_files
+git add hv_timesource.c
+git add hyperv_pvdrivers.conf
+git add overrides.mk
+git add README
+git add remove_files
+git add rhel6-hv-driver-install
+git add rhel6-hv-driver-uninstall
+
+git add include/asm/mshyperv.h
+git add include/linux/atomic.h
+git add include/linux/hv_compat.h

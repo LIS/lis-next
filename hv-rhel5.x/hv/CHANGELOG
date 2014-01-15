@@ -1,0 +1,1 @@
+July 18th, 2013: Got rid of the ifdef typo in kvp daemon.c. Fixed up a typo in hv_kvp.c for the SET case

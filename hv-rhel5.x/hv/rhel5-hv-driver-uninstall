@@ -1,0 +1,15 @@
+echo "Get rid of the Hyper-V drivers and modprobe rules"
+
+rm -f  /etc/X11/xorg.conf
+
+rm -rf  /lib/modules/$(uname -r)/extra/hv_*.ko
+rm -rf  /lib/modules/$(uname -r)/extra/hid*.ko
+
+
+echo "Create and install initramfs without Hyper-V drivers"
+
+rm -f "initrd-$(uname -r).img"
+
+mkinitrd "initrd-$(uname -r).img" "$(uname -r)"
+
+mv -f "initrd-$(uname -r).img" /boot/"initrd-$(uname -r).img"

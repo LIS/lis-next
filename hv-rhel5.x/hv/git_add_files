@@ -1,0 +1,16 @@
+echo "Git add  Files for rhel5.x"
+echo "Invoke this script from drivers/hv directory"
+
+git_add hv_compat.c
+git add ./include/linux/hid-debug.h
+git add ./include/linux/hid.h
+git add ./include/linux/hidraw.h
+
+git add hid-core.c
+git add hid-debug.c 
+git add hid-ids.h 
+git add hid-input.c 
+
+
+git add rhel5-hv-driver-uninstall
+git add rhel5-hv-driver-install
