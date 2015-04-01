@@ -1,0 +1,8 @@
+kernel//root/lis40_next_ky/hv/hv_vmbus.ko
+kernel//root/lis40_next_ky/hv/hv_storvsc.ko
+kernel//root/lis40_next_ky/hv/hv_netvsc.ko
+kernel//root/lis40_next_ky/hv/hv_utils.ko
+kernel//root/lis40_next_ky/hv/hid-hyperv.ko
+kernel//root/lis40_next_ky/hv/hyperv_fb.ko
+kernel//root/lis40_next_ky/hv/hv_balloon.ko
+kernel//root/lis40_next_ky/hv/hyperv-keyboard.ko
