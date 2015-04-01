@@ -1,0 +1,14 @@
+echo "Git adding Files"
+echo "Invoke this script from drivers/hv directory after applying the base patch"
+
+git add git_add_files
+git add overrides.mk
+git add copy_files
+git add remove_files
+git add README
+git add ../../include/linux/hv_compat.h
+
+git add rhel6-hv-driver-install
+git add rhel6-hv-driver-uninstall
+
+git add hyperv_pvdrivers.conf

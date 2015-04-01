@@ -1,0 +1,32 @@
+echo "Copying Files"
+echo "Invoke this script from drivers/hv directory"
+
+rm -rf tools
+mkdir tools
+mkdir -p ./include/linux
+mkdir -p ./include/uapi/linux
+mkdir -p ./include/asm/linux
+
+cp ../scsi/storvsc_drv.c .
+cp ../video/fbdev/hyperv_fb.c .
+cp ../hid/hid-hyperv.c .
+cp ../input/serio/hyperv-keyboard.c .
+cp ../net/hyperv/*.[hc] .
+
+cp ../../tools/hv/*.c ./tools/
+cp ../../tools/hv/*.sh ./tools/
+
+cp ../../include/linux/hyperv.h ./include/linux/
+cp ../../include/linux/uuid.h ./include/linux/
+cp ../../include/uapi/linux/uuid.h ./include/uapi/linux/
+cp ../../include/linux/rndis.h ./include/linux/
+cp ../../include/linux/atomic.h ./include/linux/
+cp ../../include/linux/hv_compat.h ./include/linux/
+cp ../../include/uapi/linux/hyperv.h ./include/uapi/linux/
+
+cp ../../arch/x86/include/uapi/asm/hyperv.h ./include/asm/
+cp ../../arch/x86/include/asm/mshyperv.h ./include/asm/
+
+cp -r ../../include/linux/unaligned ./include/linux/
+cp ../../arch/x86/include/asm/sync_bitops.h ./include/asm/
+cp ../../include/linux/export.h ./include/linux/
