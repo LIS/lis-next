@@ -19,7 +19,7 @@
 #include <linux/input.h>
 #include <linux/hid.h>
 #include <linux/hiddev.h>
-#include <linux/hyperv.h>
+#include "include/linux/hyperv.h"
 
 
 struct hv_input_dev_info {
@@ -157,6 +157,7 @@ struct mousevsc_dev {
 	u32			report_desc_size;
 	struct hv_input_dev_info hid_dev_info;
 	struct hid_device       *hid_device;
+	u8			input_buf[HID_MAX_BUFFER_SIZE];
 };
 
 
@@ -199,12 +200,10 @@ static void mousevsc_on_receive_device_info(struct mousevsc_dev *input_device,
 	if (desc->bLength == 0)
 		goto cleanup;
 
-	input_device->hid_desc = kzalloc(desc->bLength, GFP_ATOMIC);
+	input_device->hid_desc = kmemdup(desc, desc->bLength, GFP_ATOMIC);
 
 	if (!input_device->hid_desc)
 		goto cleanup;
-
-	memcpy(input_device->hid_desc, desc, desc->bLength);
 
 	input_device->report_desc_size = desc->desc[0].wDescriptorLength;
 	if (input_device->report_desc_size == 0) {
@@ -258,6 +257,7 @@ static void mousevsc_on_receive(struct hv_device *device,
 	struct synthhid_msg *hid_msg;
 	struct mousevsc_dev *input_dev = hv_get_drvdata(device);
 	struct synthhid_input_report *input_report;
+	size_t len;
 
 	pipe_msg = (struct pipe_prt_msg *)((unsigned long)packet +
 						(packet->offset8 << 3));
@@ -302,9 +302,15 @@ static void mousevsc_on_receive(struct hv_device *device,
 			(struct synthhid_input_report *)pipe_msg->data;
 		if (!input_dev->init_complete)
 			break;
-		hid_input_report(input_dev->hid_device,
-				HID_INPUT_REPORT, input_report->buffer,
-				input_report->header.size, 1);
+
+		len = min(input_report->header.size,
+			  (u32)sizeof(input_dev->input_buf));
+		memcpy(input_dev->input_buf, input_report->buffer, len);
+		hid_input_report(input_dev->hid_device, HID_INPUT_REPORT,
+				 input_dev->input_buf, len, 1);
+
+		pm_wakeup_event(&input_dev->device->device, 0);
+
 		break;
 	default:
 		pr_err("unsupported hid msg type - type %d len %d",
@@ -536,6 +542,8 @@ static int mousevsc_probe(struct hv_device *device,
 		goto probe_err2;
 	}
 
+	device_init_wakeup(&device->device, true);
+
 	input_dev->connected = true;
 	input_dev->init_complete = true;
 
@@ -558,6 +566,7 @@ static int mousevsc_remove(struct hv_device *dev)
 {
 	struct mousevsc_dev *input_dev = hv_get_drvdata(dev);
 
+	device_init_wakeup(&dev->device, false);
 	vmbus_close(dev->channel);
 	hid_hw_stop(input_dev->hid_device);
 	hid_destroy_device(input_dev->hid_device);
@@ -568,8 +577,7 @@ static int mousevsc_remove(struct hv_device *dev)
 
 static const struct hv_vmbus_device_id id_table[] = {
 	/* Mouse guid */
-	{ VMBUS_DEVICE(0x9E, 0xB6, 0xA8, 0xCF, 0x4A, 0x5B, 0xc0, 0x4c,
-		       0xB9, 0x8B, 0x8B, 0xA1, 0xA1, 0xF3, 0xF9, 0x5A) },
+	{ HV_MOUSE_GUID, },
 	{ },
 };
 

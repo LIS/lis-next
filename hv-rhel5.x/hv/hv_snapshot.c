@@ -22,12 +22,13 @@
 #include <linux/nls.h>
 #include <linux/connector.h>
 #include <linux/workqueue.h>
-#include <linux/hyperv.h>
+#include "include/linux/hyperv.h"
 
 #define VSS_MAJOR  5
 #define VSS_MINOR  0
 #define VSS_VERSION    (VSS_MAJOR << 16 | VSS_MINOR)
 
+#define VSS_USERSPACE_TIMEOUT (msecs_to_jiffies(10 * 1000))
 
 /*
  * Global state maintained for transaction that is being processed.
@@ -54,11 +55,23 @@ static char vss_name[] = "vss_kernel_module";
 static __u8 *recv_buffer;
 
 static void vss_send_op(void *dummy);
+static void vss_timeout_func(void *dummy);
+
+static DECLARE_DELAYED_WORK(vss_timeout_work, vss_timeout_func, &vss_timeout_work);
 static DECLARE_WORK(vss_send_op_work, vss_send_op, &vss_send_op_work);
 
 /*
  * Callback when data is received from user mode.
  */
+
+static void vss_timeout_func(void *dummy)
+{
+	/*
+	 * Timeout waiting for userspace component to reply happened.
+	 */
+	pr_warn("VSS: timeout waiting for daemon to reply\n");
+	vss_respond_to_host(HV_E_FAIL);
+}
 
 static void
 vss_cn_callback(void *cb_data)
@@ -76,13 +89,15 @@ vss_cn_callback(void *cb_data)
 		return;
 
 	}
-	vss_respond_to_host(vss_msg->error);
+	if (cancel_delayed_work_sync(&vss_timeout_work))
+		vss_respond_to_host(vss_msg->error);
 }
 
 
 static void vss_send_op(void *dummy)
 {
 	int op = vss_transaction.msg->vss_hdr.operation;
+	int rc;
 	struct cn_msg *msg;
 	struct hv_vss_msg *vss_msg;
 
@@ -98,7 +113,12 @@ static void vss_send_op(void *dummy)
 	vss_msg->vss_hdr.operation = op;
 	msg->len = sizeof(struct hv_vss_msg);
 
-	cn_netlink_send(msg, 0, GFP_ATOMIC);
+	rc = cn_netlink_send(msg, 0, GFP_ATOMIC);
+	if (rc) {
+		pr_warn("VSS: failed to communicate to the daemon: %d\n", rc);
+		if (cancel_delayed_work_sync(&vss_timeout_work))
+			vss_respond_to_host(HV_E_FAIL);
+	}
 	kfree(msg);
 
 	return;
@@ -223,6 +243,8 @@ void hv_vss_onchannelcallback(void *context)
 			case VSS_OP_FREEZE:
 			case VSS_OP_THAW:
 				schedule_work(&vss_send_op_work);
+				schedule_delayed_work(&vss_timeout_work.work,
+						      VSS_USERSPACE_TIMEOUT);
 				return;
 
 			case VSS_OP_HOT_BACKUP:
@@ -277,5 +299,6 @@ hv_vss_init(struct hv_util_service *srv)
 void hv_vss_deinit(void)
 {
 	cn_del_callback(&vss_id);
+	cancel_delayed_work_sync(&vss_timeout_work);
 	cancel_work_sync(&vss_send_op_work);
 }

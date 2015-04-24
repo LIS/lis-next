@@ -35,7 +35,7 @@
 #define CN_VSS_IDX	0xA
 #define CN_VSS_VAL	0x1
 
-#define HV_DRV_VERSION	"4.0.4"
+#define HV_DRV_VERSION	"4.0.7"
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1540)
 #ifdef CONFIG_MEMORY_HOTPLUG

@@ -692,6 +692,7 @@ int kvp_release(struct inode *inode, struct file *f)
 	daemon_died = true;
 	in_hand_shake = true;
 	dtp = NULL;
+	opened = false;
 	return 0;
 }
 

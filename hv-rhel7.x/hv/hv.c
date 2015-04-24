@@ -458,6 +458,7 @@ void hv_synic_init(void *arg)
 
 	INIT_LIST_HEAD(&hv_context.percpu_list[cpu]);
 
+#ifdef NOTYET
 	/*
 	 * Register the per-cpu clockevent source.
 	 */
@@ -466,6 +467,7 @@ void hv_synic_init(void *arg)
 						HV_TIMER_FREQUENCY,
 						HV_MIN_DELTA_TICKS,
 						HV_MAX_MAX_DELTA_TICKS);
+#endif
 	return;
 }
 
