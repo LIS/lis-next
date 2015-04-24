@@ -8,11 +8,17 @@
 #define CN_VSS_IDX	0xA
 #define CN_VSS_VAL	0x1
 
+#define HV_DRV_VERSION  "4.0.7"
+
+#ifndef O_CLOEXEC
+#define O_CLOEXEC       02000000        /* set close_on_exec */
+#endif
+
 #ifdef __KERNEL__
 
 #include <linux/rcupdate.h>
 #include <linux/version.h>
-#include <linux/uuid.h>
+#include "../uapi/linux/uuid.h"
 #include <linux/netdevice.h>
 #include <linux/nls.h>
 #include <linux/input.h>
@@ -45,6 +51,24 @@
 
 #ifndef pr_fmt
 #define pr_fmt(fmt) fmt
+#endif
+
+#ifndef PFN_UP
+#define PFN_UP(x)       (((x) + PAGE_SIZE-1) >> PAGE_SHIFT)
+#endif
+
+
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1286)
+#ifndef CSUM_MANGLED_0
+typedef __u16 __bitwise __sum16;
+#define CSUM_MANGLED_0 (( __sum16)0xffff)
+#endif
+#else
+#define CSUM_MANGLED_0 (( __sum16)0xffff)
+#endif
+
+#ifndef UMH_WAIT_EXEC
+#define UMH_WAIT_EXEC 1
 #endif
 
 #ifndef pr_warn
@@ -81,6 +105,53 @@ static inline struct sk_buff *netdev_alloc_skb_ip_align(struct net_device *dev,
         return __netdev_alloc_skb_ip_align(dev, length, GFP_ATOMIC);
 }
 #endif
+
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1291)
+#define NETIF_F_RXCSUM 0
+#endif
+
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1287)
+static inline void
+skb_set_hash(struct sk_buff *skb, __u32 hash, int type)
+{
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1287)
+	skb->rxhash = hash;
+#endif
+}
+#endif
+
+bool netvsc_set_hash(u32 *hash, struct sk_buff *skb);
+static inline __u32
+skb_get_hash(struct sk_buff *skb)
+{
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1291)
+	return skb->hash;
+#else
+	__u32 hash;
+	if (netvsc_set_hash(&hash, skb))
+		return hash;
+	return 0;
+#endif
+}
+
+static inline void pm_wakeup_event(struct device *dev, unsigned int msec)
+{
+}
+
+
+static inline void reinit_completion(struct completion *x)
+{
+	x->done = 0;
+}
+
+static inline int kstrtouint(const char *s, unsigned int base, unsigned int *res)
+{
+	int result;
+	char *endbufp = NULL;
+
+	result = (int)simple_strtoul(s, &endbufp, 10);
+	return result;
+}
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1286)
 static inline bool cancel_delayed_work_sync(void *work)
@@ -135,6 +206,10 @@ void netdev_err(struct net_device *net, const char *fmt, ...);
 #define HV_STATUS_INSUFFICIENT_BUFFERS	19
 #endif
 
+#ifndef RNDIS_STATUS_NETWORK_CHANGE
+#define RNDIS_STATUS_NETWORK_CHANGE 0x40010018
+#endif
+
 #ifndef DID_TARGET_FAILURE
 #define DID_TARGET_FAILURE	0x10
 #endif
@@ -148,7 +223,7 @@ static inline int uuid_le_cmp(const uuid_le u1, const uuid_le u2)
 	return memcmp(&u1, &u2, sizeof(uuid_le));
 }
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1539)
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1291)
 static inline struct page *skb_frag_page(const skb_frag_t *frag)
 {
 	return frag->page;
@@ -156,10 +231,21 @@ static inline struct page *skb_frag_page(const skb_frag_t *frag)
 
 #define BUS_VIRTUAL     0x06
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1289)
 static inline unsigned int skb_frag_size(const skb_frag_t *frag)
 {
 	return frag->size;
 }
+#else
+#ifdef KYS
+#ifndef CONFIG_X86_64
+static inline unsigned int skb_frag_size(const skb_frag_t *frag)
+{
+	return frag->size;
+}
+#endif
+#endif
+#endif
 #endif
 
 static inline void *sg_virt(struct scatterlist *sg)
@@ -167,7 +253,7 @@ static inline void *sg_virt(struct scatterlist *sg)
 	return sg->page;
 }
 
-static inline void  hv_set_buf(struct scatterlist *sg, void *buf,
+static inline void  hv_set_buf(struct scatterlist *sg, const void *buf,
                                 unsigned int length)
 {
 	sg->page = (struct page *)buf;
@@ -177,6 +263,9 @@ static inline void  hv_set_buf(struct scatterlist *sg, void *buf,
 
 #define blk_queue_max_segments(a, b)
 
+extern bool using_null_legacy_pic;
+
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1289)
 /*
  * For Hyper-V devices we use the device guid as the id.
  * This was introduced in Linux 3.2 (/include/linux/mod_devicetable.h)
@@ -185,6 +274,17 @@ struct hv_vmbus_device_id {
 	__u8 guid[16];
 	unsigned long driver_data;
 };
+
+#else
+#ifdef KYS
+#ifndef CONFIG_X86_64
+struct hv_vmbus_device_id {
+        __u8 guid[16];
+        unsigned long driver_data;
+};
+#endif
+#endif
+#endif
 
 void rhel_5_x_power_off(void);
 
@@ -309,7 +409,6 @@ static inline void set_host_byte(struct scsi_cmnd *cmd, char status)
 
 struct timespec ns_to_timespec(const s64 nsec);
 
-
 #ifndef netdev_dbg
 #if defined(DEBUG)
 #define netdev_dbg(dev, fmt, ...)  netdev_err(dev, fmt, ...)
@@ -325,6 +424,7 @@ struct timespec ns_to_timespec(const s64 nsec);
 #endif
 
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1289)
 static inline void  netif_notify_peers(struct net_device *net)
 {
 	struct in_device *idev;
@@ -339,6 +439,7 @@ static inline void  netif_notify_peers(struct net_device *net)
 	}
 	rcu_read_unlock();
 }
+#endif
 
 #endif
 #endif

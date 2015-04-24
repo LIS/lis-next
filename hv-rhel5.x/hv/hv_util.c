@@ -26,34 +26,35 @@
 #include <linux/slab.h>
 #include <linux/sysctl.h>
 #include <linux/reboot.h>
-#include <linux/hyperv.h>
+#include "include/linux/hyperv.h"
 
-#define SD_MAJOR        3
-#define SD_MINOR        0
-#define SD_VERSION      (SD_MAJOR << 16 | SD_MINOR)
+#include "hyperv_vmbus.h"
 
-#define SD_WS2008_MAJOR         1
-#define SD_WS2008_VERSION       (SD_WS2008_MAJOR << 16 | SD_MINOR)
+#define SD_MAJOR	3
+#define SD_MINOR	0
+#define SD_VERSION	(SD_MAJOR << 16 | SD_MINOR)
 
-#define TS_MAJOR        3
-#define TS_MINOR        0
-#define TS_VERSION      (TS_MAJOR << 16 | TS_MINOR)
+#define SD_WS2008_MAJOR		1
+#define SD_WS2008_VERSION	(SD_WS2008_MAJOR << 16 | SD_MINOR)
 
-#define TS_WS2008_MAJOR         1
-#define TS_WS2008_VERSION       (TS_WS2008_MAJOR << 16 | TS_MINOR)
+#define TS_MAJOR	3
+#define TS_MINOR	0
+#define TS_VERSION	(TS_MAJOR << 16 | TS_MINOR)
 
-#define HB_MAJOR        3
+#define TS_WS2008_MAJOR		1
+#define TS_WS2008_VERSION	(TS_WS2008_MAJOR << 16 | TS_MINOR)
+
+#define HB_MAJOR	3
 #define HB_MINOR 0
-#define HB_VERSION      (HB_MAJOR << 16 | HB_MINOR)
+#define HB_VERSION	(HB_MAJOR << 16 | HB_MINOR)
 
-#define HB_WS2008_MAJOR 1
-#define HB_WS2008_VERSION       (HB_WS2008_MAJOR << 16 | HB_MINOR)
+#define HB_WS2008_MAJOR	1
+#define HB_WS2008_VERSION	(HB_WS2008_MAJOR << 16 | HB_MINOR)
 
 static int sd_srv_version;
 static int ts_srv_version;
 static int hb_srv_version;
 static int util_fw_version;
-
 
 static void shutdown_onchannelcallback(void *context);
 static struct hv_util_service util_shutdown = {
@@ -82,6 +83,12 @@ static struct hv_util_service util_vss = {
 	.util_deinit = hv_vss_deinit,
 };
 
+static struct hv_util_service util_fcopy = {
+	.util_cb = hv_fcopy_onchannelcallback,
+	.util_init = hv_fcopy_init,
+	.util_deinit = hv_fcopy_deinit,
+};
+
 static void perform_shutdown(void *dummy)
 {
 	orderly_poweroff(true);
@@ -97,7 +104,7 @@ static void shutdown_onchannelcallback(void *context)
 	struct vmbus_channel *channel = context;
 	u32 recvlen;
 	u64 requestid;
-	u8  execute_shutdown = false;
+	bool execute_shutdown = false;
 	u8  *shut_txf_buf = util_shutdown.recv_buffer;
 
 	struct shutdown_msg_data *shutdown_msg;
@@ -174,9 +181,6 @@ static inline void do_adj_guesttime(u64 hosttime)
 struct adj_time_work {
 	struct work_struct work;
 	u64	host_time;
-#ifdef __x86_64__
-	s64	guest_tns;
-#endif
 };
 
 static void hv_set_host_time(void *data)
@@ -188,41 +192,6 @@ static void hv_set_host_time(void *data)
 	do_adj_guesttime(wrk->host_time);
 	kfree(wrk);
 }
-
-#ifdef __x86_64__
-#define  TIMESYNC_INTERVAL 5000000000L  /* in nanosecond */
-static void hv_adjtimex(void *data)
-{
-	struct adj_time_work *wrk = data;
-	s64 host_tns, terr;
-	s32 err_sign;
-	s32 tickchg, tickval;
-	char str_tickvalue[20];
-	char *argv[] = {"/sbin/adjtimex", "-t", str_tickvalue, NULL};
-	char *envp[] = {"HOME=/", "PATH=/sbin:/usr/sbin:/bin:/usr/bin", NULL };
-
-	host_tns = (wrk->host_time - WLTIMEDELTA) * 100;
-
-	terr = host_tns - wrk->guest_tns;
-	if (terr >= 0) {
-		err_sign = 1;
-	} else {
-		err_sign = -1;
-		terr = -terr;
-	}
-
-	tickchg = terr * TICK_USEC / TIMESYNC_INTERVAL;
-	if (tickchg > TICK_USEC/10)
-		tickchg = TICK_USEC/10;
-	tickval = TICK_USEC + err_sign * tickchg;
-	snprintf(str_tickvalue, 20, "%d", tickval);
-
-	call_usermodehelper(argv[0], argv, envp, 1);
-
-	kfree(wrk);
-}
-#endif
-
 
 /*
  * Synchronize time with host after reboot, restore, etc.
@@ -239,7 +208,6 @@ static inline void adj_guesttime(u64 hosttime, u8 flags)
 {
 	struct adj_time_work    *wrk;
 	static s32 scnt = 50;
-	struct timespec ts;
 
 	wrk = kmalloc(sizeof(struct adj_time_work), GFP_ATOMIC);
 	if (wrk == NULL)
@@ -252,21 +220,10 @@ static inline void adj_guesttime(u64 hosttime, u8 flags)
 		return;
 	}
 
-	if ((flags & ICTIMESYNCFLAG_SAMPLE) != 0) {
-		if (scnt > 0) {
-			scnt--;
-			INIT_WORK(&wrk->work, hv_set_host_time, (void *)&wrk->work);
-			schedule_work(&wrk->work);
-		} else {
-#ifdef __x86_64__
-			ts = CURRENT_TIME;
-			wrk->guest_tns = timespec_to_ns(&ts);
-			INIT_WORK(&wrk->work, hv_adjtimex, wrk);
-			schedule_work(&wrk->work);
-#else
-			kfree(wrk);
-#endif
-		}
+	if ((flags & ICTIMESYNCFLAG_SAMPLE) != 0 && scnt > 0) {
+		scnt--;
+		INIT_WORK(&wrk->work, hv_set_host_time, (void *)&wrk->work);
+		schedule_work(&wrk->work);
 	} else
 		kfree(wrk);
 }
@@ -296,7 +253,6 @@ static void timesync_onchannelcallback(void *context)
 						time_txf_buf,
 						util_fw_version,
 						ts_srv_version);
-
 		} else {
 			timedatap = (struct ictimesync_data *)&time_txf_buf[
 				sizeof(struct vmbuspipe_hdr) +
@@ -339,7 +295,6 @@ static void heartbeat_onchannelcallback(void *context)
 			vmbus_prep_negotiate_resp(icmsghdrp, negop,
 				hbeat_txf_buf, util_fw_version,
 				hb_srv_version);
-
 		} else {
 			heartbeat_msg =
 				(struct heartbeat_msg_data *)&hbeat_txf_buf[
@@ -365,7 +320,7 @@ static int util_probe(struct hv_device *dev,
 		(struct hv_util_service *)dev_id->driver_data;
 	int ret;
 
-	srv->recv_buffer = kmalloc(PAGE_SIZE * 2, GFP_KERNEL);
+	srv->recv_buffer = kmalloc(PAGE_SIZE * 4, GFP_KERNEL);
 	if (!srv->recv_buffer)
 		return -ENOMEM;
 	if (srv->util_init) {
@@ -386,12 +341,8 @@ static int util_probe(struct hv_device *dev,
 
 	set_channel_read_state(dev->channel, false);
 
-	ret = vmbus_open(dev->channel, 4 * PAGE_SIZE, 4 * PAGE_SIZE, NULL, 0,
-			srv->util_cb, dev->channel);
-	if (ret)
-		goto error;
-
 	hv_set_drvdata(dev, srv);
+
 	/*
 	 * Based on the host; initialize the framework and
 	 * service version numbers we will negotiate.
@@ -411,6 +362,11 @@ static int util_probe(struct hv_device *dev,
 		hb_srv_version = HB_VERSION;
 	}
 
+	ret = vmbus_open(dev->channel, 4 * PAGE_SIZE, 4 * PAGE_SIZE, NULL, 0,
+			srv->util_cb, dev->channel);
+	if (ret)
+		goto error;
+
 	return 0;
 
 error:
@@ -425,9 +381,9 @@ static int util_remove(struct hv_device *dev)
 {
 	struct hv_util_service *srv = hv_get_drvdata(dev);
 
-	vmbus_close(dev->channel);
 	if (srv->util_deinit)
 		srv->util_deinit();
+	vmbus_close(dev->channel);
 	kfree(srv->recv_buffer);
 
 	return 0;
@@ -453,6 +409,10 @@ static const struct hv_vmbus_device_id id_table[] = {
 	/* VSS GUID */
 	{ HV_VSS_GUID,
 	  .driver_data = (unsigned long)&util_vss
+	},
+	/* File copy GUID */
+	{ HV_FCOPY_GUID,
+	  .driver_data = (unsigned long)&util_fcopy
 	},
 	{ },
 };
@@ -485,6 +445,7 @@ module_init(init_hyperv_utils);
 module_exit(exit_hyperv_utils);
 
 MODULE_DESCRIPTION("Hyper-V Utilities");
+MODULE_LICENSE("GPL");
 MODULE_VERSION(HV_DRV_VERSION);
 MODULE_LICENSE("GPL");
 MODULE_ALIAS("vmbus:31600b0e13523449818b38d90ced39db");

@@ -1,0 +1,9 @@
+After unpacking the tar file; as root:
+
+	Execute the script ./rhel5-hv-driver-install to build and install
+	Hyper-V drivers on a rhel5.x installation. Once the script completes,
+	reboot the machine to bringup RHEL5.X enlightened on Hyper-V.
+
+	To uninstall the Hyper-V drivers, execute the script
+	./rhel5-hv-driver-uninstall. Once the script completes, reboot the machine
+	to bringup RHEL5 in fully emulated mode.

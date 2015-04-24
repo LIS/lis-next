@@ -31,8 +31,10 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/device.h>
-#include <linux/hyperv.h>
+#include "include/linux/hyperv.h"
 #include <linux/mempool.h>
+#include <asm/bug.h>
+#include <linux/blkdev.h>
 #include <scsi/scsi.h>
 #include <scsi/scsi_cmnd.h>
 #include <scsi/scsi_host.h>
@@ -57,7 +59,6 @@
  * Win7: 4.2
  * Win8: 5.1
  */
-
 
 #define VMSTOR_WIN7_MAJOR 4
 #define VMSTOR_WIN7_MINOR 2
@@ -163,6 +164,23 @@ static int sense_buffer_size;
 static int vmscsi_size_delta;
 static int vmstor_current_major;
 static int vmstor_current_minor;
+
+#define STORVSC_LOGGING_NONE   0
+#define STORVSC_LOGGING_ERROR  1
+#define STORVSC_LOGGING_WARN   2
+
+static int logging_level = STORVSC_LOGGING_ERROR;
+module_param(logging_level, int, S_IRUGO|S_IWUSR);
+MODULE_PARM_DESC(logging_level,
+	"Logging level, "
+	"0 - None, "
+	"1 - Error (default), "
+	"2 - Warning.");
+
+inline static bool do_logging(int level)
+{
+	return (logging_level >= level) ? true : false;
+}
 
 struct vmscsi_win8_extension {
 	/*
@@ -316,31 +334,38 @@ enum storvsc_request_type {
  */
 
 #define STORVSC_MIN_BUF_NR				64
-static int storvsc_ringbuffer_size = (20 * PAGE_SIZE);
+static int storvsc_ringbuffer_size = (256 * PAGE_SIZE);
+static u32 max_outstanding_req_per_channel;
+
+static int storvsc_vcpus_per_sub_channel = 4;
 
 module_param(storvsc_ringbuffer_size, int, S_IRUGO);
 MODULE_PARM_DESC(storvsc_ringbuffer_size, "Ring buffer size (bytes)");
 
+module_param(storvsc_vcpus_per_sub_channel, int, S_IRUGO);
+MODULE_PARM_DESC(vcpus_per_sub_channel, "Ratio of VCPUs to subchannels");
 /*
  * Timeout in seconds for all devices managed by this driver.
  */
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1291)
 static int storvsc_timeout = 180;
+#endif
 
-#define STORVSC_MAX_IO_REQUESTS				200
+
 
 static void storvsc_on_channel_callback(void *context);
 
-/*
- * In Hyper-V, each port/path/target maps to 1 scsi host adapter.  In
- * reality, the path/target is not used (ie always set to 0) so our
- * scsi host adapter essentially has 1 bus with 1 target that contains
- * up to 256 luns.
- */
-#define STORVSC_MAX_LUNS_PER_TARGET			64
-#define STORVSC_MAX_TARGETS				1
-#define STORVSC_MAX_CHANNELS				1
+#define STORVSC_MAX_LUNS_PER_TARGET			255
+#define STORVSC_MAX_TARGETS				2
+#define STORVSC_MAX_CHANNELS				8
 
+#define STORVSC_FC_MAX_LUNS_PER_TARGET			255
+#define STORVSC_FC_MAX_TARGETS				128
+#define STORVSC_FC_MAX_CHANNELS				8
 
+#define STORVSC_IDE_MAX_LUNS_PER_TARGET			64
+#define STORVSC_IDE_MAX_TARGETS				1
+#define STORVSC_IDE_MAX_CHANNELS			1
 
 struct storvsc_cmd_request {
 	struct list_head entry;
@@ -355,7 +380,11 @@ struct storvsc_cmd_request {
 	struct completion wait_event;
 
 	unsigned char *sense_buffer;
-	struct hv_multipage_buffer data_buffer;
+
+	struct vmbus_channel_packet_multipage_buffer mpb;
+	struct vmbus_packet_mpb_array *payload;
+	u32 payload_sz;
+
 	struct vstor_packet vstor_packet;
 };
 
@@ -381,6 +410,10 @@ struct storvsc_device {
 	unsigned char path_id;
 	unsigned char target_id;
 
+	/*
+	 * Max I/O, the device can support.
+	 */
+	u32   max_transfer_bytes;
 	/* Used for vsc/vsp channel reset process */
 	struct storvsc_cmd_request init_request;
 	struct storvsc_cmd_request reset_request;
@@ -424,22 +457,47 @@ done:
 	kfree(wrk);
 }
 
-static void storvsc_bus_scan(void *data)
+static void storvsc_host_scan(void *data)
 {
 	struct work_struct *work = (struct work_struct *)data;
 	struct storvsc_scan_work *wrk;
-	int id, order_id;
+	struct Scsi_Host *host;
+	struct scsi_device *sdev;
+	unsigned long flags;
 
 	wrk = container_of(work, struct storvsc_scan_work, work);
-	for (id = 0; id < wrk->host->max_id; ++id) {
-		if (wrk->host->reverse_ordering)
-			order_id = wrk->host->max_id - id - 1;
-		else
-			order_id = id;
+	host = wrk->host;
 
-		scsi_scan_target(&wrk->host->shost_gendev, 0,
-				order_id, SCAN_WILD_CARD, 1);
+	/*
+	 * Before scanning the host, first check to see if any of the
+	 * currrently known devices have been hot removed. We issue a
+	 * "unit ready" command against all currently known devices.
+	 * This I/O will result in an error for devices that have been
+	 * removed. As part of handling the I/O error, we remove the device.
+	 *
+	 * When a LUN is added or removed, the host sends us a signal to
+	 * scan the host. Thus we are forced to discover the LUNs that
+	 * may have been removed this way.
+	 */
+	mutex_lock(&host->scan_mutex);
+	spin_lock_irqsave(host->host_lock, flags);
+	list_for_each_entry(sdev, &host->__devices, siblings) {
+		spin_unlock_irqrestore(host->host_lock, flags);
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1291)
+		scsi_test_unit_ready(sdev, 1, 1, NULL);
+#else
+		scsi_test_unit_ready(sdev, 1, 1);
+#endif
+		spin_lock_irqsave(host->host_lock, flags);
+		continue;
 	}
+	spin_unlock_irqrestore(host->host_lock, flags);
+	mutex_unlock(&host->scan_mutex);
+	/*
+	 * Now scan the host to discover LUNs that may have been added.
+	 */
+	scsi_scan_host(host);
+
 	kfree(wrk);
 }
 
@@ -558,13 +616,9 @@ static int do_bounce_buffer(struct scatterlist *sgl, unsigned int sg_count)
 {
 	int i;
 
-
 	/* No need to check */
 	if (sg_count < 2)
 		return -1;
-
-	for (i = 0; i < sg_count; i++) {
-}
 
 	/* We have at least 2 sg entries */
 	for (i = 0; i < sg_count; i++) {
@@ -598,7 +652,6 @@ static struct scatterlist *create_bounce_buffer(struct scatterlist *sgl,
 
 	num_pages = ALIGN(len, PAGE_SIZE) >> PAGE_SHIFT;
 
-
 	bounce_sgl = kcalloc(num_pages, sizeof(struct scatterlist), GFP_ATOMIC);
 	if (!bounce_sgl)
 		return NULL;
@@ -620,10 +673,9 @@ cleanup:
 }
 
 /* Disgusting wrapper functions */
-static inline unsigned long sg_kmap_atomic(struct scatterlist *sgl, int idx)
+static inline unsigned long sg_kmap_atomic(struct scatterlist *sgl)
 {
-	void *addr = kmap_atomic(sg_page(sgl + idx), KM_IRQ0);
-	return (unsigned long)addr;
+	return (unsigned long)kmap_atomic(sg_page(sgl), KM_IRQ0);
 }
 
 static inline void sg_kunmap_atomic(unsigned long addr)
@@ -646,34 +698,36 @@ static unsigned int copy_from_bounce_buffer(struct scatterlist *orig_sgl,
 	unsigned long bounce_addr = 0;
 	unsigned long dest_addr = 0;
 	unsigned long flags;
+	struct scatterlist *cur_dest_sgl;
+	struct scatterlist *cur_src_sgl;
 
 	local_irq_save(flags);
-
+	cur_dest_sgl = orig_sgl;
+	cur_src_sgl = bounce_sgl;
 	for (i = 0; i < orig_sgl_count; i++) {
-		dest_addr = sg_kmap_atomic(orig_sgl,i) + orig_sgl[i].offset;
+		dest_addr = sg_kmap_atomic(cur_dest_sgl) + cur_dest_sgl->offset;
 		dest = dest_addr;
-		destlen = orig_sgl[i].length;
+		destlen = cur_dest_sgl->length;
 
 		if (bounce_addr == 0)
-			bounce_addr = sg_kmap_atomic(bounce_sgl,j);
+			bounce_addr = sg_kmap_atomic(cur_src_sgl);
 
 		while (destlen) {
-			src = bounce_addr + bounce_sgl[j].offset;
-			srclen = bounce_sgl[j].length - bounce_sgl[j].offset;
+			src = bounce_addr + cur_src_sgl->offset;
+			srclen = cur_src_sgl->length - cur_src_sgl->offset;
 
 			copylen = min(srclen, destlen);
 			memcpy((void *)dest, (void *)src, copylen);
 
 			total_copied += copylen;
-			bounce_sgl[j].offset += copylen;
+			cur_src_sgl->offset += copylen;
 			destlen -= copylen;
 			dest += copylen;
 
-			if (bounce_sgl[j].offset == bounce_sgl[j].length) {
+			if (cur_src_sgl->offset == cur_src_sgl->length) {
 				/* full */
 				sg_kunmap_atomic(bounce_addr);
 				j++;
-
 				/*
 				 * It is possible that the number of elements
 				 * in the bounce buffer may not be equal to
@@ -685,25 +739,28 @@ static unsigned int copy_from_bounce_buffer(struct scatterlist *orig_sgl,
 					/*
 					 * We are done; cleanup and return.
 					 */
-					sg_kunmap_atomic(dest_addr - orig_sgl[i].offset);
+					sg_kunmap_atomic(dest_addr -
+						cur_dest_sgl->offset);
 					local_irq_restore(flags);
 					return total_copied;
 				}
 
 				/* if we need to use another bounce buffer */
-				if (destlen || i != orig_sgl_count - 1)
-					bounce_addr = sg_kmap_atomic(bounce_sgl,j);
-			} else if (destlen == 0 && i == orig_sgl_count - 1) {
+				if (destlen || (i < orig_sgl_count)) {
+					cur_src_sgl = sg_next(cur_src_sgl);
+					bounce_addr = sg_kmap_atomic(cur_src_sgl);
+				}
+			} else if (destlen == 0 && (i == (orig_sgl_count - 1))) {
 				/* unmap the last bounce that is < PAGE_SIZE */
 				sg_kunmap_atomic(bounce_addr);
 			}
 		}
 
-		sg_kunmap_atomic(dest_addr - orig_sgl[i].offset);
+		sg_kunmap_atomic(dest_addr - cur_dest_sgl->offset);
+		cur_dest_sgl = sg_next(cur_dest_sgl);
 	}
 
 	local_irq_restore(flags);
-
 	return total_copied;
 }
 
@@ -713,7 +770,6 @@ static unsigned int copy_to_bounce_buffer(struct scatterlist *orig_sgl,
 					  unsigned int orig_sgl_count)
 {
 	int i;
-	int j = 0;
 	unsigned long src, dest;
 	unsigned int srclen, destlen, copylen;
 	unsigned int total_copied = 0;
@@ -721,46 +777,54 @@ static unsigned int copy_to_bounce_buffer(struct scatterlist *orig_sgl,
 	unsigned long src_addr = 0;
 	unsigned long flags;
 
+	struct scatterlist *cur_src_sgl;
+	struct scatterlist *cur_dest_sgl;
+
 	local_irq_save(flags);
 
+	cur_src_sgl = orig_sgl;
+	cur_dest_sgl = bounce_sgl;
+
 	for (i = 0; i < orig_sgl_count; i++) {
-		src_addr = sg_kmap_atomic(orig_sgl,i) + orig_sgl[i].offset;
+		src_addr = sg_kmap_atomic(cur_src_sgl) + cur_src_sgl->offset;
 		src = src_addr;
-		srclen = orig_sgl[i].length;
+		srclen = cur_src_sgl->length;
 
 		if (bounce_addr == 0)
-			bounce_addr = sg_kmap_atomic(bounce_sgl,j);
+			bounce_addr = sg_kmap_atomic(cur_dest_sgl);
 
 		while (srclen) {
 			/* assume bounce offset always == 0 */
-			dest = bounce_addr + bounce_sgl[j].length;
-			destlen = PAGE_SIZE - bounce_sgl[j].length;
+			dest = bounce_addr + cur_dest_sgl->length;
+			destlen = PAGE_SIZE - cur_dest_sgl->length;
 
 			copylen = min(srclen, destlen);
 			memcpy((void *)dest, (void *)src, copylen);
 
 			total_copied += copylen;
-			bounce_sgl[j].length += copylen;
+			cur_dest_sgl->length += copylen;
 			srclen -= copylen;
 			src += copylen;
 
-			if (bounce_sgl[j].length == PAGE_SIZE) {
+			if (cur_dest_sgl->length == PAGE_SIZE) {
 				/* full..move to next entry */
 				sg_kunmap_atomic(bounce_addr);
-				j++;
+				bounce_addr = 0;
+			}
 
-				/* if we need to use another bounce buffer */
-				if (srclen || i != orig_sgl_count - 1)
-					bounce_addr = sg_kmap_atomic(bounce_sgl,j);
-
-			} else if (srclen == 0 && i == orig_sgl_count - 1) {
-				/* unmap the last bounce that is < PAGE_SIZE */
-				sg_kunmap_atomic(bounce_addr);
+			/* if we need to use another bounce buffer */
+			if (srclen && bounce_addr == 0) {
+				cur_dest_sgl = sg_next(cur_dest_sgl);
+				bounce_addr = sg_kmap_atomic(cur_dest_sgl);
 			}
 		}
 
-		sg_kunmap_atomic(src_addr - orig_sgl[i].offset);
+		sg_kunmap_atomic(src_addr - cur_src_sgl->offset);
+		cur_src_sgl = sg_next(cur_src_sgl);
 	}
+
+	if (bounce_addr)
+		sg_kunmap_atomic(bounce_addr);
 
 	local_irq_restore(flags);
 
@@ -971,6 +1035,8 @@ static int storvsc_channel_init(struct hv_device *device)
 		    STORAGE_CHANNEL_SUPPORTS_MULTI_CHANNEL)
 			process_sub_channels = true;
 	}
+	stor_device->max_transfer_bytes =
+		vstor_packet->storage_channel_properties.max_transfer_bytes;
 
 	memset(vstor_packet, 0, sizeof(struct vstor_packet));
 	vstor_packet->operation = VSTOR_OPERATION_END_INITIALIZATION;
@@ -1026,6 +1092,13 @@ static void storvsc_handle_error(struct vmscsi_request *vm_srb,
 		case ATA_12:
 			set_host_byte(scmnd, DID_PASSTHROUGH);
 			break;
+		/*
+		 * On Some Windows hosts TEST_UNIT_READY command can return
+		 * SRB_STATUS_ERROR, let the upper level code deal with it
+		 * based on the sense information.
+		 */
+		case TEST_UNIT_READY:
+			break;
 		default:
 			set_host_byte(scmnd, DID_TARGET_FAILURE);
 		}
@@ -1076,6 +1149,8 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request)
 	struct Scsi_Host *host;
 	struct storvsc_device *stor_dev;
 	struct hv_device *dev = host_dev->dev;
+	u32 payload_sz = cmd_request->payload_sz;
+	void *payload = cmd_request->payload;
 
 	stor_dev = get_in_stor_device(dev);
 	host = stor_dev->host;
@@ -1093,7 +1168,7 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request)
 
 	scmnd->result = vm_srb->scsi_status;
 
-	if (scmnd->result) {
+	if (scmnd->result && do_logging(STORVSC_LOGGING_ERROR)) {
 		if (scsi_normalize_sense(scmnd->sense_buffer,
 				SCSI_SENSE_BUFFERSIZE, &sense_hdr))
 			scsi_print_sense_hdr("storvsc", &sense_hdr);
@@ -1104,7 +1179,7 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request)
 					 sense_hdr.ascq);
 
 	scsi_set_resid(scmnd,
-		cmd_request->data_buffer.len -
+		cmd_request->payload->range.len -
 		vm_srb->data_transfer_length);
 
 	scsi_done_fn = scmnd->scsi_done;
@@ -1113,6 +1188,10 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request)
 	scmnd->scsi_done = NULL;
 
 	scsi_done_fn(scmnd);
+
+	if (payload_sz >
+		sizeof(struct vmbus_channel_packet_multipage_buffer))
+		kfree(payload);
 
 	mempool_free(cmd_request, memp->request_mempool);
 }
@@ -1152,23 +1231,26 @@ static void storvsc_on_io_completion(struct hv_device *device,
 	vstor_packet->vm_srb.sense_info_length;
 
 	if (vstor_packet->vm_srb.scsi_status != 0 ||
-		vstor_packet->vm_srb.srb_status != SRB_STATUS_SUCCESS){
-		dev_warn(&device->device,
-			 "cmd 0x%x scsi status 0x%x srb status 0x%x\n",
-			 stor_pkt->vm_srb.cdb[0],
-			 vstor_packet->vm_srb.scsi_status,
-			 vstor_packet->vm_srb.srb_status);
-	}
+		vstor_packet->vm_srb.srb_status != SRB_STATUS_SUCCESS)
+		if (do_logging(STORVSC_LOGGING_WARN))
+			dev_warn(&device->device,
+				"cmd 0x%x scsi status 0x%x srb status 0x%x\n",
+				stor_pkt->vm_srb.cdb[0],
+				vstor_packet->vm_srb.scsi_status,
+				vstor_packet->vm_srb.srb_status);
+
 
 	if ((vstor_packet->vm_srb.scsi_status & 0xFF) == 0x02) {
 		/* CHECK_CONDITION */
 		if (vstor_packet->vm_srb.srb_status &
 			SRB_STATUS_AUTOSENSE_VALID) {
 			/* autosense data available */
-			dev_warn(&device->device,
-				 "stor pkt %p autosense data valid - len %d\n",
-				 request,
-				 vstor_packet->vm_srb.sense_info_length);
+			if (do_logging(STORVSC_LOGGING_WARN))
+				dev_warn(&device->device,
+					"stor pkt %p autosense data valid - len %d\n",
+					request,
+					vstor_packet->vm_srb.sense_info_length);
+
 
 			memcpy(request->sense_buffer,
 			       vstor_packet->vm_srb.sense_data,
@@ -1208,7 +1290,7 @@ static void storvsc_on_receive(struct hv_device *device,
 		if (!work)
 			return;
 
-		INIT_WORK(&work->work, storvsc_bus_scan, &work->work);
+		INIT_WORK(&work->work, storvsc_host_scan, &work->work);
 		work->host = stor_device->host;
 		schedule_work(&work->work);
 		break;
@@ -1328,7 +1410,7 @@ static int storvsc_dev_remove(struct hv_device *device)
 }
 
 static int storvsc_do_io(struct hv_device *device,
-			      struct storvsc_cmd_request *request)
+			 struct storvsc_cmd_request *request)
 {
 	struct storvsc_device *stor_device;
 	struct vstor_packet *vstor_packet;
@@ -1360,19 +1442,20 @@ static int storvsc_do_io(struct hv_device *device,
 
 
 	vstor_packet->vm_srb.data_transfer_length =
-	request->data_buffer.len;
+	request->payload->range.len;
 
 	vstor_packet->operation = VSTOR_OPERATION_EXECUTE_SRB;
 
-	if (request->data_buffer.len) {
-		ret = vmbus_sendpacket_multipagebuffer(outgoing_channel,
-				&request->data_buffer,
+	if (request->payload->range.len) {
+
+		ret = vmbus_sendpacket_mpb_desc(outgoing_channel,
+				request->payload, request->payload_sz,
 				vstor_packet,
 				(sizeof(struct vstor_packet) -
 				vmscsi_size_delta),
 				(unsigned long)request);
 	} else {
-		ret = vmbus_sendpacket(device->channel, vstor_packet,
+		ret = vmbus_sendpacket(outgoing_channel, vstor_packet,
 			       (sizeof(struct vstor_packet) -
 				vmscsi_size_delta),
 			       (unsigned long)request,
@@ -1428,6 +1511,9 @@ static void storvsc_device_destroy(struct scsi_device *sdevice)
 {
 	struct stor_mem_pools *memp = sdevice->hostdata;
 
+	if (!memp)
+		return;
+
 	mempool_destroy(memp->request_mempool);
 	kmem_cache_destroy(memp->request_pool);
 	kfree(memp);
@@ -1436,14 +1522,27 @@ static void storvsc_device_destroy(struct scsi_device *sdevice)
 
 static int storvsc_device_configure(struct scsi_device *sdevice)
 {
-	scsi_adjust_queue_depth(sdevice, MSG_SIMPLE_TAG,
-				STORVSC_MAX_IO_REQUESTS);
 
 	blk_queue_max_segment_size(sdevice->request_queue, PAGE_SIZE);
 
 	blk_queue_bounce_limit(sdevice->request_queue, BLK_BOUNCE_ANY);
 
-	//KYSblk_queue_rq_timeout(sdevice->request_queue, (storvsc_timeout * HZ));
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1291)
+	blk_queue_rq_timeout(sdevice->request_queue, (storvsc_timeout * HZ));
+#endif
+
+	/*
+	 * If the host is WIN8 or WIN8 R2, claim conformance to SPC-3
+	 * if the device is a MSFT virtual device.
+	 */
+	if (!strncmp(sdevice->vendor, "Msft", 4)) {
+		switch (vmbus_proto_version) {
+		case VERSION_WIN8:
+		case VERSION_WIN8_1:
+			sdevice->scsi_level = SCSI_SPC_3;
+			break;
+		}
+	}
 
 	return 0;
 }
@@ -1522,6 +1621,28 @@ static int storvsc_host_reset_handler(struct scsi_cmnd *scmnd)
 	return SUCCESS;
 }
 
+/*
+ * The host guarantees to respond to each command, although I/O latencies might
+ * be unbounded on Azure.  Reset the timer unconditionally to give the host a
+ * chance to perform EH.
+ */
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1291)
+static enum blk_eh_timer_return storvsc_eh_timed_out(struct scsi_cmnd *scmnd)
+{
+	return BLK_EH_RESET_TIMER;
+}
+#else
+static enum scsi_eh_timer_return storvsc_eh_timed_out(struct scsi_cmnd *scmnd)
+{
+	return EH_RESET_TIMER;
+}
+#endif
+
+static inline void set_driver_byte(struct scsi_cmnd *cmd, char status)
+{
+	cmd->result = (cmd->result & 0x00ffffff) | (status << 24);
+}
+
 static bool storvsc_scsi_cmd_ok(struct scsi_cmnd *scmnd)
 {
 	bool allowed = true;
@@ -1530,12 +1651,18 @@ static bool storvsc_scsi_cmd_ok(struct scsi_cmnd *scmnd)
 	switch (scsi_op) {
 	/* the host does not handle WRITE_SAME, log accident usage */
 	case WRITE_SAME:
+	//case WRITE_SAME_16:
 	/*
 	 * smartd sends this command and the host does not handle
 	 * this. So, don't send it.
 	 */
 	case SET_WINDOW:
-		scmnd->result = ILLEGAL_REQUEST << 16;
+		scsi_build_sense_buffer(0, scmnd->sense_buffer,
+					ILLEGAL_REQUEST, 0x20, 0);
+
+		scmnd->result = SAM_STAT_CHECK_CONDITION;
+		set_driver_byte(scmnd, DRIVER_SENSE);
+		set_host_byte(scmnd, DID_ABORT);
 		allowed = false;
 		break;
 	default:
@@ -1555,6 +1682,7 @@ static int storvsc_queuecommand(struct scsi_cmnd *scmnd,
 static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 {
 #endif
+
 	int ret;
 	struct hv_host_device *host_dev = shost_priv(host);
 	struct hv_device *dev = host_dev->dev;
@@ -1565,12 +1693,28 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 	unsigned int sg_count = 0;
 	struct vmscsi_request *vm_srb;
 	struct stor_mem_pools *memp = scmnd->device->hostdata;
+	struct scatterlist *cur_sgl;
+
+	struct vmbus_packet_mpb_array  *payload;
+	u32 payload_sz;
+	u32 length;
+
 
 	scmnd->scsi_done = done;
 
-	if (!storvsc_scsi_cmd_ok(scmnd)) {
-		scmnd->scsi_done(scmnd);
-		return 0;
+	if (vmstor_current_major <= VMSTOR_WIN8_MAJOR) {
+		/*
+		 * On legacy hosts filter unimplemented commands.
+		 * Future hosts are expected to correctly handle
+		 * unsupported commands. Furthermore, it is
+		 * possible that some of the currently
+		 * unsupported commands maybe supported in
+		 * future versions of the host.
+		 */
+		if (!storvsc_scsi_cmd_ok(scmnd)) {
+			scmnd->scsi_done(scmnd);
+			return 0;
+		}
 	}
 
 	request_size = sizeof(struct storvsc_cmd_request);
@@ -1595,26 +1739,24 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 	vm_srb = &cmd_request->vstor_packet.vm_srb;
 	vm_srb->win8_extension.time_out_value = 60;
 
+	vm_srb->win8_extension.srb_flags |=
+		(SRB_FLAGS_QUEUE_ACTION_ENABLE |
+		SRB_FLAGS_DISABLE_SYNCH_TRANSFER);
 
 	/* Build the SRB */
 	switch (scmnd->sc_data_direction) {
 	case DMA_TO_DEVICE:
 		vm_srb->data_in = WRITE_TYPE;
 		vm_srb->win8_extension.srb_flags |= SRB_FLAGS_DATA_OUT;
-		vm_srb->win8_extension.srb_flags |=
-			(SRB_FLAGS_QUEUE_ACTION_ENABLE |
-			SRB_FLAGS_DISABLE_SYNCH_TRANSFER);
 		break;
 	case DMA_FROM_DEVICE:
 		vm_srb->data_in = READ_TYPE;
 		vm_srb->win8_extension.srb_flags |= SRB_FLAGS_DATA_IN;
-		vm_srb->win8_extension.srb_flags |=
-			(SRB_FLAGS_QUEUE_ACTION_ENABLE |
-			SRB_FLAGS_DISABLE_SYNCH_TRANSFER);
 		break;
 	default:
 		vm_srb->data_in = UNKNOWN_TYPE;
-		vm_srb->win8_extension.srb_flags = 0;
+		vm_srb->win8_extension.srb_flags |= (SRB_FLAGS_DATA_IN |
+						     SRB_FLAGS_DATA_OUT);
 		break;
 	}
 
@@ -1624,7 +1766,6 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 	vm_srb->target_id = scmnd->device->id;
 	vm_srb->lun = scmnd->device->lun;
 
-
 	vm_srb->cdb_length = scmnd->cmd_len;
 
 	memcpy(vm_srb->cdb, scmnd->cmnd, vm_srb->cdb_length);
@@ -1632,7 +1773,11 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 	cmd_request->sense_buffer = scmnd->sense_buffer;
 
 
-	cmd_request->data_buffer.len = scsi_bufflen(scmnd);
+	sgl = (struct scatterlist *)scsi_sglist(scmnd);
+	length = scsi_bufflen(scmnd);
+	payload = (struct vmbus_packet_mpb_array *)&cmd_request->mpb;
+	payload_sz = sizeof(cmd_request->mpb);
+
 	if (scsi_sg_count(scmnd)) {
 		sgl = (struct scatterlist *)scsi_sglist(scmnd);
 		sg_count = scsi_sg_count(scmnd);
@@ -1661,33 +1806,53 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 			sg_count = cmd_request->bounce_sgl_count;
 		}
 
-		cmd_request->data_buffer.offset = sgl[0].offset;
 
+		if (sg_count > MAX_PAGE_BUFFER_COUNT) {
+
+			payload_sz = (sg_count * sizeof(void *) +
+				      sizeof(struct vmbus_packet_mpb_array));
+			payload = kzalloc(payload_sz, GFP_ATOMIC);
+			if (!payload) {
+				if (cmd_request->bounce_sgl_count)
+					destroy_bounce_buffer(
+					cmd_request->bounce_sgl,
+					cmd_request->bounce_sgl_count);
+
+				return SCSI_MLQUEUE_DEVICE_BUSY;
+			}
+		}
+
+		payload->range.len = length;
+		payload->range.offset = sgl[0].offset;
+		cur_sgl = sgl;
 		for (i = 0; i < sg_count; i++) {
-			cmd_request->data_buffer.pfn_array[i] =
-				page_to_pfn(sg_page((&sgl[i])));
+			payload->range.pfn_array[i] =
+				page_to_pfn(sg_page((cur_sgl)));
+			cur_sgl = sg_next(cur_sgl);
 		}
 
 	} else if (scsi_sglist(scmnd)) {
-		cmd_request->data_buffer.offset =
+		payload->range.len = length;
+		payload->range.offset =
 			virt_to_phys(scsi_sglist(scmnd)) & (PAGE_SIZE-1);
-		cmd_request->data_buffer.pfn_array[0] =
+		payload->range.pfn_array[0] =
 			virt_to_phys(scsi_sglist(scmnd)) >> PAGE_SHIFT;
 	}
 
+	cmd_request->payload = payload;
+	cmd_request->payload_sz = payload_sz;
 	/* Invokes the vsc to start an IO */
 	ret = storvsc_do_io(dev, cmd_request);
 
 	if (ret == -EAGAIN) {
 		/* no more space */
 
-		if (cmd_request->bounce_sgl_count) {
+		if (cmd_request->bounce_sgl_count)
 			destroy_bounce_buffer(cmd_request->bounce_sgl,
 					cmd_request->bounce_sgl_count);
 
-			ret = SCSI_MLQUEUE_DEVICE_BUSY;
-			goto queue_error;
-		}
+		ret = SCSI_MLQUEUE_DEVICE_BUSY;
+		goto queue_error;
 	}
 
 	return 0;
@@ -1698,23 +1863,26 @@ queue_error:
 	return ret;
 }
 
+#ifdef CONFIG_X86_64
+#define STORVSC_TABLE_SEZE 512
+#else
+#define STORVSC_TABLE_SEZE 32
+#endif
+
 static struct scsi_host_template scsi_driver = {
 	.module	=		THIS_MODULE,
 	.name =			"storvsc_host_t",
 	.bios_param =		storvsc_get_chs,
 	.queuecommand =		storvsc_queuecommand,
 	.eh_host_reset_handler =	storvsc_host_reset_handler,
+	.eh_timed_out =		storvsc_eh_timed_out,
 	.slave_alloc =		storvsc_device_alloc,
 	.slave_destroy =	storvsc_device_destroy,
 	.slave_configure =	storvsc_device_configure,
-	.cmd_per_lun =		1,
-	/* 64 max_queue * 1 target */
-	.can_queue =		STORVSC_MAX_IO_REQUESTS*STORVSC_MAX_TARGETS,
+	.cmd_per_lun =		255,
 	.this_id =		-1,
-	/* no use setting to 0 since ll_blk_rw reset it to 1 */
-	/* currently 32 */
-	.sg_tablesize =		MAX_MULTIPAGE_BUFFER_COUNT,
-	.use_clustering =	DISABLE_CLUSTERING,
+	.sg_tablesize = STORVSC_TABLE_SEZE,
+	.use_clustering =	ENABLE_CLUSTERING,
 	/* Make sure we dont get a sg segment crosses a page boundary */
 	.dma_boundary =		PAGE_SIZE-1,
 };
@@ -1748,29 +1916,52 @@ static int storvsc_probe(struct hv_device *device,
 			const struct hv_vmbus_device_id *dev_id)
 {
 	int ret;
+	int num_cpus = num_online_cpus();
 	struct Scsi_Host *host;
 	struct hv_host_device *host_dev;
 	bool dev_is_ide = ((dev_id->driver_data == IDE_GUID) ? true : false);
 	int target = 0;
 	struct storvsc_device *stor_device;
+	int max_luns_per_target;
+	int max_targets;
+	int max_channels;
+	int max_sub_channels = 0;
 
 	/*
 	 * Based on the windows host we are running on,
 	 * set state to properly communicate with the host.
 	 */
 
-	if (vmbus_proto_version == VERSION_WIN8) {
-		sense_buffer_size = POST_WIN7_STORVSC_SENSE_BUFFER_SIZE;
-		vmscsi_size_delta = 0;
-		vmstor_current_major = VMSTOR_WIN8_MAJOR;
-		vmstor_current_minor = VMSTOR_WIN8_MINOR;
-	} else {
+	switch (vmbus_proto_version) {
+	case VERSION_WS2008:
+	case VERSION_WIN7:
 		sense_buffer_size = PRE_WIN8_STORVSC_SENSE_BUFFER_SIZE;
 		vmscsi_size_delta = sizeof(struct vmscsi_win8_extension);
 		vmstor_current_major = VMSTOR_WIN7_MAJOR;
 		vmstor_current_minor = VMSTOR_WIN7_MINOR;
+		max_luns_per_target = STORVSC_IDE_MAX_LUNS_PER_TARGET;
+		max_targets = STORVSC_IDE_MAX_TARGETS;
+		max_channels = STORVSC_IDE_MAX_CHANNELS;
+		break;
+	default:
+		sense_buffer_size = POST_WIN7_STORVSC_SENSE_BUFFER_SIZE;
+		vmscsi_size_delta = 0;
+		vmstor_current_major = VMSTOR_WIN8_MAJOR;
+		vmstor_current_minor = VMSTOR_WIN8_MINOR;
+		max_luns_per_target = STORVSC_MAX_LUNS_PER_TARGET;
+		max_targets = STORVSC_MAX_TARGETS;
+		max_channels = STORVSC_MAX_CHANNELS;
+		/*
+		 * On Windows8 and above, we support sub-channels for storage.
+		 * The number of sub-channels offerred is based on the number of
+		 * VCPUs in the guest.
+		 */
+		max_sub_channels = (num_cpus / storvsc_vcpus_per_sub_channel);
+		break;
 	}
 
+	scsi_driver.can_queue = (max_outstanding_req_per_channel *
+				 (max_sub_channels + 1));
 
 	host = scsi_host_alloc(&scsi_driver,
 			       sizeof(struct hv_host_device));
@@ -1805,14 +1996,35 @@ static int storvsc_probe(struct hv_device *device,
 	host_dev->path = stor_device->path_id;
 	host_dev->target = stor_device->target_id;
 
-	/* max # of devices per target */
-	host->max_lun = STORVSC_MAX_LUNS_PER_TARGET;
-	/* max # of targets per channel */
-	host->max_id = STORVSC_MAX_TARGETS;
-	/* max # of channels */
-	host->max_channel = STORVSC_MAX_CHANNELS - 1;
+	switch (dev_id->driver_data) {
+	case SFC_GUID:
+		host->max_lun = STORVSC_FC_MAX_LUNS_PER_TARGET;
+		host->max_id = STORVSC_FC_MAX_TARGETS;
+		host->max_channel = STORVSC_FC_MAX_CHANNELS - 1;
+		break;
+
+	case SCSI_GUID:
+		host->max_lun = max_luns_per_target;
+		host->max_id = max_targets;
+		host->max_channel = max_channels - 1;
+		break;
+
+	default:
+		host->max_lun = STORVSC_IDE_MAX_LUNS_PER_TARGET;
+		host->max_id = STORVSC_IDE_MAX_TARGETS;
+		host->max_channel = STORVSC_IDE_MAX_CHANNELS - 1;
+		break;
+	}
 	/* max cmd length */
 	host->max_cmd_len = STORVSC_MAX_CMD_LEN;
+
+	/*
+	 * set the table size based on the info we got
+	 * from the host; but only for 64 bit guests.
+	 */
+#ifdef CONFIG_X86_64
+	host->sg_tablesize = (stor_device->max_transfer_bytes >> PAGE_SHIFT);
+#endif
 
 	/* Register the HBA and start the scsi bus scan */
 	ret = scsi_add_host(host, &device->device);
@@ -1871,7 +2083,6 @@ static struct hv_driver storvsc_drv = {
 
 static int __init storvsc_drv_init(void)
 {
-	u32 max_outstanding_req_per_channel;
 
 	/*
 	 * Divide the ring buffer data size (which is 1 page less
@@ -1886,10 +2097,6 @@ static int __init storvsc_drv_init(void)
 		vmscsi_size_delta,
 		sizeof(u64)));
 
-	if (max_outstanding_req_per_channel <
-	    STORVSC_MAX_IO_REQUESTS)
-		return -EINVAL;
-
 	return vmbus_driver_register(&storvsc_drv);
 }
 
@@ -1899,10 +2106,11 @@ static void __exit storvsc_drv_exit(void)
 }
 
 MODULE_LICENSE("GPL");
-MODULE_VERSION(HV_DRV_VERSION);
 MODULE_DESCRIPTION("Microsoft Hyper-V virtual storage driver");
-module_init(storvsc_drv_init);
-module_exit(storvsc_drv_exit);
+MODULE_VERSION(HV_DRV_VERSION);
 MODULE_ALIAS("vmbus:d96361baa104294db60572e2ffb1dc7f");
 MODULE_ALIAS("vmbus:32264132cb86a2449b5c50d1417354f5");
 MODULE_ALIAS("vmbus:4acc9b2f6900f34ab76b6fd0be528cda");
+
+module_init(storvsc_drv_init);
+module_exit(storvsc_drv_exit);

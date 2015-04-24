@@ -1651,11 +1651,10 @@ static bool storvsc_scsi_cmd_ok(struct scsi_cmnd *scmnd)
 	 * this. So, don't send it.
 	 */
 	case SET_WINDOW:
-                scsi_build_sense_buffer(0, scmnd->sense_buffer, ILLEGAL_REQUEST,
-                    0x20, 0);
-                scmnd->result = SAM_STAT_CHECK_CONDITION;
-                set_driver_byte(scmnd, DRIVER_SENSE);
-                set_host_byte(scmnd, DID_ABORT);
+		scsi_build_sense_buffer(0, scmnd->sense_buffer,
+					ILLEGAL_REQUEST, 0, 0);
+
+		scmnd->result = (DRIVER_SENSE << 24) | SAM_STAT_CHECK_CONDITION;
 		allowed = false;
 		break;
 	default:

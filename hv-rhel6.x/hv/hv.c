@@ -27,7 +27,9 @@
 #include <linux/vmalloc.h>
 #include <linux/version.h>
 #include <linux/interrupt.h>
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
 #include <linux/clockchips.h>
+#endif
 #include "include/linux/hyperv.h"
 #include "include/uapi/linux/hyperv.h"
 #include "include/asm/hyperv.h"
@@ -172,7 +174,12 @@ int hv_init(void)
 	/* See if the hypercall page is already set */
 	rdmsrl(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
 
+#ifdef __x86_64__
 	virtaddr = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL_EXEC);
+#else
+	virtaddr = __vmalloc(PAGE_SIZE, GFP_KERNEL,
+			     __pgprot(__PAGE_KERNEL & (~_PAGE_NX)));
+#endif
 
 	if (!virtaddr)
 		goto cleanup;
@@ -274,6 +281,7 @@ u16 hv_signal_event(void *con_id)
 	return status;
 }
 
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
 static int hv_ce_set_next_event(unsigned long delta,
 				struct clock_event_device *evt)
 {
@@ -335,11 +343,14 @@ static void hv_init_clockevent_device(struct clock_event_device *dev, int cpu)
 	dev->set_next_event = hv_ce_set_next_event;
 }
 
+#endif
 
 int hv_synic_alloc(void)
 {
 	size_t size = sizeof(struct tasklet_struct);
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
 	size_t ced_size = sizeof(struct clock_event_device);
+#endif
 	int cpu;
 
 	for_each_online_cpu(cpu) {
@@ -350,12 +361,14 @@ int hv_synic_alloc(void)
 		}
 		tasklet_init(hv_context.event_dpc[cpu], vmbus_on_event, cpu);
 
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
 		hv_context.clk_evt[cpu] = kzalloc(ced_size, GFP_ATOMIC);
 		if (hv_context.clk_evt[cpu] == NULL) {
 			pr_err("Unable to allocate clock event device\n");
 			goto err;
 		}
 		hv_init_clockevent_device(hv_context.clk_evt[cpu], cpu);
+#endif
 
 		hv_context.synic_message_page[cpu] =
 			(void *)get_zeroed_page(GFP_ATOMIC);
@@ -481,8 +494,12 @@ void hv_synic_init(void *arg)
 	/*
 	 * Register the per-cpu clockevent source.
 	 */
+#ifdef NOTYET
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
 	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
 		clockevents_register_device(hv_context.clk_evt[cpu]);
+#endif
+#endif
 	return;
 }
 
@@ -516,10 +533,12 @@ void hv_synic_cleanup(void *arg)
 	if (!hv_context.synic_initialized)
 		return;
 
+#if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
 	/* Turn off clockevent device */
 	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
 		hv_ce_setmode(CLOCK_EVT_MODE_SHUTDOWN,
 			      hv_context.clk_evt[cpu]);
+#endif
 
 	rdmsrl(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT, shared_sint.as_uint64);
 

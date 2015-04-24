@@ -42,9 +42,9 @@
 #include <linux/completion.h>
 #include <linux/fb.h>
 #include <linux/pci.h>
-#include <asm-generic/atomic.h>
+#include <linux/efi.h>
 
-#include <linux/hyperv.h>
+#include "include/linux/hyperv.h"
 
 
 /* Hyper-V Synthetic Video Protocol definitions and structures */
@@ -213,17 +213,22 @@ struct synthvid_msg {
 
 struct hvfb_par {
 	struct fb_info *info;
+	struct resource mem;
 	bool fb_ready; /* fb device is ready */
 	struct completion wait;
 	u32 synthvid_version;
 
 	struct delayed_work dwork;
 	bool update;
-	bool xrefresh;
 
 	u32 pseudo_palette[16];
 	u8 init_buf[MAX_VMBUS_PKT_SIZE];
 	u8 recv_buf[MAX_VMBUS_PKT_SIZE];
+
+	/* If true, the VSC notifies the VSP on every framebuffer change */
+	bool synchronous_fb;
+
+	struct notifier_block hvfb_panic_nb;
 };
 
 static uint screen_width = HVFB_WIDTH;
@@ -251,7 +256,7 @@ static inline int synthvid_send(struct hv_device *hdev,
 #ifdef CONFIG_64BIT
 			       atomic64_inc_return(&request_id),
 #else
-			       atomic_inc_return(&request_id),
+				atomic_inc_return(&request_id),
 #endif
 			       VM_PKT_DATA_INBAND, 0);
 
@@ -380,7 +385,7 @@ static void synthvid_recv_sub(struct hv_device *hdev)
 			synthvid_send_situ(hdev);
 		}
 
-		par->xrefresh = par->update = msg->feature_chg.is_dirt_needed;
+		par->update = msg->feature_chg.is_dirt_needed;
 		if (par->update)
 			schedule_delayed_work(&par->dwork.work, HVFB_UPDATE_DELAY);
 	}
@@ -471,13 +476,13 @@ static int synthvid_connect_vsp(struct hv_device *hdev)
 		goto error;
 	}
 
-	if (par->synthvid_version == SYNTHVID_VERSION_WIN7) {
+	if (par->synthvid_version == SYNTHVID_VERSION_WIN7)
 		screen_depth = SYNTHVID_DEPTH_WIN7;
-		screen_fb_size = SYNTHVID_FB_SIZE_WIN7;
-	} else {
+	else
 		screen_depth = SYNTHVID_DEPTH_WIN8;
-		screen_fb_size = SYNTHVID_FB_SIZE_WIN8;
-	}
+
+	screen_fb_size = hdev->channel->offermsg.offer.
+				mmio_megabytes * 1024 * 1024;
 
 	return 0;
 
@@ -534,13 +539,6 @@ static void hvfb_update_work(void *data)
 	struct work_struct *w = (struct work_struct *)data;
 	struct hvfb_par *par = container_of(w, struct hvfb_par, dwork.work);
 	struct fb_info *info = par->info;
-	char *argv[] = {"/usr/bin/xrefresh", "-display", ":0.0", NULL};
-	char *envp[] = {"HOME=/", "PATH=/sbin:/usr/sbin:/bin:/usr/bin", NULL };
-
-	if (par->xrefresh) {
-		par->xrefresh = false;
-		call_usermodehelper(argv[0], argv, envp, 0);
-	}
 
 	if (par->fb_ready)
 		synthvid_update(info);
@@ -549,6 +547,19 @@ static void hvfb_update_work(void *data)
 		schedule_delayed_work(&par->dwork.work, HVFB_UPDATE_DELAY);
 }
 
+static int hvfb_on_panic(struct notifier_block *nb,
+			 unsigned long e, void *p)
+{
+	struct hvfb_par *par;
+	struct fb_info *info;
+
+	par = container_of(nb, struct hvfb_par, hvfb_panic_nb);
+	par->synchronous_fb = true;
+	info = par->info;
+	synthvid_update(info);
+
+	return NOTIFY_DONE;
+}
 
 /* Framebuffer operation handlers */
 
@@ -594,27 +605,51 @@ static int hvfb_setcolreg(unsigned regno, unsigned red, unsigned green,
 	return 0;
 }
 
+static int hvfb_blank(int blank, struct fb_info *info)
+{
+	return 1;	/* get fb_blank to set the colormap to all black */
+}
+
+static void hvfb_cfb_fillrect(struct fb_info *p,
+			      const struct fb_fillrect *rect)
+{
+	struct hvfb_par *par = p->par;
+
+	cfb_fillrect(p, rect);
+	if (par->synchronous_fb)
+		synthvid_update(p);
+}
+
+static void hvfb_cfb_copyarea(struct fb_info *p,
+			      const struct fb_copyarea *area)
+{
+	struct hvfb_par *par = p->par;
+
+	cfb_copyarea(p, area);
+	if (par->synchronous_fb)
+		synthvid_update(p);
+}
+
+static void hvfb_cfb_imageblit(struct fb_info *p,
+			       const struct fb_image *image)
+{
+	struct hvfb_par *par = p->par;
+
+	cfb_imageblit(p, image);
+	if (par->synchronous_fb)
+		synthvid_update(p);
+}
 
 static struct fb_ops hvfb_ops = {
 	.owner = THIS_MODULE,
 	.fb_check_var = hvfb_check_var,
 	.fb_set_par = hvfb_set_par,
 	.fb_setcolreg = hvfb_setcolreg,
-	.fb_fillrect = cfb_fillrect,
-	.fb_copyarea = cfb_copyarea,
-	.fb_imageblit = cfb_imageblit,
+	.fb_fillrect = hvfb_cfb_fillrect,
+	.fb_copyarea = hvfb_cfb_copyarea,
+	.fb_imageblit = hvfb_cfb_imageblit,
+	.fb_blank = hvfb_blank,
 };
-
-static int kstrtouint(const char *s, unsigned int base, unsigned int *res)
-{
-	int result;
-	char *endbufp = NULL;
-
-	result = simple_strtoul(s, &endbufp, base);
-	if (result > 0)
-		*res = result;
-	return 0;
-}
 
 
 /* Get options from kernel paramenter "video=" */
@@ -652,52 +687,86 @@ static void hvfb_get_option(struct fb_info *info)
 /* Get framebuffer memory from Hyper-V video pci space */
 static int hvfb_getmem(struct fb_info *info)
 {
-	struct pci_dev *pdev;
-	ulong fb_phys;
+	struct hvfb_par *par = info->par;
+	struct pci_dev *pdev  = NULL;
 	void __iomem *fb_virt;
+	int gen2vm = using_null_legacy_pic;
+	int ret;
 
-	pdev = pci_get_device(PCI_VENDOR_ID_MICROSOFT,
+	par->mem.name = KBUILD_MODNAME;
+	par->mem.flags = IORESOURCE_MEM | IORESOURCE_BUSY;
+	if (gen2vm) {
+		ret = allocate_resource(&hyperv_mmio, &par->mem,
+					screen_fb_size,
+					0, -1,
+					screen_fb_size,
+					NULL, NULL);
+		if (ret != 0) {
+			pr_err("Unable to allocate framebuffer memory\n");
+			return -ENODEV;
+		}
+	} else {
+		pdev = pci_get_device(PCI_VENDOR_ID_MICROSOFT,
 			      PCI_DEVICE_ID_HYPERV_VIDEO, NULL);
-	if (!pdev) {
-		pr_err("Unable to find PCI Hyper-V video\n");
-		return -ENODEV;
+		if (!pdev) {
+			pr_err("Unable to find PCI Hyper-V video\n");
+			return -ENODEV;
+		}
+
+		if (!(pci_resource_flags(pdev, 0) & IORESOURCE_MEM) ||
+		    pci_resource_len(pdev, 0) < screen_fb_size)
+			goto err1;
+
+		par->mem.end = pci_resource_end(pdev, 0);
+		par->mem.start = par->mem.end - screen_fb_size + 1;
+		ret = request_resource(&pdev->resource[0], &par->mem);
+		if (ret != 0) {
+			pr_err("Unable to request framebuffer memory\n");
+			goto err1;
+		}
 	}
 
-	if (!(pci_resource_flags(pdev, 0) & IORESOURCE_MEM) ||
-	    pci_resource_len(pdev, 0) < screen_fb_size)
-		goto err1;
-
-	fb_phys = pci_resource_end(pdev, 0) - screen_fb_size + 1;
-	if (!request_mem_region(fb_phys, screen_fb_size, KBUILD_MODNAME))
-		goto err1;
-
-	fb_virt = ioremap(fb_phys, screen_fb_size);
+	fb_virt = ioremap(par->mem.start, screen_fb_size);
 	if (!fb_virt)
 		goto err2;
 
-	//KYSinfo->aperture_base = pci_resource_start(pdev, 0);
-	//KYSinfo->aperture_size = pci_resource_len(pdev, 0);
 
-	info->fix.smem_start = fb_phys;
+#ifdef NOTYET
+	if (gen2vm) {
+		info->aperture_base = screen_info.lfb_base;
+		info->aperture_size = screen_info.lfb_size;
+	} else {
+		info->aperture_base = pci_resource_start(pdev, 0);
+		info->aperture_size = pci_resource_len(pdev, 0);
+	}
+#endif
+
+	info->fix.smem_start = par->mem.start;
 	info->fix.smem_len = screen_fb_size;
 	info->screen_base = fb_virt;
 	info->screen_size = screen_fb_size;
 
-	pci_dev_put(pdev);
+	if (!gen2vm)
+		pci_dev_put(pdev);
+
 	return 0;
 
 err2:
-	release_mem_region(fb_phys, screen_fb_size);
+	release_resource(&par->mem);
 err1:
-	pci_dev_put(pdev);
+	if (!gen2vm)
+		pci_dev_put(pdev);
+
 	return -ENOMEM;
 }
 
 /* Release the framebuffer */
 static void hvfb_putmem(struct fb_info *info)
 {
+	struct hvfb_par *par = info->par;
+
 	iounmap(info->screen_base);
-	release_mem_region(info->fix.smem_start, screen_fb_size);
+	release_resource(&par->mem);
 }
 
 
@@ -785,6 +854,11 @@ static int hvfb_probe(struct hv_device *hdev,
 
 	par->fb_ready = true;
 
+	par->synchronous_fb = false;
+	par->hvfb_panic_nb.notifier_call = hvfb_on_panic;
+	atomic_notifier_chain_register(&panic_notifier_list,
+				       &par->hvfb_panic_nb);
+
 	return 0;
 
 error:
@@ -804,6 +878,9 @@ static int hvfb_remove(struct hv_device *hdev)
 	struct fb_info *info = hv_get_drvdata(hdev);
 	struct hvfb_par *par = info->par;
 
+	atomic_notifier_chain_unregister(&panic_notifier_list,
+					 &par->hvfb_panic_nb);
+
 	par->update = false;
 	par->fb_ready = false;
 
@@ -818,6 +895,7 @@ static int hvfb_remove(struct hv_device *hdev)
 
 	return 0;
 }
+
 
 static const struct pci_device_id pci_stub_id_table[] = {
 	{
@@ -887,6 +965,6 @@ module_init(hvfb_drv_init);
 module_exit(hvfb_drv_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_VERSION(HV_DRV_VERSION);
 MODULE_DESCRIPTION("Microsoft Hyper-V Synthetic Video Frame Buffer Driver");
+MODULE_VERSION(HV_DRV_VERSION);
 MODULE_ALIAS("vmbus:02780ada77e3ac4a8e770558eb1073f8");
