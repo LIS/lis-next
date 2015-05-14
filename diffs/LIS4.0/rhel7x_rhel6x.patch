@@ -1,0 +1,4345 @@
+diff -crB hv-rhel7.x/hv/channel.c hv-rhel6.x/hv/channel.c
+*** hv-rhel7.x/hv/channel.c	2015-05-14 07:05:22.416084887 -0700
+--- hv-rhel6.x/hv/channel.c	2015-05-14 07:05:22.375083056 -0700
+***************
+*** 61,66 ****
+--- 61,110 ----
+  }
+  
+  /*
++  * vmbus_get_debug_info -Retrieve various channel debug info
++  */
++ void vmbus_get_debug_info(struct vmbus_channel *channel,
++ 			struct vmbus_channel_debug_info *debuginfo)
++ {
++ 	struct hv_monitor_page *monitorpage;
++ 	u8 monitor_group = (u8)channel->offermsg.monitorid / 32;
++ 	u8 monitor_offset = (u8)channel->offermsg.monitorid % 32;
++ 
++ 	debuginfo->relid = channel->offermsg.child_relid;
++ 	debuginfo->state = channel->state;
++ 	memcpy(&debuginfo->interfacetype,
++ 		&channel->offermsg.offer.if_type, sizeof(uuid_le));
++ 	memcpy(&debuginfo->interface_instance,
++ 		&channel->offermsg.offer.if_instance,
++ 		sizeof(uuid_le));
++ 
++ 	monitorpage = (struct hv_monitor_page *)vmbus_connection.monitor_pages;
++ 
++ 	debuginfo->monitorid = channel->offermsg.monitorid;
++ 
++ 	debuginfo->servermonitor_pending =
++ 			monitorpage->trigger_group[monitor_group].pending;
++ 	debuginfo->servermonitor_latency =
++ 			monitorpage->latency[monitor_group][monitor_offset];
++ 	debuginfo->servermonitor_connectionid =
++ 			monitorpage->parameter[monitor_group]
++ 				[monitor_offset].connectionid.u.id;
++ 
++ 	monitorpage++;
++ 
++ 	debuginfo->clientmonitor_pending =
++ 			monitorpage->trigger_group[monitor_group].pending;
++ 	debuginfo->clientmonitor_latency =
++ 			monitorpage->latency[monitor_group][monitor_offset];
++ 	debuginfo->clientmonitor_connectionid =
++ 			monitorpage->parameter[monitor_group]
++ 				[monitor_offset].connectionid.u.id;
++ 
++ 	hv_ringbuffer_get_debuginfo(&channel->inbound, &debuginfo->inbound);
++ 	hv_ringbuffer_get_debuginfo(&channel->outbound, &debuginfo->outbound);
++ }
++ 
++ /*
+   * vmbus_open - Open the specified channel.
+   */
+  int vmbus_open(struct vmbus_channel *newchannel, u32 send_ringbuffer_size,
+***************
+*** 71,77 ****
+  	struct vmbus_channel_msginfo *open_info = NULL;
+  	void *in, *out;
+  	unsigned long flags;
+! 	int ret, t, err = 0;
+  
+  	spin_lock_irqsave(&newchannel->lock, flags);
+  	if (newchannel->state == CHANNEL_OPEN_STATE) {
+--- 115,122 ----
+  	struct vmbus_channel_msginfo *open_info = NULL;
+  	void *in, *out;
+  	unsigned long flags;
+! 	int ret, err = 0;
+! 	unsigned long t;
+  
+  	spin_lock_irqsave(&newchannel->lock, flags);
+  	if (newchannel->state == CHANNEL_OPEN_STATE) {
+***************
+*** 89,97 ****
+  	out = (void *)__get_free_pages(GFP_KERNEL|__GFP_ZERO,
+  		get_order(send_ringbuffer_size + recv_ringbuffer_size));
+  
+! 	if (!out)
+! 		return -ENOMEM;
+! 
+  
+  	in = (void *)((unsigned long)out + send_ringbuffer_size);
+  
+--- 134,143 ----
+  	out = (void *)__get_free_pages(GFP_KERNEL|__GFP_ZERO,
+  		get_order(send_ringbuffer_size + recv_ringbuffer_size));
+  
+! 	if (!out) {
+! 		err = -ENOMEM;
+! 		goto error0;
+! 	}
+  
+  	in = (void *)((unsigned long)out + send_ringbuffer_size);
+  
+***************
+*** 135,141 ****
+  			   GFP_KERNEL);
+  	if (!open_info) {
+  		err = -ENOMEM;
+! 		goto error0;
+  	}
+  
+  	init_completion(&open_info->waitevent);
+--- 181,187 ----
+  			   GFP_KERNEL);
+  	if (!open_info) {
+  		err = -ENOMEM;
+! 		goto error_gpadl;
+  	}
+  
+  	init_completion(&open_info->waitevent);
+***************
+*** 151,157 ****
+  
+  	if (userdatalen > MAX_USER_DEFINED_BYTES) {
+  		err = -EINVAL;
+! 		goto error0;
+  	}
+  
+  	if (userdatalen)
+--- 197,203 ----
+  
+  	if (userdatalen > MAX_USER_DEFINED_BYTES) {
+  		err = -EINVAL;
+! 		goto error_gpadl;
+  	}
+  
+  	if (userdatalen)
+***************
+*** 195,204 ****
+--- 241,254 ----
+  	list_del(&open_info->msglistentry);
+  	spin_unlock_irqrestore(&vmbus_connection.channelmsg_lock, flags);
+  
++ error_gpadl:
++ 	vmbus_teardown_gpadl(newchannel, newchannel->ringbuffer_gpadlhandle);
++ 
+  error0:
+  	free_pages((unsigned long)out,
+  		get_order(send_ringbuffer_size + recv_ringbuffer_size));
+  	kfree(open_info);
++ 	newchannel->state = CHANNEL_OPEN_STATE;
+  	return err;
+  }
+  EXPORT_SYMBOL_GPL(vmbus_open);
+***************
+*** 534,539 ****
+--- 584,595 ----
+  	free_pages((unsigned long)channel->ringbuffer_pages,
+  		get_order(channel->ringbuffer_pagecount * PAGE_SIZE));
+  
++ 	/*
++ 	 * If the channel has been rescinded; process device removal.
++ 	 */
++ 	if (channel->rescind)
++ 		hv_process_channel_removal(channel,
++ 					   channel->offermsg.child_relid);
+  	return ret;
+  }
+  
+***************
+*** 569,591 ****
+  }
+  EXPORT_SYMBOL_GPL(vmbus_close);
+  
+! /**
+!  * vmbus_sendpacket() - Send the specified buffer on the given channel
+!  * @channel: Pointer to vmbus_channel structure.
+!  * @buffer: Pointer to the buffer you want to receive the data into.
+!  * @bufferlen: Maximum size of what the the buffer will hold
+!  * @requestid: Identifier of the request
+!  * @type: Type of packet that is being send e.g. negotiate, time
+!  * packet etc.
+!  *
+!  * Sends data in @buffer directly to hyper-v via the vmbus
+!  * This will send the data unparsed to hyper-v.
+!  *
+!  * Mainly used by Hyper-V drivers.
+!  */
+! int vmbus_sendpacket(struct vmbus_channel *channel, void *buffer,
+  			   u32 bufferlen, u64 requestid,
+! 			   enum vmbus_packet_type type, u32 flags)
+  {
+  	struct vmpacket_descriptor desc;
+  	u32 packetlen = sizeof(struct vmpacket_descriptor) + bufferlen;
+--- 625,633 ----
+  }
+  EXPORT_SYMBOL_GPL(vmbus_close);
+  
+! int vmbus_sendpacket_ctl(struct vmbus_channel *channel, void *buffer,
+  			   u32 bufferlen, u64 requestid,
+! 			   enum vmbus_packet_type type, u32 flags, bool kick_q)
+  {
+  	struct vmpacket_descriptor desc;
+  	u32 packetlen = sizeof(struct vmpacket_descriptor) + bufferlen;
+***************
+*** 613,633 ****
+  
+  	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
+  
+! 	if (ret == 0 && signal)
+  		vmbus_setevent(channel);
+  
+  	return ret;
+  }
+  EXPORT_SYMBOL(vmbus_sendpacket);
+  
+  /*
+!  * vmbus_sendpacket_pagebuffer - Send a range of single-page buffer
+!  * packets using a GPADL Direct packet type.
+   */
+! int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
+  				     struct hv_page_buffer pagebuffers[],
+  				     u32 pagecount, void *buffer, u32 bufferlen,
+! 				     u64 requestid)
+  {
+  	int ret;
+  	int i;
+--- 655,705 ----
+  
+  	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
+  
+! 	if ((ret == 0) && kick_q && signal)
+! 		vmbus_setevent(channel);
+! 	else if (ret)
+  		vmbus_setevent(channel);
+  
+  	return ret;
+  }
++ EXPORT_SYMBOL(vmbus_sendpacket_ctl);
++ 
++ /**
++  * vmbus_sendpacket() - Send the specified buffer on the given channel
++  * @channel: Pointer to vmbus_channel structure.
++  * @buffer: Pointer to the buffer you want to receive the data into.
++  * @bufferlen: Maximum size of what the the buffer will hold
++  * @requestid: Identifier of the request
++  * @type: Type of packet that is being send e.g. negotiate, time
++  * packet etc.
++  *
++  * Sends data in @buffer directly to hyper-v via the vmbus
++  * This will send the data unparsed to hyper-v.
++  *
++  * Mainly used by Hyper-V drivers.
++  */
++ int vmbus_sendpacket(struct vmbus_channel *channel, void *buffer,
++ 			   u32 bufferlen, u64 requestid,
++ 			   enum vmbus_packet_type type, u32 flags)
++ {
++ 	return vmbus_sendpacket_ctl(channel, buffer, bufferlen, requestid,
++ 				    type, flags, true);
++ }
+  EXPORT_SYMBOL(vmbus_sendpacket);
+  
+  /*
+!  * vmbus_sendpacket_pagebuffer_ctl - Send a range of single-page buffer
+!  * packets using a GPADL Direct packet type. This interface allows you
+!  * to control notifying the host. This will be useful for sending
+!  * batched data. Also the sender can control the send flags
+!  * explicitly.
+   */
+! int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
+  				     struct hv_page_buffer pagebuffers[],
+  				     u32 pagecount, void *buffer, u32 bufferlen,
+! 				     u64 requestid,
+! 				     u32 flags,
+! 				     bool kick_q)
+  {
+  	int ret;
+  	int i;
+***************
+*** 655,661 ****
+  
+  	/* Setup the descriptor */
+  	desc.type = VM_PKT_DATA_USING_GPA_DIRECT;
+! 	desc.flags = VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED;
+  	desc.dataoffset8 = descsize >> 3; /* in 8-bytes grandularity */
+  	desc.length8 = (u16)(packetlen_aligned >> 3);
+  	desc.transactionid = requestid;
+--- 727,733 ----
+  
+  	/* Setup the descriptor */
+  	desc.type = VM_PKT_DATA_USING_GPA_DIRECT;
+! 	desc.flags = flags;
+  	desc.dataoffset8 = descsize >> 3; /* in 8-bytes grandularity */
+  	desc.length8 = (u16)(packetlen_aligned >> 3);
+  	desc.transactionid = requestid;
+***************
+*** 676,686 ****
+  
+  	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
+  
+! 	if (ret == 0 && signal)
+  		vmbus_setevent(channel);
+  
+  	return ret;
+  }
+  EXPORT_SYMBOL_GPL(vmbus_sendpacket_pagebuffer);
+  
+  /*
+--- 748,777 ----
+  
+  	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
+  
+! 	if ((ret == 0) && kick_q && signal)
+! 		vmbus_setevent(channel);
+! 	else if (ret)
+  		vmbus_setevent(channel);
+  
+  	return ret;
+  }
++ EXPORT_SYMBOL_GPL(vmbus_sendpacket_pagebuffer_ctl);
++ 
++ /*
++  * vmbus_sendpacket_pagebuffer - Send a range of single-page buffer
++  * packets using a GPADL Direct packet type.
++  */
++ int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
++ 				     struct hv_page_buffer pagebuffers[],
++ 				     u32 pagecount, void *buffer, u32 bufferlen,
++ 				     u64 requestid)
++ {
++ 	u32 flags = VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED;
++ 	return vmbus_sendpacket_pagebuffer_ctl(channel, pagebuffers, pagecount,
++ 					       buffer, bufferlen, requestid,
++ 					       flags, true);
++ 
++ }
+  EXPORT_SYMBOL_GPL(vmbus_sendpacket_pagebuffer);
+  
+  /*
+diff -crB hv-rhel7.x/hv/channel_mgmt.c hv-rhel6.x/hv/channel_mgmt.c
+*** hv-rhel7.x/hv/channel_mgmt.c	2015-05-14 07:05:22.416084887 -0700
+--- hv-rhel6.x/hv/channel_mgmt.c	2015-05-14 07:05:22.375083056 -0700
+***************
+*** 32,43 ****
+  
+  #include "hyperv_vmbus.h"
+  
+- struct vmbus_channel_message_table_entry {
+- 	enum vmbus_channel_message_type message_type;
+- 	void (*message_handler)(struct vmbus_channel_message_header *msg);
+- };
+- 
+- 
+  /**
+   * vmbus_prep_negotiate_resp() - Create default response for Hyper-V Negotiate message
+   * @icmsghdrp: Pointer to msg header structure
+--- 32,37 ----
+***************
+*** 139,192 ****
+   */
+  static struct vmbus_channel *alloc_channel(void)
+  {
+  	struct vmbus_channel *channel;
+  
+  	channel = kzalloc(sizeof(*channel), GFP_ATOMIC);
+  	if (!channel)
+  		return NULL;
+  
+  	spin_lock_init(&channel->inbound_lock);
+  	spin_lock_init(&channel->lock);
+  
+  	INIT_LIST_HEAD(&channel->sc_list);
+  	INIT_LIST_HEAD(&channel->percpu_list);
+  
+- 	channel->controlwq = create_workqueue("hv_vmbus_ctl");
+- 	if (!channel->controlwq) {
+- 		kfree(channel);
+- 		return NULL;
+- 	}
+- 
+  	return channel;
+  }
+  
+  /*
+-  * release_hannel - Release the vmbus channel object itself
+-  */
+- static void release_channel(struct work_struct *work)
+- {
+- 	struct vmbus_channel *channel = container_of(work,
+- 						     struct vmbus_channel,
+- 						     work);
+- 
+- 	destroy_workqueue(channel->controlwq);
+- 
+- 	kfree(channel);
+- }
+- 
+- /*
+   * free_channel - Release the resources used by the vmbus channel object
+   */
+  static void free_channel(struct vmbus_channel *channel)
+  {
+! 
+! 	/*
+! 	 * We have to release the channel's workqueue/thread in the vmbus's
+! 	 * workqueue/thread context
+! 	 * ie we can't destroy ourselves.
+! 	 */
+! 	INIT_WORK(&channel->work, release_channel);
+! 	queue_work(vmbus_connection.work_queue, &channel->work);
+  }
+  
+  static void percpu_channel_enq(void *arg)
+--- 133,161 ----
+   */
+  static struct vmbus_channel *alloc_channel(void)
+  {
++ 	static atomic_t chan_num = ATOMIC_INIT(0);
+  	struct vmbus_channel *channel;
+  
+  	channel = kzalloc(sizeof(*channel), GFP_ATOMIC);
+  	if (!channel)
+  		return NULL;
+  
++ 	channel->id = atomic_inc_return(&chan_num);
+  	spin_lock_init(&channel->inbound_lock);
+  	spin_lock_init(&channel->lock);
+  
+  	INIT_LIST_HEAD(&channel->sc_list);
+  	INIT_LIST_HEAD(&channel->percpu_list);
+  
+  	return channel;
+  }
+  
+  /*
+   * free_channel - Release the resources used by the vmbus channel object
+   */
+  static void free_channel(struct vmbus_channel *channel)
+  {
+! 	kfree(channel);
+  }
+  
+  static void percpu_channel_enq(void *arg)
+***************
+*** 204,236 ****
+  	list_del(&channel->percpu_list);
+  }
+  
+! /*
+!  * vmbus_process_rescind_offer -
+!  * Rescind the offer by initiating a device removal
+!  */
+! static void vmbus_process_rescind_offer(struct work_struct *work)
+  {
+! 	struct vmbus_channel *channel = container_of(work,
+! 						     struct vmbus_channel,
+! 						     work);
+  	unsigned long flags;
+  	struct vmbus_channel *primary_channel;
+- 	struct vmbus_channel_relid_released msg;
+- 	struct device *dev;
+- 
+- 	if (channel->device_obj) {
+- 		dev = get_device(&channel->device_obj->device);
+- 		if (dev) {
+- 			vmbus_device_unregister(channel->device_obj);
+- 			put_device(dev);
+- 		}
+- 	}
+  
+  	memset(&msg, 0, sizeof(struct vmbus_channel_relid_released));
+! 	msg.child_relid = channel->offermsg.child_relid;
+  	msg.header.msgtype = CHANNELMSG_RELID_RELEASED;
+  	vmbus_post_msg(&msg, sizeof(struct vmbus_channel_relid_released));
+  
+  	if (channel->target_cpu != get_cpu()) {
+  		put_cpu();
+  		smp_call_function_single(channel->target_cpu,
+--- 173,193 ----
+  	list_del(&channel->percpu_list);
+  }
+  
+! 
+! void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid)
+  {
+! 	struct vmbus_channel_relid_released msg;
+  	unsigned long flags;
+  	struct vmbus_channel *primary_channel;
+  
+  	memset(&msg, 0, sizeof(struct vmbus_channel_relid_released));
+! 	msg.child_relid = relid;
+  	msg.header.msgtype = CHANNELMSG_RELID_RELEASED;
+  	vmbus_post_msg(&msg, sizeof(struct vmbus_channel_relid_released));
+  
++ 	if (channel == NULL)
++ 		return;
++ 
+  	if (channel->target_cpu != get_cpu()) {
+  		put_cpu();
+  		smp_call_function_single(channel->target_cpu,
+***************
+*** 259,265 ****
+  
+  	list_for_each_entry(channel, &vmbus_connection.chn_list, listentry) {
+  		vmbus_device_unregister(channel->device_obj);
+- 		kfree(channel->device_obj);
+  		free_channel(channel);
+  	}
+  }
+--- 216,221 ----
+***************
+*** 268,282 ****
+   * vmbus_process_offer - Process the offer by creating a channel/device
+   * associated with this offer
+   */
+! static void vmbus_process_offer(struct work_struct *work)
+  {
+- 	struct vmbus_channel *newchannel = container_of(work,
+- 							struct vmbus_channel,
+- 							work);
+  	struct vmbus_channel *channel;
+  	bool fnew = true;
+  	bool enq = false;
+- 	int ret;
+  	unsigned long flags;
+  
+  	/* Make sure this is a new offer */
+--- 224,234 ----
+   * vmbus_process_offer - Process the offer by creating a channel/device
+   * associated with this offer
+   */
+! static void vmbus_process_offer(struct vmbus_channel *newchannel)
+  {
+  	struct vmbus_channel *channel;
+  	bool fnew = true;
+  	bool enq = false;
+  	unsigned long flags;
+  
+  	/* Make sure this is a new offer */
+***************
+*** 335,344 ****
+  			}
+  
+  			newchannel->state = CHANNEL_OPEN_STATE;
+  			if (channel->sc_creation_callback != NULL)
+  				channel->sc_creation_callback(newchannel);
+! 
+! 			goto done_init_rescind;
+  		}
+  
+  		goto err_free_chan;
+--- 287,297 ----
+  			}
+  
+  			newchannel->state = CHANNEL_OPEN_STATE;
++ 			channel->num_sc++;
++ 
+  			if (channel->sc_creation_callback != NULL)
+  				channel->sc_creation_callback(newchannel);
+! 			return;
+  		}
+  
+  		goto err_free_chan;
+***************
+*** 361,393 ****
+  		&newchannel->offermsg.offer.if_instance,
+  		newchannel);
+  	if (!newchannel->device_obj)
+! 		goto err_free_chan;
+  
+  	/*
+  	 * Add the new device to the bus. This will kick off device-driver
+  	 * binding which eventually invokes the device driver's AddDevice()
+  	 * method.
+  	 */
+! 	ret = vmbus_device_register(newchannel->device_obj);
+! 	if (ret != 0) {
+! 		pr_err("unable to add child device object (relid %d)\n",
+! 			   newchannel->offermsg.child_relid);
+! 
+! 		spin_lock_irqsave(&vmbus_connection.channel_lock, flags);
+! 		list_del(&newchannel->listentry);
+! 		spin_unlock_irqrestore(&vmbus_connection.channel_lock, flags);
+  		kfree(newchannel->device_obj);
+! 		goto err_free_chan;
+  	}
+! done_init_rescind:
+! 	spin_lock_irqsave(&newchannel->lock, flags);
+! 	/* The next possible work is rescind handling */
+! 	INIT_WORK(&newchannel->work, vmbus_process_rescind_offer);
+! 	/* Check if rescind offer was already received */
+! 	if (newchannel->rescind)
+! 		queue_work(newchannel->controlwq, &newchannel->work);
+! 	spin_unlock_irqrestore(&newchannel->lock, flags);
+  	return;
+  err_free_chan:
+  	free_channel(newchannel);
+  }
+--- 314,349 ----
+  		&newchannel->offermsg.offer.if_instance,
+  		newchannel);
+  	if (!newchannel->device_obj)
+! 		goto err_deq_chan;
+  
+  	/*
+  	 * Add the new device to the bus. This will kick off device-driver
+  	 * binding which eventually invokes the device driver's AddDevice()
+  	 * method.
+  	 */
+! 	if (vmbus_device_register(newchannel->device_obj) != 0) {
+! 			pr_err("unable to add child device object (relid %d)\n",
+!          		newchannel->offermsg.child_relid);
+  		kfree(newchannel->device_obj);
+! 		goto err_deq_chan;
+  	}
+! 
+  	return;
++ 
++ err_deq_chan:
++ 	spin_lock_irqsave(&vmbus_connection.channel_lock, flags);
++ 	list_del(&newchannel->listentry);
++ 	spin_unlock_irqrestore(&vmbus_connection.channel_lock, flags);
++ 
++ 	if (newchannel->target_cpu != get_cpu()) {
++ 		put_cpu();
++ 		smp_call_function_single(newchannel->target_cpu,
++ 					 percpu_channel_deq, newchannel, true);
++ 	} else {
++ 		percpu_channel_deq(newchannel);
++ 		put_cpu();
++ 	}
++ 
+  err_free_chan:
+  	free_channel(newchannel);
+  }
+***************
+*** 411,416 ****
+--- 367,374 ----
+  	{ HV_SCSI_GUID, },
+  	/* Network */
+  	{ HV_NIC_GUID, },
++ 	/* NetworkDirect Guest RDMA */
++ 	{ HV_ND_GUID, },
+  };
+  
+  
+***************
+*** 511,518 ****
+  	newchannel->monitor_grp = (u8)offer->monitorid / 32;
+  	newchannel->monitor_bit = (u8)offer->monitorid % 32;
+  
+! 	INIT_WORK(&newchannel->work, vmbus_process_offer);
+! 	queue_work(newchannel->controlwq, &newchannel->work);
+  }
+  
+  /*
+--- 469,475 ----
+  	newchannel->monitor_grp = (u8)offer->monitorid / 32;
+  	newchannel->monitor_bit = (u8)offer->monitorid % 32;
+  
+! 	vmbus_process_offer(newchannel);
+  }
+  
+  /*
+***************
+*** 525,552 ****
+  	struct vmbus_channel_rescind_offer *rescind;
+  	struct vmbus_channel *channel;
+  	unsigned long flags;
+  
+  	rescind = (struct vmbus_channel_rescind_offer *)hdr;
+  	channel = relid2channel(rescind->child_relid);
+  
+! 	if (channel == NULL)
+! 		/* Just return here, no channel found */
+  		return;
+! 
+  	spin_lock_irqsave(&channel->lock, flags);
+  	channel->rescind = true;
+- 	/*
+- 	 * channel->work.func != vmbus_process_rescind_offer means we are still
+- 	 * processing offer request and the rescind offer processing should be
+- 	 * postponed. It will be done at the very end of vmbus_process_offer()
+- 	 * as rescind flag is being checked there.
+- 	 */
+- 	if (channel->work.func == vmbus_process_rescind_offer)
+- 		/* work is initialized for vmbus_process_rescind_offer() from
+- 		 * vmbus_process_offer() where the channel got created */
+- 		queue_work(channel->controlwq, &channel->work);
+- 
+  	spin_unlock_irqrestore(&channel->lock, flags);
+  }
+  
+  /*
+--- 482,514 ----
+  	struct vmbus_channel_rescind_offer *rescind;
+  	struct vmbus_channel *channel;
+  	unsigned long flags;
++ 	struct device *dev;
+  
+  	rescind = (struct vmbus_channel_rescind_offer *)hdr;
+  	channel = relid2channel(rescind->child_relid);
+  
+! 	if (channel == NULL) {
+! 		hv_process_channel_removal(NULL, rescind->child_relid);
+  		return;
+! 	}
+  	spin_lock_irqsave(&channel->lock, flags);
+  	channel->rescind = true;
+  	spin_unlock_irqrestore(&channel->lock, flags);
++ 
++ 	if (channel->device_obj) {
++ 		/*
++ 		 * We will have to unregister this device from the
++ 		 * driver core.
++ 		 */
++ 		dev = get_device(&channel->device_obj->device);
++ 		if (dev) {
++ 			vmbus_device_unregister(channel->device_obj);
++ 			put_device(dev);
++ 		}
++ 	} else {
++ 		hv_process_channel_removal(channel,
++ 			channel->offermsg.child_relid);
++ 	}
+  }
+  
+  /*
+***************
+*** 731,755 ****
+  }
+  
+  /* Channel message dispatch table */
+! static struct vmbus_channel_message_table_entry
+  	channel_message_table[CHANNELMSG_COUNT] = {
+! 	{CHANNELMSG_INVALID,			NULL},
+! 	{CHANNELMSG_OFFERCHANNEL,		vmbus_onoffer},
+! 	{CHANNELMSG_RESCIND_CHANNELOFFER,	vmbus_onoffer_rescind},
+! 	{CHANNELMSG_REQUESTOFFERS,		NULL},
+! 	{CHANNELMSG_ALLOFFERS_DELIVERED,	vmbus_onoffers_delivered},
+! 	{CHANNELMSG_OPENCHANNEL,		NULL},
+! 	{CHANNELMSG_OPENCHANNEL_RESULT,	vmbus_onopen_result},
+! 	{CHANNELMSG_CLOSECHANNEL,		NULL},
+! 	{CHANNELMSG_GPADL_HEADER,		NULL},
+! 	{CHANNELMSG_GPADL_BODY,		NULL},
+! 	{CHANNELMSG_GPADL_CREATED,		vmbus_ongpadl_created},
+! 	{CHANNELMSG_GPADL_TEARDOWN,		NULL},
+! 	{CHANNELMSG_GPADL_TORNDOWN,		vmbus_ongpadl_torndown},
+! 	{CHANNELMSG_RELID_RELEASED,		NULL},
+! 	{CHANNELMSG_INITIATE_CONTACT,		NULL},
+! 	{CHANNELMSG_VERSION_RESPONSE,		vmbus_onversion_response},
+! 	{CHANNELMSG_UNLOAD,			NULL},
+  };
+  
+  /*
+--- 693,717 ----
+  }
+  
+  /* Channel message dispatch table */
+! struct vmbus_channel_message_table_entry
+  	channel_message_table[CHANNELMSG_COUNT] = {
+! 	{CHANNELMSG_INVALID,			0, NULL},
+! 	{CHANNELMSG_OFFERCHANNEL,		0, vmbus_onoffer},
+! 	{CHANNELMSG_RESCIND_CHANNELOFFER,	0, vmbus_onoffer_rescind},
+! 	{CHANNELMSG_REQUESTOFFERS,		0, NULL},
+! 	{CHANNELMSG_ALLOFFERS_DELIVERED,	1, vmbus_onoffers_delivered},
+! 	{CHANNELMSG_OPENCHANNEL,		0, NULL},
+! 	{CHANNELMSG_OPENCHANNEL_RESULT,		1, vmbus_onopen_result},
+! 	{CHANNELMSG_CLOSECHANNEL,		0, NULL},
+! 	{CHANNELMSG_GPADL_HEADER,		0, NULL},
+! 	{CHANNELMSG_GPADL_BODY,			0, NULL},
+! 	{CHANNELMSG_GPADL_CREATED,		1, vmbus_ongpadl_created},
+! 	{CHANNELMSG_GPADL_TEARDOWN,		0, NULL},
+! 	{CHANNELMSG_GPADL_TORNDOWN,		1, vmbus_ongpadl_torndown},
+! 	{CHANNELMSG_RELID_RELEASED,		0, NULL},
+! 	{CHANNELMSG_INITIATE_CONTACT,		0, NULL},
+! 	{CHANNELMSG_VERSION_RESPONSE,		1, vmbus_onversion_response},
+! 	{CHANNELMSG_UNLOAD,			0, NULL},
+  };
+  
+  /*
+***************
+*** 787,793 ****
+  {
+  	struct vmbus_channel_message_header *msg;
+  	struct vmbus_channel_msginfo *msginfo;
+! 	int ret, t;
+  
+  	msginfo = kmalloc(sizeof(*msginfo) +
+  			  sizeof(struct vmbus_channel_message_header),
+--- 749,755 ----
+  {
+  	struct vmbus_channel_message_header *msg;
+  	struct vmbus_channel_msginfo *msginfo;
+! 	int ret;
+  
+  	msginfo = kmalloc(sizeof(*msginfo) +
+  			  sizeof(struct vmbus_channel_message_header),
+***************
+*** 795,801 ****
+  	if (!msginfo)
+  		return -ENOMEM;
+  
+- 	init_completion(&msginfo->waitevent);
+  
+  	msg = (struct vmbus_channel_message_header *)msginfo->msg;
+  
+--- 757,762 ----
+***************
+*** 810,823 ****
+  		goto cleanup;
+  	}
+  
+- 	t = wait_for_completion_timeout(&msginfo->waitevent, 5*HZ);
+- 	if (t == 0) {
+- 		ret = -ETIMEDOUT;
+- 		goto cleanup;
+- 	}
+- 
+- 
+- 
+  cleanup:
+  	kfree(msginfo);
+  
+--- 771,776 ----
+***************
+*** 826,834 ****
+  
+  /*
+   * Retrieve the (sub) channel on which to send an outgoing request.
+!  * When a primary channel has multiple sub-channels, we choose a
+!  * channel whose VCPU binding is closest to the VCPU on which
+!  * this call is being made.
+   */
+  struct vmbus_channel *vmbus_get_outgoing_channel(struct vmbus_channel *primary)
+  {
+--- 779,786 ----
+  
+  /*
+   * Retrieve the (sub) channel on which to send an outgoing request.
+!  * When a primary channel has multiple sub-channels, we try to
+!  * distribute the load equally amongst all available channels.
+   */
+  struct vmbus_channel *vmbus_get_outgoing_channel(struct vmbus_channel *primary)
+  {
+***************
+*** 836,846 ****
+  	int cur_cpu;
+  	struct vmbus_channel *cur_channel;
+  	struct vmbus_channel *outgoing_channel = primary;
+! 	int cpu_distance, new_cpu_distance;
+  
+  	if (list_empty(&primary->sc_list))
+  		return outgoing_channel;
+  
+  	cur_cpu = hv_context.vp_index[get_cpu()];
+  	put_cpu();
+  	list_for_each_safe(cur, tmp, &primary->sc_list) {
+--- 788,806 ----
+  	int cur_cpu;
+  	struct vmbus_channel *cur_channel;
+  	struct vmbus_channel *outgoing_channel = primary;
+! 	int next_channel;
+! 	int i = 1;
+  
+  	if (list_empty(&primary->sc_list))
+  		return outgoing_channel;
+  
++ 	next_channel = primary->next_oc++;
++ 
++ 	if (next_channel > (primary->num_sc)) {
++ 		primary->next_oc = 0;
++ 		return outgoing_channel;
++ 	}
++ 
+  	cur_cpu = hv_context.vp_index[get_cpu()];
+  	put_cpu();
+  	list_for_each_safe(cur, tmp, &primary->sc_list) {
+***************
+*** 851,868 ****
+  		if (cur_channel->target_vp == cur_cpu)
+  			return cur_channel;
+  
+! 		cpu_distance = ((outgoing_channel->target_vp > cur_cpu) ?
+! 				(outgoing_channel->target_vp - cur_cpu) :
+! 				(cur_cpu - outgoing_channel->target_vp));
+! 
+! 		new_cpu_distance = ((cur_channel->target_vp > cur_cpu) ?
+! 				(cur_channel->target_vp - cur_cpu) :
+! 				(cur_cpu - cur_channel->target_vp));
+! 
+! 		if (cpu_distance < new_cpu_distance)
+! 			continue;
+  
+! 		outgoing_channel = cur_channel;
+  	}
+  
+  	return outgoing_channel;
+--- 811,820 ----
+  		if (cur_channel->target_vp == cur_cpu)
+  			return cur_channel;
+  
+! 		if (i == next_channel)
+! 			return cur_channel;
+  
+! 		i++;
+  	}
+  
+  	return outgoing_channel;
+diff -crB hv-rhel7.x/hv/connection.c hv-rhel6.x/hv/connection.c
+*** hv-rhel7.x/hv/connection.c	2015-05-14 07:05:22.416084887 -0700
+--- hv-rhel6.x/hv/connection.c	2015-05-14 07:05:22.375083056 -0700
+***************
+*** 30,37 ****
+  #include <linux/slab.h>
+  #include <linux/vmalloc.h>
+  #include "include/linux/hyperv.h"
+! #include <linux/export.h>
+! #include "include/asm/hyperv.h"
+  #include "hyperv_vmbus.h"
+  
+  
+--- 30,36 ----
+  #include <linux/slab.h>
+  #include <linux/vmalloc.h>
+  #include "include/linux/hyperv.h"
+! #include <asm/hyperv.h>
+  #include "hyperv_vmbus.h"
+  
+  
+***************
+*** 216,225 ****
+  
+  cleanup:
+  	pr_err("Unable to connect to host\n");
+  	vmbus_connection.conn_state = DISCONNECTED;
+  
+! 	if (vmbus_connection.work_queue)
+  		destroy_workqueue(vmbus_connection.work_queue);
+  
+  	if (vmbus_connection.int_page) {
+  		free_pages((unsigned long)vmbus_connection.int_page, 0);
+--- 215,235 ----
+  
+  cleanup:
+  	pr_err("Unable to connect to host\n");
++ 
+  	vmbus_connection.conn_state = DISCONNECTED;
++ 	vmbus_disconnect();
++ 
++ 	kfree(msginfo);
++ 
++ 	return ret;
++ }
+  
+! void vmbus_disconnect(void)
+! {
+! 	if (vmbus_connection.work_queue) {
+! 		flush_workqueue(vmbus_connection.work_queue);
+  		destroy_workqueue(vmbus_connection.work_queue);
++ 	}
+  
+  	if (vmbus_connection.int_page) {
+  		free_pages((unsigned long)vmbus_connection.int_page, 0);
+***************
+*** 230,239 ****
+  	free_pages((unsigned long)vmbus_connection.monitor_pages[1], 0);
+  	vmbus_connection.monitor_pages[0] = NULL;
+  	vmbus_connection.monitor_pages[1] = NULL;
+- 
+- 	kfree(msginfo);
+- 
+- 	return ret;
+  }
+  
+  /*
+--- 240,245 ----
+***************
+*** 311,320 ****
+  	 */
+  	channel = pcpu_relid2channel(relid);
+  
+! 	if (!channel) {
+! 		pr_err("channel not found for relid - %u\n", relid);
+  		return;
+- 	}
+  
+  	/*
+  	 * A channel once created is persistent even when there
+--- 317,324 ----
+  	 */
+  	channel = pcpu_relid2channel(relid);
+  
+! 	if (!channel)
+  		return;
+  
+  	/*
+  	 * A channel once created is persistent even when there
+***************
+*** 349,358 ****
+  			else
+  				bytes_to_read = 0;
+  		} while (read_state && (bytes_to_read != 0));
+- 	} else {
+- 		pr_err("no channel callback for relid - %u\n", relid);
+  	}
+- 
+  }
+  
+  /*
+--- 353,359 ----
+***************
+*** 420,426 ****
+  	union hv_connection_id conn_id;
+  	int ret = 0;
+  	int retries = 0;
+! 	u32 msec = 1;
+  
+  	conn_id.asu32 = 0;
+  	conn_id.u.id = VMBUS_MESSAGE_CONNECTION_ID;
+--- 421,427 ----
+  	union hv_connection_id conn_id;
+  	int ret = 0;
+  	int retries = 0;
+! 	int msec = 1;
+  
+  	conn_id.asu32 = 0;
+  	conn_id.u.id = VMBUS_MESSAGE_CONNECTION_ID;
+***************
+*** 434,442 ****
+  		ret = hv_post_message(conn_id, 1, buffer, buflen);
+  
+  		switch (ret) {
+  		case HV_STATUS_INSUFFICIENT_BUFFERS:
+  			ret = -ENOMEM;
+- 		case -ENOMEM:
+  			break;
+  		case HV_STATUS_SUCCESS:
+  			return ret;
+--- 435,450 ----
+  		ret = hv_post_message(conn_id, 1, buffer, buflen);
+  
+  		switch (ret) {
++ 		case HV_STATUS_INVALID_CONNECTION_ID:
++ 			/*
++ 			 * We could get this if we send messages too
++ 			 * frequently.
++ 			 */
++ 			ret = -EAGAIN;
++ 			break;
++ 		case HV_STATUS_INSUFFICIENT_MEMORY:
+  		case HV_STATUS_INSUFFICIENT_BUFFERS:
+  			ret = -ENOMEM;
+  			break;
+  		case HV_STATUS_SUCCESS:
+  			return ret;
+***************
+*** 446,453 ****
+  		}
+  
+  		retries++;
+- 		msleep(msec);
+  
+  		if (msec < 2048)
+  			msec *= 2;
+  	}
+--- 454,461 ----
+  		}
+  
+  		retries++;
+  
++ 		msleep(msec);
+  		if (msec < 2048)
+  			msec *= 2;
+  	}
+Only in hv-rhel6.x/hv/: git_add_files
+Only in hv-rhel7.x/hv/: hid-core.c
+Only in hv-rhel7.x/hv/: hid-debug.c
+diff -crB hv-rhel7.x/hv/hid-hyperv.c hv-rhel6.x/hv/hid-hyperv.c
+*** hv-rhel7.x/hv/hid-hyperv.c	2015-05-14 07:05:22.417084932 -0700
+--- hv-rhel6.x/hv/hid-hyperv.c	2015-05-14 07:05:22.395083949 -0700
+***************
+*** 381,387 ****
+  static int mousevsc_connect_to_vsp(struct hv_device *device)
+  {
+  	int ret = 0;
+! 	unsigned long t;
+  	struct mousevsc_dev *input_dev = hv_get_drvdata(device);
+  	struct mousevsc_prt_msg *request;
+  	struct mousevsc_prt_msg *response;
+--- 381,387 ----
+  static int mousevsc_connect_to_vsp(struct hv_device *device)
+  {
+  	int ret = 0;
+! 	int t;
+  	struct mousevsc_dev *input_dev = hv_get_drvdata(device);
+  	struct mousevsc_prt_msg *request;
+  	struct mousevsc_prt_msg *response;
+***************
+*** 463,484 ****
+  {
+  }
+  
+- //static int mousevsc_hid_raw_request(struct hid_device *hid,
+- //				    unsigned char report_num,
+- //				    __u8 *buf, size_t len,
+- //				    unsigned char rtype,
+- //				    int reqtype)
+- //{
+- //	return 0;
+- //}
+- 
+  static struct hid_ll_driver mousevsc_ll_driver = {
+  	.parse = mousevsc_hid_parse,
+  	.open = mousevsc_hid_open,
+  	.close = mousevsc_hid_close,
+  	.start = mousevsc_hid_start,
+  	.stop = mousevsc_hid_stop,
+- 	//.raw_request = mousevsc_hid_raw_request,
+  };
+  
+  static struct hid_driver mousevsc_hid_driver;
+--- 463,474 ----
+***************
+*** 612,617 ****
+  
+  MODULE_LICENSE("GPL");
+  MODULE_VERSION(HV_DRV_VERSION);
+! 
+  module_init(mousevsc_init);
+  module_exit(mousevsc_exit);
+--- 602,607 ----
+  
+  MODULE_LICENSE("GPL");
+  MODULE_VERSION(HV_DRV_VERSION);
+! MODULE_ALIAS("vmbus:9eb6a8cf4a5bc04cb98b8ba1a1f3f95a");
+  module_init(mousevsc_init);
+  module_exit(mousevsc_exit);
+Only in hv-rhel7.x/hv/: hid-ids.h
+Only in hv-rhel7.x/hv/: hid-input.c
+diff -crB hv-rhel7.x/hv/hv_balloon.c hv-rhel6.x/hv/hv_balloon.c
+*** hv-rhel7.x/hv/hv_balloon.c	2015-05-14 07:05:22.418084977 -0700
+--- hv-rhel6.x/hv/hv_balloon.c	2015-05-14 07:05:22.395083949 -0700
+***************
+*** 1267,1274 ****
+  		 * The host expects us to post information on the memory
+  		 * pressure every second.
+  		 */
+! 		//KYSreinit_completion(&dm_device.config_event);
+! 		dm_device.config_event.done = 0;
+  		post_status(dm);
+  	}
+  
+--- 1267,1273 ----
+  		 * The host expects us to post information on the memory
+  		 * pressure every second.
+  		 */
+! 		reinit_completion(&dm_device.config_event);
+  		post_status(dm);
+  	}
+  
+diff -crB hv-rhel7.x/hv/hv.c hv-rhel6.x/hv/hv.c
+*** hv-rhel7.x/hv/hv.c	2015-05-14 07:05:22.418084977 -0700
+--- hv-rhel6.x/hv/hv.c	2015-05-14 07:05:22.395083949 -0700
+***************
+*** 25,34 ****
+  #include <linux/mm.h>
+  #include <linux/slab.h>
+  #include <linux/vmalloc.h>
+- #include "include/linux/hyperv.h"
+  #include <linux/version.h>
+  #include <linux/interrupt.h>
+  #include <linux/clockchips.h>
+  #include "include/asm/hyperv.h"
+  #include "include/asm/mshyperv.h"
+  #include "hyperv_vmbus.h"
+--- 25,37 ----
+  #include <linux/mm.h>
+  #include <linux/slab.h>
+  #include <linux/vmalloc.h>
+  #include <linux/version.h>
+  #include <linux/interrupt.h>
++ #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
+  #include <linux/clockchips.h>
++ #endif
++ #include "include/linux/hyperv.h"
++ #include "include/uapi/linux/hyperv.h"
+  #include "include/asm/hyperv.h"
+  #include "include/asm/mshyperv.h"
+  #include "hyperv_vmbus.h"
+***************
+*** 43,48 ****
+--- 47,56 ----
+  #define HV_MAX_MAX_DELTA_TICKS 0xffffffff
+  #define HV_MIN_DELTA_TICKS 1
+  
++ #define HV_TIMER_FREQUENCY (10 * 1000 * 1000) /* 100ns period */
++ #define HV_MAX_MAX_DELTA_TICKS 0xffffffff
++ #define HV_MIN_DELTA_TICKS 1
++ 
+  /*
+   * query_hypervisor_info - Get version info of the windows hypervisor
+   */
+***************
+*** 152,157 ****
+--- 160,167 ----
+  	       sizeof(void *) * NR_CPUS);
+  	memset(hv_context.clk_evt, 0,
+  	       sizeof(void *) * NR_CPUS);
++ 	memset(hv_context.clk_evt, 0,
++ 	       sizeof(void *) * NR_CPUS);
+  
+  	max_leaf = query_hypervisor_info();
+  
+***************
+*** 164,170 ****
+--- 174,185 ----
+  	/* See if the hypercall page is already set */
+  	rdmsrl(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
+  
++ #ifdef __x86_64__
+  	virtaddr = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL_EXEC);
++ #else
++ 	virtaddr = __vmalloc(PAGE_SIZE, GFP_KERNEL,
++ 			     __pgprot(__PAGE_KERNEL & (~_PAGE_NX)));
++ #endif
+  
+  	if (!virtaddr)
+  		goto cleanup;
+***************
+*** 266,271 ****
+--- 281,287 ----
+  	return status;
+  }
+  
++ #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
+  static int hv_ce_set_next_event(unsigned long delta,
+  				struct clock_event_device *evt)
+  {
+***************
+*** 312,328 ****
+  	dev->features = CLOCK_EVT_FEAT_ONESHOT;
+  	dev->cpumask = cpumask_of(cpu);
+  	dev->rating = 1000;
+! 	dev->owner = THIS_MODULE;
+  
+  	dev->set_mode = hv_ce_setmode;
+  	dev->set_next_event = hv_ce_set_next_event;
+  }
+  
+  
+  int hv_synic_alloc(void)
+  {
+  	size_t size = sizeof(struct tasklet_struct);
+  	size_t ced_size = sizeof(struct clock_event_device);
+  	int cpu;
+  
+  	for_each_online_cpu(cpu) {
+--- 328,356 ----
+  	dev->features = CLOCK_EVT_FEAT_ONESHOT;
+  	dev->cpumask = cpumask_of(cpu);
+  	dev->rating = 1000;
+! 	/*
+! 	 * Avoid settint dev->owner = THIS_MODULE deliberately as doing so will
+! 	 * result in clockevents_config_and_register() taking additional
+! 	 * references to the hv_vmbus module making it impossible to unload.
+! 	 */
+! 	dev->shift = 31;
+! 	dev->mult = 21474836;
+! 	dev->min_delta_ns = 1000;
+! 	dev->max_delta_ns = 0xffffffff;
+! 
+  
+  	dev->set_mode = hv_ce_setmode;
+  	dev->set_next_event = hv_ce_set_next_event;
+  }
+  
++ #endif
+  
+  int hv_synic_alloc(void)
+  {
+  	size_t size = sizeof(struct tasklet_struct);
++ #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
+  	size_t ced_size = sizeof(struct clock_event_device);
++ #endif
+  	int cpu;
+  
+  	for_each_online_cpu(cpu) {
+***************
+*** 333,344 ****
+--- 361,374 ----
+  		}
+  		tasklet_init(hv_context.event_dpc[cpu], vmbus_on_event, cpu);
+  
++ #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
+  		hv_context.clk_evt[cpu] = kzalloc(ced_size, GFP_ATOMIC);
+  		if (hv_context.clk_evt[cpu] == NULL) {
+  			pr_err("Unable to allocate clock event device\n");
+  			goto err;
+  		}
+  		hv_init_clockevent_device(hv_context.clk_evt[cpu], cpu);
++ #endif
+  
+  		hv_context.synic_message_page[cpu] =
+  			(void *)get_zeroed_page(GFP_ATOMIC);
+***************
+*** 390,395 ****
+--- 420,429 ----
+  		hv_synic_free_cpu(cpu);
+  }
+  
++ #ifndef HYPERVISOR_CALLBACK_VECTOR
++ #define HYPERVISOR_CALLBACK_VECTOR (7 + IRQ0_VECTOR)
++ #endif
++ 
+  /*
+   * hv_synic_init - Initialize the Synthethic Interrupt Controller.
+   *
+***************
+*** 458,477 ****
+  
+  	INIT_LIST_HEAD(&hv_context.percpu_list[cpu]);
+  
+- #ifdef NOTYET
+  	/*
+  	 * Register the per-cpu clockevent source.
+  	 */
+  	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
+! 		clockevents_config_and_register(hv_context.clk_evt[cpu],
+! 						HV_TIMER_FREQUENCY,
+! 						HV_MIN_DELTA_TICKS,
+! 						HV_MAX_MAX_DELTA_TICKS);
+  #endif
+  	return;
+  }
+  
+  /*
+   * hv_synic_cleanup - Cleanup routine for hv_synic_init().
+   */
+  void hv_synic_cleanup(void *arg)
+--- 491,525 ----
+  
+  	INIT_LIST_HEAD(&hv_context.percpu_list[cpu]);
+  
+  	/*
+  	 * Register the per-cpu clockevent source.
+  	 */
++ #ifdef NOTYET
++ #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
+  	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
+! 		clockevents_register_device(hv_context.clk_evt[cpu]);
+! #endif
+  #endif
+  	return;
+  }
+  
+  /*
++  * hv_synic_clockevents_cleanup - Cleanup clockevent devices
++  */
++ void hv_synic_clockevents_cleanup(void)
++ {
++ #ifdef NOTYET
++ 	int cpu;
++ 
++ 	if (!(ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE))
++ 		return;
++ 
++ 	for_each_online_cpu(cpu)
++ 		clockevents_unbind_device(hv_context.clk_evt[cpu], cpu);
++ #endif
++ }
++ 
++ /*
+   * hv_synic_cleanup - Cleanup routine for hv_synic_init().
+   */
+  void hv_synic_cleanup(void *arg)
+***************
+*** 479,489 ****
+--- 527,545 ----
+  	union hv_synic_sint shared_sint;
+  	union hv_synic_simp simp;
+  	union hv_synic_siefp siefp;
++ 	union hv_synic_scontrol sctrl;
+  	int cpu = smp_processor_id();
+  
+  	if (!hv_context.synic_initialized)
+  		return;
+  
++ #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
++ 	/* Turn off clockevent device */
++ 	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
++ 		hv_ce_setmode(CLOCK_EVT_MODE_SHUTDOWN,
++ 			      hv_context.clk_evt[cpu]);
++ #endif
++ 
+  	rdmsrl(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT, shared_sint.as_uint64);
+  
+  	shared_sint.masked = 1;
+***************
+*** 504,509 ****
+  
+  	wrmsrl(HV_X64_MSR_SIEFP, siefp.as_uint64);
+  
+! 	free_page((unsigned long)hv_context.synic_message_page[cpu]);
+! 	free_page((unsigned long)hv_context.synic_event_page[cpu]);
+  }
+--- 560,569 ----
+  
+  	wrmsrl(HV_X64_MSR_SIEFP, siefp.as_uint64);
+  
+! 	/* Disable the global synic bit */
+! 	rdmsrl(HV_X64_MSR_SCONTROL, sctrl.as_uint64);
+! 	sctrl.enable = 0;
+! 	wrmsrl(HV_X64_MSR_SCONTROL, sctrl.as_uint64);
+! 
+! 	hv_synic_free_cpu(cpu);
+  }
+Only in hv-rhel7.x/hv/: hv_compat.c
+diff -crB hv-rhel7.x/hv/hv_kvp.c hv-rhel6.x/hv/hv_kvp.c
+*** hv-rhel7.x/hv/hv_kvp.c	2015-05-14 07:05:22.418084977 -0700
+--- hv-rhel6.x/hv/hv_kvp.c	2015-05-14 07:05:22.409084575 -0700
+***************
+*** 85,98 ****
+  static DECLARE_WORK(kvp_sendkey_work, kvp_send_key);
+  
+  static struct cb_id kvp_id = { CN_KVP_IDX, CN_KVP_VAL };
+! static const char kvp_name[] = "kvp_kernel_module";
+  static u8 *recv_buffer;
+  /*
+   * Register the kernel component with the user-level daemon.
+   * As part of this registration, pass the LIC version number.
+   * This number has no meaning, it satisfies the registration protocol.
+   */
+- //#define HV_DRV_VERSION           "3.1"
+  
+  static void
+  kvp_register(int reg_value)
+--- 85,97 ----
+  static DECLARE_WORK(kvp_sendkey_work, kvp_send_key);
+  
+  static struct cb_id kvp_id = { CN_KVP_IDX, CN_KVP_VAL };
+! static char kvp_name[] = "kvp_kernel_module";
+  static u8 *recv_buffer;
+  /*
+   * Register the kernel component with the user-level daemon.
+   * As part of this registration, pass the LIC version number.
+   * This number has no meaning, it satisfies the registration protocol.
+   */
+  
+  static void
+  kvp_register(int reg_value)
+***************
+*** 241,283 ****
+--- 240,314 ----
+  		/*
+  		 * Transform all parameters into utf16 encoding.
+  		 */
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
++ 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.ip_addr,
++ 				strlen((char *)in->body.kvp_ip_val.ip_addr),
++ 				(wchar_t *)out->kvp_ip_val.ip_addr);
++ #else
+  		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.ip_addr,
+  				strlen((char *)in->body.kvp_ip_val.ip_addr),
+  				UTF16_HOST_ENDIAN,
+  				(wchar_t *)out->kvp_ip_val.ip_addr,
+  				MAX_IP_ADDR_SIZE);
++ #endif
++ 
+  		if (len < 0)
+  			return len;
+  
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
++ 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.sub_net,
++ 				strlen((char *)in->body.kvp_ip_val.sub_net),
++ 				(wchar_t *)out->kvp_ip_val.sub_net);
++ #else
+  		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.sub_net,
+  				strlen((char *)in->body.kvp_ip_val.sub_net),
+  				UTF16_HOST_ENDIAN,
+  				(wchar_t *)out->kvp_ip_val.sub_net,
+  				MAX_IP_ADDR_SIZE);
++ #endif
+  		if (len < 0)
+  			return len;
+  
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
++ 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.gate_way,
++ 				strlen((char *)in->body.kvp_ip_val.gate_way),
++ 				(wchar_t *)out->kvp_ip_val.gate_way);
++ #else
+  		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.gate_way,
+  				strlen((char *)in->body.kvp_ip_val.gate_way),
+  				UTF16_HOST_ENDIAN,
+  				(wchar_t *)out->kvp_ip_val.gate_way,
+  				MAX_GATEWAY_SIZE);
++ #endif
++ 
+  		if (len < 0)
+  			return len;
+  
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
++ 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.dns_addr,
++ 				strlen((char *)in->body.kvp_ip_val.dns_addr),
++ 				(wchar_t *)out->kvp_ip_val.dns_addr);
++ #else
+  		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.dns_addr,
+  				strlen((char *)in->body.kvp_ip_val.dns_addr),
+  				UTF16_HOST_ENDIAN,
+  				(wchar_t *)out->kvp_ip_val.dns_addr,
+  				MAX_IP_ADDR_SIZE);
++ #endif
+  		if (len < 0)
+  			return len;
+  
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
++ 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.adapter_id,
++ 				strlen((char *)in->body.kvp_ip_val.adapter_id),
++ 				(wchar_t *)out->kvp_ip_val.adapter_id);
++ #else
+  		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.adapter_id,
+  				strlen((char *)in->body.kvp_ip_val.adapter_id),
+  				UTF16_HOST_ENDIAN,
+  				(wchar_t *)out->kvp_ip_val.adapter_id,
+  				MAX_IP_ADDR_SIZE);
++ #endif
+  		if (len < 0)
+  			return len;
+  
+***************
+*** 560,575 ****
+--- 591,616 ----
+  	 * will be less than or equal to the MAX size (including the
+  	 * terminating character).
+  	 */
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
++ 	keylen = utf8s_to_utf16s(key_name, strlen(key_name),
++ 				(wchar_t *) kvp_data->key);
++ #else
+  	keylen = utf8s_to_utf16s(key_name, strlen(key_name), UTF16_HOST_ENDIAN,
+  				(wchar_t *) kvp_data->key,
+  				(HV_KVP_EXCHANGE_MAX_KEY_SIZE / 2) - 2);
++ #endif
+  	kvp_data->key_size = 2*(keylen + 1); /* utf16 encoding */
+  
+  copy_value:
+  	value = msg_to_host->body.kvp_enum_data.data.value;
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
++ 	valuelen = utf8s_to_utf16s(value, strlen(value),
++ 				(wchar_t *) kvp_data->value);
++ #else
+  	valuelen = utf8s_to_utf16s(value, strlen(value), UTF16_HOST_ENDIAN,
+  				(wchar_t *) kvp_data->value,
+  				(HV_KVP_EXCHANGE_MAX_VALUE_SIZE / 2) - 2);
++ #endif
+  	kvp_data->value_size = 2*(valuelen + 1); /* utf16 encoding */
+  
+  	/*
+diff -crB hv-rhel7.x/hv/hv_snapshot.c hv-rhel6.x/hv/hv_snapshot.c
+*** hv-rhel7.x/hv/hv_snapshot.c	2015-05-14 07:05:22.418084977 -0700
+--- hv-rhel6.x/hv/hv_snapshot.c	2015-05-14 07:05:22.409084575 -0700
+***************
+*** 51,57 ****
+  static void vss_respond_to_host(int error);
+  
+  static struct cb_id vss_id = { CN_VSS_IDX, CN_VSS_VAL };
+! static const char vss_name[] = "vss_kernel_module";
+  static __u8 *recv_buffer;
+  
+  static void vss_send_op(struct work_struct *dummy);
+--- 51,57 ----
+  static void vss_respond_to_host(int error);
+  
+  static struct cb_id vss_id = { CN_VSS_IDX, CN_VSS_VAL };
+! static char vss_name[] = "vss_kernel_module";
+  static __u8 *recv_buffer;
+  
+  static void vss_send_op(struct work_struct *dummy);
+Only in hv-rhel7.x/hv/: hv_timesource.c
+diff -crB hv-rhel7.x/hv/hv_util.c hv-rhel6.x/hv/hv_util.c
+*** hv-rhel7.x/hv/hv_util.c	2015-05-14 07:05:22.418084977 -0700
+--- hv-rhel6.x/hv/hv_util.c	2015-05-14 07:05:22.410084619 -0700
+***************
+*** 340,351 ****
+  
+  	set_channel_read_state(dev->channel, false);
+  
+- 	ret = vmbus_open(dev->channel, 4 * PAGE_SIZE, 4 * PAGE_SIZE, NULL, 0,
+- 			srv->util_cb, dev->channel);
+- 	if (ret)
+- 		goto error;
+- 
+  	hv_set_drvdata(dev, srv);
+  	/*
+  	 * Based on the host; initialize the framework and
+  	 * service version numbers we will negotiate.
+--- 340,347 ----
+  
+  	set_channel_read_state(dev->channel, false);
+  
+  	hv_set_drvdata(dev, srv);
++ 
+  	/*
+  	 * Based on the host; initialize the framework and
+  	 * service version numbers we will negotiate.
+***************
+*** 365,370 ****
+--- 361,371 ----
+  		hb_srv_version = HB_VERSION;
+  	}
+  
++ 	ret = vmbus_open(dev->channel, 4 * PAGE_SIZE, 4 * PAGE_SIZE, NULL, 0,
++ 			srv->util_cb, dev->channel);
++ 	if (ret)
++ 		goto error;
++ 
+  	return 0;
+  
+  error:
+***************
+*** 379,387 ****
+  {
+  	struct hv_util_service *srv = hv_get_drvdata(dev);
+  
+- 	vmbus_close(dev->channel);
+  	if (srv->util_deinit)
+  		srv->util_deinit();
+  	kfree(srv->recv_buffer);
+  
+  	return 0;
+--- 380,388 ----
+  {
+  	struct hv_util_service *srv = hv_get_drvdata(dev);
+  
+  	if (srv->util_deinit)
+  		srv->util_deinit();
++ 	vmbus_close(dev->channel);
+  	kfree(srv->recv_buffer);
+  
+  	return 0;
+***************
+*** 445,447 ****
+--- 446,454 ----
+  MODULE_DESCRIPTION("Hyper-V Utilities");
+  MODULE_LICENSE("GPL");
+  MODULE_VERSION(HV_DRV_VERSION);
++ MODULE_LICENSE("GPL");
++ MODULE_ALIAS("vmbus:31600b0e13523449818b38d90ced39db");
++ MODULE_ALIAS("vmbus:30e62795aed07b49adcee80ab0175caf");
++ MODULE_ALIAS("vmbus:394f16571591784eab55382f3bd5422d");
++ MODULE_ALIAS("vmbus:e7f4a0a9455a964db8278a841e8c03e6");
++ MODULE_ALIAS("vmbus:292efa3523ea364296ae3a6ebacba440");
+Only in hv-rhel6.x/hv/: hyperv.conf
+diff -crB hv-rhel7.x/hv/hyperv_fb.c hv-rhel6.x/hv/hyperv_fb.c
+*** hv-rhel7.x/hv/hyperv_fb.c	2015-05-14 07:05:22.419085021 -0700
+--- hv-rhel6.x/hv/hyperv_fb.c	2015-05-14 07:05:22.410084619 -0700
+***************
+*** 680,686 ****
+  	struct hvfb_par *par = info->par;
+  	struct pci_dev *pdev  = NULL;
+  	void __iomem *fb_virt;
+! 	int gen2vm = efi_enabled(EFI_BOOT);
+  	int ret;
+  
+  	par->mem.name = KBUILD_MODNAME;
+--- 680,686 ----
+  	struct hvfb_par *par = info->par;
+  	struct pci_dev *pdev  = NULL;
+  	void __iomem *fb_virt;
+! 	int gen2vm = using_null_legacy_pic;
+  	int ret;
+  
+  	par->mem.name = KBUILD_MODNAME;
+***************
+*** 720,737 ****
+  	if (!fb_virt)
+  		goto err2;
+  
+- 	info->apertures = alloc_apertures(1);
+- 	if (!info->apertures)
+- 		goto err3;
+  
+  	if (gen2vm) {
+! 		info->apertures->ranges[0].base = screen_info.lfb_base;
+! 		info->apertures->ranges[0].size = screen_info.lfb_size;
+! 		remove_conflicting_framebuffers(info->apertures,
+! 						KBUILD_MODNAME, false);
+  	} else {
+! 		info->apertures->ranges[0].base = pci_resource_start(pdev, 0);
+! 		info->apertures->ranges[0].size = pci_resource_len(pdev, 0);
+  	}
+  
+  	info->fix.smem_start = par->mem.start;
+--- 720,732 ----
+  	if (!fb_virt)
+  		goto err2;
+  
+  
+  	if (gen2vm) {
+! 		info->aperture_base = screen_info.lfb_base;
+! 		info->aperture_size = screen_info.lfb_size;
+  	} else {
+! 		info->aperture_base = pci_resource_start(pdev, 0);
+! 		info->aperture_size = pci_resource_len(pdev, 0);
+  	}
+  
+  	info->fix.smem_start = par->mem.start;
+***************
+*** 744,751 ****
+  
+  	return 0;
+  
+- err3:
+- 	iounmap(fb_virt);
+  err2:
+  	release_resource(&par->mem);
+  err1:
+--- 739,744 ----
+***************
+*** 960,964 ****
+  module_exit(hvfb_drv_exit);
+  
+  MODULE_LICENSE("GPL");
+- MODULE_VERSION(HV_DRV_VERSION);
+  MODULE_DESCRIPTION("Microsoft Hyper-V Synthetic Video Frame Buffer Driver");
+--- 953,958 ----
+  module_exit(hvfb_drv_exit);
+  
+  MODULE_LICENSE("GPL");
+  MODULE_DESCRIPTION("Microsoft Hyper-V Synthetic Video Frame Buffer Driver");
++ MODULE_VERSION(HV_DRV_VERSION);
++ MODULE_ALIAS("vmbus:02780ada77e3ac4a8e770558eb1073f8");
+diff -crB hv-rhel7.x/hv/hyperv-keyboard.c hv-rhel6.x/hv/hyperv-keyboard.c
+*** hv-rhel7.x/hv/hyperv-keyboard.c	2015-05-14 07:05:22.418084977 -0700
+--- hv-rhel6.x/hv/hyperv-keyboard.c	2015-05-14 07:05:22.410084619 -0700
+***************
+*** 449,454 ****
+  
+  MODULE_LICENSE("GPL");
+  MODULE_VERSION(HV_DRV_VERSION);
+! 
+  module_init(hv_kbd_init);
+  module_exit(hv_kbd_exit);
+--- 449,454 ----
+  
+  MODULE_LICENSE("GPL");
+  MODULE_VERSION(HV_DRV_VERSION);
+! MODULE_ALIAS("vmbus:6dad12f9172bea48bd65f927a61c7684");
+  module_init(hv_kbd_init);
+  module_exit(hv_kbd_exit);
+diff -crB hv-rhel7.x/hv/hyperv_net.h hv-rhel6.x/hv/hyperv_net.h
+*** hv-rhel7.x/hv/hyperv_net.h	2015-05-14 07:05:22.419085021 -0700
+--- hv-rhel6.x/hv/hyperv_net.h	2015-05-14 07:05:22.410084619 -0700
+***************
+*** 26,32 ****
+  
+  #include <linux/list.h>
+  #include "include/linux/hyperv.h"
+! #include "include/linux/rndis.h"
+  
+  /* RSS related */
+  #define OID_GEN_RECEIVE_SCALE_CAPABILITIES 0x00010203  /* query only */
+--- 26,32 ----
+  
+  #include <linux/list.h>
+  #include "include/linux/hyperv.h"
+! #include <linux/rndis.h>
+  
+  /* RSS related */
+  #define OID_GEN_RECEIVE_SCALE_CAPABILITIES 0x00010203  /* query only */
+***************
+*** 184,190 ****
+  int netvsc_device_add(struct hv_device *device, void *additional_info);
+  int netvsc_device_remove(struct hv_device *device);
+  int netvsc_send(struct hv_device *device,
+! 		struct hv_netvsc_packet *packet);
+  void netvsc_linkstatus_callback(struct hv_device *device_obj,
+  				struct rndis_message *resp);
+  int netvsc_recv_callback(struct hv_device *device_obj,
+--- 184,190 ----
+  int netvsc_device_add(struct hv_device *device, void *additional_info);
+  int netvsc_device_remove(struct hv_device *device);
+  int netvsc_send(struct hv_device *device,
+! 		struct hv_netvsc_packet *packet, bool kick_q);
+  void netvsc_linkstatus_callback(struct hv_device *device_obj,
+  				struct rndis_message *resp);
+  int netvsc_recv_callback(struct hv_device *device_obj,
+Only in hv-rhel6.x/hv/: hyperv_pvdrivers.conf
+diff -crB hv-rhel7.x/hv/hyperv_vmbus.h hv-rhel6.x/hv/hyperv_vmbus.h
+*** hv-rhel7.x/hv/hyperv_vmbus.h	2015-05-14 07:05:22.419085021 -0700
+--- hv-rhel6.x/hv/hyperv_vmbus.h	2015-05-14 07:05:22.411084664 -0700
+***************
+*** 28,34 ****
+  #include <linux/list.h>
+  #include <asm/sync_bitops.h>
+  #include <linux/atomic.h>
+! #include "include/linux/hyperv.h"
+  
+  /*
+   * The below CPUID leaves are present if VersionAndFeatures.HypervisorPresent
+--- 28,34 ----
+  #include <linux/list.h>
+  #include <asm/sync_bitops.h>
+  #include <linux/atomic.h>
+! #include <linux/hyperv.h>
+  
+  /*
+   * The below CPUID leaves are present if VersionAndFeatures.HypervisorPresent
+***************
+*** 49,54 ****
+--- 49,65 ----
+  	HVCPUID_IMPLEMENTATION_LIMITS		= 0x40000005,
+  };
+  
++ #define  HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE   0x400
++ 
++ #define HV_X64_MSR_CRASH_P0   0x40000100
++ #define HV_X64_MSR_CRASH_P1   0x40000101
++ #define HV_X64_MSR_CRASH_P2   0x40000102
++ #define HV_X64_MSR_CRASH_P3   0x40000103
++ #define HV_X64_MSR_CRASH_P4   0x40000104
++ #define HV_X64_MSR_CRASH_CTL  0x40000105
++ 
++ #define HV_CRASH_CTL_CRASH_NOTIFY (1ULL << 63)
++ 
+  /* Define version of the synthetic interrupt controller. */
+  #define HV_SYNIC_VERSION		(1)
+  
+***************
+*** 544,557 ****
+  
+  extern struct hv_context hv_context;
+  
+- struct hv_ring_buffer_debug_info {
+- 	u32 current_interrupt_mask;
+- 	u32 current_read_index;
+- 	u32 current_write_index;
+- 	u32 bytes_avail_toread;
+- 	u32 bytes_avail_towrite;
+- };
+- 
+  /* Hv Interface */
+  
+  extern int hv_init(void);
+--- 555,560 ----
+***************
+*** 572,577 ****
+--- 575,582 ----
+  
+  extern void hv_synic_cleanup(void *arg);
+  
++ extern void hv_synic_clockevents_cleanup(void);
++ 
+  /*
+   * Host version information.
+   */
+***************
+*** 672,677 ****
+--- 677,701 ----
+  
+  extern struct vmbus_connection vmbus_connection;
+  
++ enum vmbus_message_handler_type {
++ 	/* The related handler can sleep. */
++ 	VMHT_BLOCKING = 0,
++ 
++ 	/* The related handler must NOT sleep. */
++ 	VMHT_NON_BLOCKING = 1,
++ };
++ 
++ struct vmbus_channel_message_table_entry {
++ 	enum vmbus_channel_message_type message_type;
++ 	enum vmbus_message_handler_type handler_type;
++ 	void (*message_handler)(struct vmbus_channel_message_header *msg);
++ };
++ 
++ extern struct vmbus_channel_message_table_entry
++ 	channel_message_table[CHANNELMSG_COUNT];
++ 
++ 
++ 
+  /* General vmbus interface */
+  
+  struct hv_device *vmbus_device_create(const uuid_le *type,
+***************
+*** 692,697 ****
+--- 716,722 ----
+  /* Connection interface */
+  
+  int vmbus_connect(void);
++ void vmbus_disconnect(void);
+  
+  int vmbus_post_msg(void *buffer, size_t buflen);
+  
+diff -crB hv-rhel7.x/hv/include/asm/hyperv.h hv-rhel6.x/hv/include/asm/hyperv.h
+*** hv-rhel7.x/hv/include/asm/hyperv.h	2015-05-14 07:05:22.419085021 -0700
+--- hv-rhel6.x/hv/include/asm/hyperv.h	2015-05-14 07:05:22.411084664 -0700
+***************
+*** 225,230 ****
+--- 225,232 ----
+  #define HV_STATUS_INVALID_HYPERCALL_CODE	2
+  #define HV_STATUS_INVALID_HYPERCALL_INPUT	3
+  #define HV_STATUS_INVALID_ALIGNMENT		4
++ #define HV_STATUS_INSUFFICIENT_MEMORY		11
++ #define HV_STATUS_INVALID_CONNECTION_ID		18
+  #define HV_STATUS_INSUFFICIENT_BUFFERS		19
+  
+  typedef struct _HV_REFERENCE_TSC_PAGE {
+diff -crB hv-rhel7.x/hv/include/asm/mshyperv.h hv-rhel6.x/hv/include/asm/mshyperv.h
+*** hv-rhel7.x/hv/include/asm/mshyperv.h	2015-05-14 07:05:22.419085021 -0700
+--- hv-rhel6.x/hv/include/asm/mshyperv.h	2015-05-14 07:05:22.411084664 -0700
+***************
+*** 16,21 ****
+--- 16,23 ----
+  #ifdef CONFIG_TRACING
+  #define trace_hyperv_callback_vector hyperv_callback_vector
+  #endif
++ void hv_register_vmbus_handler(int irq, irq_handler_t handler);
++ 
+  void hyperv_vector_handler(struct pt_regs *regs);
+  void hv_setup_vmbus_irq(void (*handler)(void));
+  void hv_remove_vmbus_irq(void);
+diff -crB hv-rhel7.x/hv/include/linux/atomic.h hv-rhel6.x/hv/include/linux/atomic.h
+*** hv-rhel7.x/hv/include/linux/atomic.h	2015-05-14 07:05:22.419085021 -0700
+--- hv-rhel6.x/hv/include/linux/atomic.h	2015-05-14 07:05:22.411084664 -0700
+***************
+*** 1,131 ****
+- /* Atomic operations usable in machine independent code */
+  #ifndef _LINUX_ATOMIC_H
+  #define _LINUX_ATOMIC_H
+- #include <asm-generic/atomic.h>
+  
+! /**
+!  * atomic_add_unless - add unless the number is already a given value
+!  * @v: pointer of type atomic_t
+!  * @a: the amount to add to v...
+!  * @u: ...unless v is equal to u.
+!  *
+!  * Atomically adds @a to @v, so long as @v was not already @u.
+!  * Returns non-zero if @v was not @u, and zero otherwise.
+!  */
+! static inline int atomic_add_unless(atomic_t *v, int a, int u)
+! {
+! 	return __atomic_add_unless(v, a, u) != u;
+! }
+  
+- /**
+-  * atomic_inc_not_zero - increment unless the number is zero
+-  * @v: pointer of type atomic_t
+-  *
+-  * Atomically increments @v by 1, so long as @v is non-zero.
+-  * Returns non-zero if @v was non-zero, and zero otherwise.
+-  */
+- #ifndef atomic_inc_not_zero
+- #define atomic_inc_not_zero(v)		atomic_add_unless((v), 1, 0)
+- #endif
+- 
+- /**
+-  * atomic_inc_not_zero_hint - increment if not null
+-  * @v: pointer of type atomic_t
+-  * @hint: probable value of the atomic before the increment
+-  *
+-  * This version of atomic_inc_not_zero() gives a hint of probable
+-  * value of the atomic. This helps processor to not read the memory
+-  * before doing the atomic read/modify/write cycle, lowering
+-  * number of bus transactions on some arches.
+-  *
+-  * Returns: 0 if increment was not done, 1 otherwise.
+-  */
+- #ifndef atomic_inc_not_zero_hint
+- static inline int atomic_inc_not_zero_hint(atomic_t *v, int hint)
+- {
+- 	int val, c = hint;
+- 
+- 	/* sanity test, should be removed by compiler if hint is a constant */
+- 	if (!hint)
+- 		return atomic_inc_not_zero(v);
+- 
+- 	do {
+- 		val = atomic_cmpxchg(v, c, c + 1);
+- 		if (val == c)
+- 			return 1;
+- 		c = val;
+- 	} while (c);
+- 
+- 	return 0;
+- }
+- #endif
+- 
+- #ifndef atomic_inc_unless_negative
+- static inline int atomic_inc_unless_negative(atomic_t *p)
+- {
+- 	int v, v1;
+- 	for (v = 0; v >= 0; v = v1) {
+- 		v1 = atomic_cmpxchg(p, v, v + 1);
+- 		if (likely(v1 == v))
+- 			return 1;
+- 	}
+- 	return 0;
+- }
+- #endif
+- 
+- #ifndef atomic_dec_unless_positive
+- static inline int atomic_dec_unless_positive(atomic_t *p)
+- {
+- 	int v, v1;
+- 	for (v = 0; v <= 0; v = v1) {
+- 		v1 = atomic_cmpxchg(p, v, v - 1);
+- 		if (likely(v1 == v))
+- 			return 1;
+- 	}
+- 	return 0;
+- }
+- #endif
+- 
+- /*
+-  * atomic_dec_if_positive - decrement by 1 if old value positive
+-  * @v: pointer of type atomic_t
+-  *
+-  * The function returns the old value of *v minus 1, even if
+-  * the atomic variable, v, was not decremented.
+-  */
+- #ifndef atomic_dec_if_positive
+- static inline int atomic_dec_if_positive(atomic_t *v)
+- {
+- 	int c, old, dec;
+- 	c = atomic_read(v);
+- 	for (;;) {
+- 		dec = c - 1;
+- 		if (unlikely(dec < 0))
+- 			break;
+- 		old = atomic_cmpxchg((v), c, dec);
+- 		if (likely(old == c))
+- 			break;
+- 		c = old;
+- 	}
+- 	return dec;
+- }
+- #endif
+- 
+- #ifndef CONFIG_ARCH_HAS_ATOMIC_OR
+- static inline void atomic_or(int i, atomic_t *v)
+- {
+- 	int old;
+- 	int new;
+- 
+- 	do {
+- 		old = atomic_read(v);
+- 		new = old | i;
+- 	} while (atomic_cmpxchg(v, old, new) != old);
+- }
+- #endif /* #ifndef CONFIG_ARCH_HAS_ATOMIC_OR */
+- 
+- #include <asm-generic/atomic-long.h>
+- #ifdef CONFIG_GENERIC_ATOMIC64
+- #include <asm-generic/atomic64.h>
+- #endif
+  #endif /* _LINUX_ATOMIC_H */
+--- 1,6 ----
+  #ifndef _LINUX_ATOMIC_H
+  #define _LINUX_ATOMIC_H
+  
+! #include <asm/atomic.h>
+  
+  #endif /* _LINUX_ATOMIC_H */
+Only in hv-rhel7.x/hv/include/linux: hid-debug.h
+Only in hv-rhel7.x/hv/include/linux: hid.h
+Only in hv-rhel7.x/hv/include/linux: hidraw.h
+diff -crB hv-rhel7.x/hv/include/linux/hv_compat.h hv-rhel6.x/hv/include/linux/hv_compat.h
+*** hv-rhel7.x/hv/include/linux/hv_compat.h	2015-05-14 07:05:22.420085066 -0700
+--- hv-rhel6.x/hv/include/linux/hv_compat.h	2015-05-14 07:05:22.411084664 -0700
+***************
+*** 4,11 ****
+  
+  #include <linux/version.h>
+  
+! //#if LINUX_VERSION_CODE <= KERNEL_VERSION(2, 6, 35)
+! #if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 10, 0)
+  
+  #define CN_KVP_IDX	0x9
+  #define CN_KVP_VAL	0x1
+--- 4,10 ----
+  
+  #include <linux/version.h>
+  
+! #if LINUX_VERSION_CODE <= KERNEL_VERSION(2, 6, 35)
+  
+  #define CN_KVP_IDX	0x9
+  #define CN_KVP_VAL	0x1
+***************
+*** 109,121 ****
+  #endif
+  
+  bool netvsc_set_hash(u32 *hash, struct sk_buff *skb);
+- 
+- 
+- #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1793) // 1542)
+  static inline __u32
+  skb_get_hash(struct sk_buff *skb)
+  {
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1792) // 1542)
+          return skb->hash;
+  #else
+  	__u32 hash;
+--- 108,117 ----
+  #endif
+  
+  bool netvsc_set_hash(u32 *hash, struct sk_buff *skb);
+  static inline __u32
+  skb_get_hash(struct sk_buff *skb)
+  {
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1542)
+          return skb->hash;
+  #else
+  	__u32 hash;
+***************
+*** 124,136 ****
+  	return 0;
+  #endif
+  }
+- #endif
+  
+- #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1792)
+  static inline void pm_wakeup_event(struct device *dev, unsigned int msec)
+  {
+  }
+- #endif
+  
+  #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540)
+  static inline int kstrtouint(const char *s, unsigned int base, unsigned int *res)
+--- 120,129 ----
+***************
+*** 146,181 ****
+  
+  #define PTE_SHIFT ilog2(PTRS_PER_PTE)
+  
+- #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1792)
+  static inline void reinit_completion(struct completion *x)
+  {
+  	x->done = 0;
+  }
+- #endif
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1792)
+  static inline int page_level_shift(int level)
+  {
+          return (PAGE_SHIFT - PTE_SHIFT) + level * PTE_SHIFT;
+  }
+- #endif
+- 
+  
+- #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1792)
+  static inline unsigned long page_level_size(int level)
+  {
+  	return 1UL << page_level_shift(level);
+  }
+- #endif
+  
+- #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1792)
+  static inline unsigned long page_level_mask(int level)
+  {
+  	return ~(page_level_size(level) - 1);
+  }
+- #endif
+  
+- #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1792)
+  static inline phys_addr_t slow_virt_to_phys(void *__virt_addr)
+  {
+  	unsigned long virt_addr = (unsigned long)__virt_addr;
+--- 139,165 ----
+  
+  #define PTE_SHIFT ilog2(PTRS_PER_PTE)
+  
+  static inline void reinit_completion(struct completion *x)
+  {
+  	x->done = 0;
+  }
+  
+! 
+  static inline int page_level_shift(int level)
+  {
+          return (PAGE_SHIFT - PTE_SHIFT) + level * PTE_SHIFT;
+  }
+  
+  static inline unsigned long page_level_size(int level)
+  {
+  	return 1UL << page_level_shift(level);
+  }
+  
+  static inline unsigned long page_level_mask(int level)
+  {
+  	return ~(page_level_size(level) - 1);
+  }
+  
+  static inline phys_addr_t slow_virt_to_phys(void *__virt_addr)
+  {
+  	unsigned long virt_addr = (unsigned long)__virt_addr;
+***************
+*** 194,200 ****
+  	phys_addr = (phys_addr_t)pte_pfn(*pte) << PAGE_SHIFT;
+  	return (phys_addr | offset);
+  }
+- #endif
+  
+  #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540)
+  /*
+--- 178,183 ----
+diff -crB hv-rhel7.x/hv/include/linux/hyperv.h hv-rhel6.x/hv/include/linux/hyperv.h
+*** hv-rhel7.x/hv/include/linux/hyperv.h	2015-05-14 07:05:22.420085066 -0700
+--- hv-rhel6.x/hv/include/linux/hyperv.h	2015-05-14 07:05:22.411084664 -0700
+***************
+*** 26,31 ****
+--- 26,32 ----
+  #define _HYPERV_H
+  
+  #include "../uapi/linux/hyperv.h"
++ #include "../asm/hyperv.h"
+  
+  #include <linux/types.h>
+  #include <linux/scatterlist.h>
+***************
+*** 127,132 ****
+--- 128,141 ----
+  	u32 ring_data_startoffset;
+  };
+  
++ struct hv_ring_buffer_debug_info {
++ 	u32 current_interrupt_mask;
++ 	u32 current_read_index;
++ 	u32 current_write_index;
++ 	u32 bytes_avail_toread;
++ 	u32 bytes_avail_towrite;
++ };
++ 
+  /*
+   *
+   * hv_get_ringbuffer_availbytes()
+***************
+*** 590,595 ****
+--- 599,621 ----
+  	CHANNEL_OPENED_STATE,
+  };
+  
++ struct vmbus_channel_debug_info {
++ 	u32 relid;
++ 	enum vmbus_channel_state state;
++ 	uuid_le interfacetype;
++ 	uuid_le interface_instance;
++ 	u32 monitorid;
++ 	u32 servermonitor_pending;
++ 	u32 servermonitor_latency;
++ 	u32 servermonitor_connectionid;
++ 	u32 clientmonitor_pending;
++ 	u32 clientmonitor_latency;
++ 	u32 clientmonitor_connectionid;
++ 
++ 	struct hv_ring_buffer_debug_info inbound;
++ 	struct hv_ring_buffer_debug_info outbound;
++ };
++ 
+  /*
+   * Represents each channel msg on the vmbus connection This is a
+   * variable-size data structure depending on the msg type itself
+***************
+*** 646,657 ****
+  };
+  
+  struct vmbus_channel {
+  	struct list_head listentry;
+  
+  	struct hv_device *device_obj;
+  
+- 	struct work_struct work;
+- 
+  	enum vmbus_channel_state state;
+  
+  	struct vmbus_channel_offer_channel offermsg;
+--- 672,684 ----
+  };
+  
+  struct vmbus_channel {
++ 	/* Unique channel id */
++ 	int id;
++ 
+  	struct list_head listentry;
+  
+  	struct hv_device *device_obj;
+  
+  	enum vmbus_channel_state state;
+  
+  	struct vmbus_channel_offer_channel offermsg;
+***************
+*** 672,678 ****
+  	struct hv_ring_buffer_info outbound;	/* send to parent */
+  	struct hv_ring_buffer_info inbound;	/* receive from parent */
+  	spinlock_t inbound_lock;
+- 	struct workqueue_struct *controlwq;
+  
+  	struct vmbus_close_msg close_msg;
+  
+--- 699,704 ----
+***************
+*** 758,763 ****
+--- 784,792 ----
+  	 * link up channels based on their CPU affinity.
+  	 */
+  	struct list_head percpu_list;
++ 
++ 	int num_sc;
++ 	int next_oc;
+  };
+  
+  static inline void set_channel_read_state(struct vmbus_channel *c, bool state)
+***************
+*** 861,866 ****
+--- 890,903 ----
+  				  enum vmbus_packet_type type,
+  				  u32 flags);
+  
++ extern int vmbus_sendpacket_ctl(struct vmbus_channel *channel,
++ 				  void *buffer,
++ 				  u32 bufferLen,
++ 				  u64 requestid,
++ 				  enum vmbus_packet_type type,
++ 				  u32 flags,
++ 				  bool kick_q);
++ 
+  extern int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
+  					    struct hv_page_buffer pagebuffers[],
+  					    u32 pagecount,
+***************
+*** 868,873 ****
+--- 905,919 ----
+  					    u32 bufferlen,
+  					    u64 requestid);
+  
++ extern int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
++ 					   struct hv_page_buffer pagebuffers[],
++ 					   u32 pagecount,
++ 					   void *buffer,
++ 					   u32 bufferlen,
++ 					   u64 requestid,
++ 					   u32 flags,
++ 					   bool kick_q);
++ 
+  extern int vmbus_sendpacket_multipagebuffer(struct vmbus_channel *channel,
+  					struct hv_multipage_buffer *mpb,
+  					void *buffer,
+***************
+*** 904,909 ****
+--- 950,967 ----
+  
+  extern void vmbus_ontimer(unsigned long data);
+  
++ extern void vmbus_get_debug_info(struct vmbus_channel *channel,
++ 				struct vmbus_channel_debug_info *debug);
++ 
++ struct hv_dev_port_info {
++ 	u32 int_mask;
++ 	u32 read_idx;
++ 	u32 write_idx;
++ 	u32 bytes_avail_toread;
++ 	u32 bytes_avail_towrite;
++ };
++ 
++ 
+  /* Base driver object */
+  struct hv_driver {
+  	const char *name;
+***************
+*** 1107,1112 ****
+--- 1165,1180 ----
+  		}
+  
+  /*
++  * NetworkDirect. This is the guest RDMA service.
++  * {8c2eaf3d-32a7-4b09-ab99-bd1f1c86b501}
++  */
++ #define HV_ND_GUID \
++ 	.guid = { \
++ 			0x3d, 0xaf, 0x2e, 0x8c, 0xa7, 0x32, 0x09, 0x4b, \
++ 			0xab, 0x99, 0xbd, 0x1f, 0x1c, 0x86, 0xb5, 0x01 \
++ 		}
++ 
++ /*
+   * Common header for Hyper-V ICs
+   */
+  
+***************
+*** 1213,1218 ****
+--- 1281,1287 ----
+  int hv_vss_init(struct hv_util_service *);
+  void hv_vss_deinit(void);
+  void hv_vss_onchannelcallback(void *);
++ void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid);
+  
+  extern struct resource hyperv_mmio;
+  
+diff -crB hv-rhel7.x/hv/include/uapi/linux/hyperv.h hv-rhel6.x/hv/include/uapi/linux/hyperv.h
+*** hv-rhel7.x/hv/include/uapi/linux/hyperv.h	2015-05-14 07:05:22.421085111 -0700
+--- hv-rhel6.x/hv/include/uapi/linux/hyperv.h	2015-05-14 07:05:22.413084753 -0700
+***************
+*** 25,34 ****
+  #ifndef _UAPI_HYPERV_H
+  #define _UAPI_HYPERV_H
+  
+! #include <linux/uuid.h>
+! 
+  #include <linux/version.h>
+! #if LINUX_VERSION_CODE <= KERNEL_VERSION(3,10,0)
+  #include "../../linux/hv_compat.h"
+  #endif
+  
+--- 25,34 ----
+  #ifndef _UAPI_HYPERV_H
+  #define _UAPI_HYPERV_H
+  
+! #include "uuid.h"
+  #include <linux/version.h>
+! 
+! #if LINUX_VERSION_CODE <= KERNEL_VERSION(2, 6, 35)
+  #include "../../linux/hv_compat.h"
+  #endif
+  
+diff -crB hv-rhel7.x/hv/include/uapi/linux/uuid.h hv-rhel6.x/hv/include/uapi/linux/uuid.h
+*** hv-rhel7.x/hv/include/uapi/linux/uuid.h	2015-05-14 07:05:22.422085155 -0700
+--- hv-rhel6.x/hv/include/uapi/linux/uuid.h	2015-05-14 07:05:22.413084753 -0700
+***************
+*** 18,25 ****
+   * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+   */
+  
+! #ifndef _UAPI_LINUX_UUID_H_
+! #define _UAPI_LINUX_UUID_H_
+  
+  #include <linux/types.h>
+  #include <linux/string.h>
+--- 18,25 ----
+   * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+   */
+  
+! #ifndef _LINUX_UUID_H_
+! #define _LINUX_UUID_H_
+  
+  #include <linux/types.h>
+  #include <linux/string.h>
+***************
+*** 54,58 ****
+  	UUID_BE(0x00000000, 0x0000, 0x0000, 0x00, 0x00, 0x00, 0x00,	\
+  		0x00, 0x00, 0x00, 0x00)
+  
+  
+! #endif /* _UAPI_LINUX_UUID_H_ */
+--- 54,74 ----
+  	UUID_BE(0x00000000, 0x0000, 0x0000, 0x00, 0x00, 0x00, 0x00,	\
+  		0x00, 0x00, 0x00, 0x00)
+  
++ #ifdef __KERNEL__
+  
+! static inline int uuid_le_cmp(const uuid_le u1, const uuid_le u2)
+! {
+! 	return memcmp(&u1, &u2, sizeof(uuid_le));
+! }
+! 
+! static inline int uuid_be_cmp(const uuid_be u1, const uuid_be u2)
+! {
+! 	return memcmp(&u1, &u2, sizeof(uuid_be));
+! }
+! 
+! extern void uuid_le_gen(uuid_le *u);
+! extern void uuid_be_gen(uuid_be *u);
+! 
+! #endif /* __KERNEL__ */
+! 
+! #endif
+diff -crB hv-rhel7.x/hv/Makefile hv-rhel6.x/hv/Makefile
+*** hv-rhel7.x/hv/Makefile	2015-05-14 07:05:22.415084843 -0700
+--- hv-rhel6.x/hv/Makefile	2015-05-14 07:05:22.374083012 -0700
+***************
+*** 7,13 ****
+  obj-m	+= hid-hyperv.o
+  obj-m	+= hyperv_fb.o
+  obj-m	+= hv_balloon.o
+! obj-m	+= hyperv-keyboard.o 
+  
+  hv_vmbus-y := vmbus_drv.o \
+  		 hv.o connection.o channel.o \
+--- 7,13 ----
+  obj-m	+= hid-hyperv.o
+  obj-m	+= hyperv_fb.o
+  obj-m	+= hv_balloon.o
+! obj-m	+= hyperv-keyboard.o
+  
+  hv_vmbus-y := vmbus_drv.o \
+  		 hv.o connection.o channel.o \
+Only in hv-rhel7.x/hv/: mshyperv.c
+diff -crB hv-rhel7.x/hv/netvsc.c hv-rhel6.x/hv/netvsc.c
+*** hv-rhel7.x/hv/netvsc.c	2015-05-14 07:05:22.422085155 -0700
+--- hv-rhel6.x/hv/netvsc.c	2015-05-14 07:05:22.413084753 -0700
+***************
+*** 101,109 ****
+  
+  	/*
+  	 * If we got a section count, it means we received a
+! 	 * SendReceiveBufferComplete msg (ie sent
+! 	 * NvspMessage1TypeSendReceiveBuffer msg) therefore, we need
+! 	 * to send a revoke msg here
+  	 */
+  	if (net_device->recv_section_cnt) {
+  		/* Send the revoke receive buffer */
+--- 101,109 ----
+  
+  	/*
+  	 * If we got a section count, it means we received a
+! 	 * NVSP_MSG1_TYPE_SEND_SEND_BUF_COMPLETE msg (ie sent
+! 	 * NVSP_MSG1_TYPE_SEND_SEND_BUF msg) therefore, we need
+!          * to send a revoke msg here
+  	 */
+  	if (net_device->recv_section_cnt) {
+  		/* Send the revoke receive buffer */
+***************
+*** 217,223 ****
+  static int netvsc_init_buf(struct hv_device *device)
+  {
+  	int ret = 0;
+! 	unsigned long t;
+  	struct netvsc_device *net_device;
+  	struct nvsp_message *init_packet;
+  	struct net_device *ndev;
+--- 217,223 ----
+  static int netvsc_init_buf(struct hv_device *device)
+  {
+  	int ret = 0;
+! 	int t;
+  	struct netvsc_device *net_device;
+  	struct nvsp_message *init_packet;
+  	struct net_device *ndev;
+***************
+*** 283,289 ****
+  		netdev_err(ndev, "Unable to complete receive buffer "
+  			   "initialization with NetVsp - status %d\n",
+  			   init_packet->msg.v1_msg.
+! 			   send_recv_buf_complete.status);
+  		ret = -EINVAL;
+  		goto cleanup;
+  	}
+--- 283,289 ----
+  		netdev_err(ndev, "Unable to complete receive buffer "
+  			   "initialization with NetVsp - status %d\n",
+  			   init_packet->msg.v1_msg.
+! 			   send_send_buf_complete.status);
+  		ret = -EINVAL;
+  		goto cleanup;
+  	}
+***************
+*** 409,416 ****
+  			      struct nvsp_message *init_packet,
+  			      u32 nvsp_ver)
+  {
+! 	int ret;
+! 	unsigned long t;
+  
+  	memset(init_packet, 0, sizeof(struct nvsp_message));
+  	init_packet->hdr.msg_type = NVSP_MSG_TYPE_INIT;
+--- 409,415 ----
+  			      struct nvsp_message *init_packet,
+  			      u32 nvsp_ver)
+  {
+! 	int ret, t;
+  
+  	memset(init_packet, 0, sizeof(struct nvsp_message));
+  	init_packet->hdr.msg_type = NVSP_MSG_TYPE_INIT;
+***************
+*** 685,693 ****
+  	return ret_val;
+  }
+  
+! static u32 netvsc_copy_to_send_buf(struct netvsc_device *net_device,
+! 				   unsigned int section_index,
+! 				   struct hv_netvsc_packet *packet)
+  {
+  	char *start = net_device->send_buf;
+  	char *dest = (start + (section_index * net_device->send_section_size));
+--- 684,692 ----
+  	return ret_val;
+  }
+  
+! u32 netvsc_copy_to_send_buf(struct netvsc_device *net_device,
+! 			    unsigned int section_index,
+! 			    struct hv_netvsc_packet *packet)
+  {
+  	char *start = net_device->send_buf;
+  	char *dest = (start + (section_index * net_device->send_section_size));
+***************
+*** 707,713 ****
+  }
+  
+  int netvsc_send(struct hv_device *device,
+! 			struct hv_netvsc_packet *packet)
+  {
+  	struct netvsc_device *net_device;
+  	int ret = 0;
+--- 706,712 ----
+  }
+  
+  int netvsc_send(struct hv_device *device,
+! 			struct hv_netvsc_packet *packet, bool kick_q)
+  {
+  	struct netvsc_device *net_device;
+  	int ret = 0;
+***************
+*** 717,724 ****
+  	u64 req_id;
+  	unsigned int section_index = NETVSC_INVALID_INDEX;
+  	u32 msg_size = 0;
+! 	struct sk_buff *skb = NULL;
+  	u16 q_idx = packet->q_idx;
+  
+  
+  	net_device = get_outbound_net_device(device);
+--- 716,724 ----
+  	u64 req_id;
+  	unsigned int section_index = NETVSC_INVALID_INDEX;
+  	u32 msg_size = 0;
+! 	struct sk_buff *skb;
+  	u16 q_idx = packet->q_idx;
++ 	u32 vmbus_flags = VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED;
+  
+  
+  	net_device = get_outbound_net_device(device);
+***************
+*** 744,749 ****
+--- 744,751 ----
+  							   packet);
+  			skb = (struct sk_buff *)
+  			      (unsigned long)packet->send_completion_tid;
++ 			if (skb)
++ 				dev_kfree_skb_any(skb);
+  			packet->page_buf_cnt = 0;
+  		}
+  	}
+***************
+*** 768,785 ****
+  		return -ENODEV;
+  
+  	if (packet->page_buf_cnt) {
+! 		ret = vmbus_sendpacket_pagebuffer(out_channel,
+  						  packet->page_buf,
+  						  packet->page_buf_cnt,
+  						  &sendMessage,
+  						  sizeof(struct nvsp_message),
+! 						  req_id);
+  	} else {
+! 		ret = vmbus_sendpacket(out_channel, &sendMessage,
+  				sizeof(struct nvsp_message),
+  				req_id,
+  				VM_PKT_DATA_INBAND,
+! 				VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
+  	}
+  
+  	if (ret == 0) {
+--- 770,790 ----
+  		return -ENODEV;
+  
+  	if (packet->page_buf_cnt) {
+! 		ret = vmbus_sendpacket_pagebuffer_ctl(out_channel,
+  						  packet->page_buf,
+  						  packet->page_buf_cnt,
+  						  &sendMessage,
+  						  sizeof(struct nvsp_message),
+! 						  req_id,
+! 						  vmbus_flags,
+! 						  kick_q);
+  	} else {
+! 		ret = vmbus_sendpacket_ctl(out_channel, &sendMessage,
+  				sizeof(struct nvsp_message),
+  				req_id,
+  				VM_PKT_DATA_INBAND,
+! 				vmbus_flags,
+! 				kick_q);
+  	}
+  
+  	if (ret == 0) {
+***************
+*** 809,821 ****
+  			   packet, ret);
+  	}
+  
+- 	if (ret != 0) {
+- 		if (section_index != NETVSC_INVALID_INDEX)
+- 			netvsc_free_send_slot(net_device, section_index);
+- 	} else if (skb) {
+- 		dev_kfree_skb_any(skb);
+- 	}
+- 
+  	return ret;
+  }
+  
+--- 814,819 ----
+diff -crB hv-rhel7.x/hv/netvsc_drv.c hv-rhel6.x/hv/netvsc_drv.c
+*** hv-rhel7.x/hv/netvsc_drv.c	2015-05-14 07:05:22.422085155 -0700
+--- hv-rhel6.x/hv/netvsc_drv.c	2015-05-14 07:05:22.413084753 -0700
+***************
+*** 33,43 ****
+--- 33,45 ----
+  #include <linux/if_vlan.h>
+  #include <linux/in.h>
+  #include <linux/slab.h>
++ #include <linux/ipv6.h>
+  #include <net/arp.h>
+  #include <net/route.h>
+  #include <net/sock.h>
+  #include <net/pkt_sched.h>
+  
++ #include "include/linux/hyperv.h"
+  #include "hyperv_net.h"
+  
+  struct net_device_context {
+***************
+*** 190,217 ****
+  
+  bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
+  {
+! 	struct flow_keys flow;
+  	int data_len;
+  
+! 	//if (!skb_flow_dissect(skb, &flow) ||
+! 	//    !(flow.n_proto == htons(ETH_P_IP) ||
+! 	//      flow.n_proto == htons(ETH_P_IPV6)))
+! 	//	return false;
+! 	if (!skb_flow_dissect(skb, &flow))
+  		return false;
+  
+! 	if (flow.ip_proto == IPPROTO_TCP)
+! 		data_len = 12;
+! 	else
+! 		data_len = 8;
+  
+! 	*hash = comp_hash(netvsc_hash_key, HASH_KEYLEN, &flow, data_len);
+  
+! 	return true;
+  }
+  
+! static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)  //,
+! 			// void *accel_priv, select_queue_fallback_t fallback)
+  {
+  	struct net_device_context *net_device_ctx = netdev_priv(ndev);
+  	struct hv_device *hdev =  net_device_ctx->device_ctx;
+--- 192,222 ----
+  
+  bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
+  {
+! 	struct iphdr *iphdr;
+  	int data_len;
++ 	bool ret = false;
+  
+! 	skb_reset_mac_header(skb);
+! 
+! 	if (eth_hdr(skb)->h_proto != htons(ETH_P_IP))
+  		return false;
+  
+! 	iphdr = ip_hdr(skb);
+  
+! 	if (iphdr->version == 4) {
+! 		if (iphdr->protocol == IPPROTO_TCP)
+! 			data_len = 12;
+! 		else
+! 			data_len = 8;
+! 		*hash = comp_hash(netvsc_hash_key, HASH_KEYLEN,
+! 				  (u8 *)&iphdr->saddr, data_len);
+! 		ret = true;
+! 	}
+  
+! 	return ret;
+  }
+  
+! static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
+  {
+  	struct net_device_context *net_device_ctx = netdev_priv(ndev);
+  	struct hv_device *hdev =  net_device_ctx->device_ctx;
+***************
+*** 225,231 ****
+  	if (netvsc_set_hash(&hash, skb)) {
+  		q_idx = nvsc_dev->send_table[hash % VRSS_SEND_TAB_SIZE] %
+  			ndev->real_num_tx_queues;
+! 		skb_set_hash(skb, hash, PKT_HASH_TYPE_L3);
+  	}
+  
+  	return q_idx;
+--- 230,237 ----
+  	if (netvsc_set_hash(&hash, skb)) {
+  		q_idx = nvsc_dev->send_table[hash % VRSS_SEND_TAB_SIZE] %
+  			ndev->real_num_tx_queues;
+! 
+! 		skb_set_hash(skb, hash, 0);
+  	}
+  
+  	return q_idx;
+***************
+*** 344,349 ****
+--- 350,357 ----
+  {
+  	u32 ret_val = TRANSPORT_INFO_NOT_IP;
+  
++ 	skb_reset_mac_header(skb);
++ 
+  	if ((eth_hdr(skb)->h_proto != htons(ETH_P_IP)) &&
+  		(eth_hdr(skb)->h_proto != htons(ETH_P_IPV6))) {
+  		goto not_ip;
+***************
+*** 386,391 ****
+--- 394,400 ----
+  	u32 net_trans_info;
+  	u32 hash;
+  	u32 skb_length = skb->len;
++ 	bool kick_q = true;
+  
+  
+  	/* We will atmost need two pages to describe the rndis
+***************
+*** 444,450 ****
+  
+  	rndis_msg_size = RNDIS_MESSAGE_SIZE(struct rndis_packet);
+  
+- 	//hash = skb_get_hash_raw(skb);
+  	hash = skb_get_hash(skb);
+  	if (hash != 0 && net->real_num_tx_queues > 1) {
+  		rndis_msg_size += NDIS_HASH_PPI_SIZE;
+--- 453,458 ----
+***************
+*** 559,565 ****
+  	packet->page_buf_cnt = init_page_array(rndis_msg, rndis_msg_size,
+  					skb, &packet->page_buf[0]);
+  
+! 	ret = netvsc_send(net_device_ctx->device_ctx, packet);
+  
+  drop:
+  	if (ret == 0) {
+--- 567,573 ----
+  	packet->page_buf_cnt = init_page_array(rndis_msg, rndis_msg_size,
+  					skb, &packet->page_buf[0]);
+  
+! 	ret = netvsc_send(net_device_ctx->device_ctx, packet, kick_q);
+  
+  drop:
+  	if (ret == 0) {
+***************
+*** 664,671 ****
+  	}
+  
+  	if (packet->vlan_tci & VLAN_TAG_PRESENT)
+! 		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q),
+! 				       packet->vlan_tci);
+  
+  	skb_record_rx_queue(skb, packet->channel->
+  			    offermsg.offer.sub_channel_index);
+--- 672,678 ----
+  	}
+  
+  	if (packet->vlan_tci & VLAN_TAG_PRESENT)
+! 		__vlan_hwaccel_put_tag(skb, packet->vlan_tci);
+  
+  	skb_record_rx_queue(skb, packet->channel->
+  			    offermsg.offer.sub_channel_index);
+***************
+*** 822,828 ****
+  		call_usermodehelper(argv[0], argv, envp, UMH_WAIT_EXEC);
+  
+  	if (notify)
+! 		netdev_notify_peers(net);
+  }
+  
+  
+--- 829,835 ----
+  		call_usermodehelper(argv[0], argv, envp, UMH_WAIT_EXEC);
+  
+  	if (notify)
+! 		netif_notify_peers(net);
+  }
+  
+  
+***************
+*** 850,857 ****
+--- 857,866 ----
+  
+  	net->netdev_ops = &device_ops;
+  
++ #ifdef NOTYET
+  	net->hw_features = NETIF_F_RXCSUM | NETIF_F_SG | NETIF_F_IP_CSUM |
+  				NETIF_F_TSO;
++ #endif
+  	net->features = NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_SG | NETIF_F_RXCSUM |
+  			NETIF_F_IP_CSUM | NETIF_F_TSO;
+  
+***************
+*** 871,877 ****
+--- 880,892 ----
+  
+  	nvdev = hv_get_drvdata(dev);
+  	netif_set_real_num_tx_queues(net, nvdev->num_chn);
++ #ifdef NOTYET
+  	netif_set_real_num_rx_queues(net, nvdev->num_chn);
++ #endif
++ 
++ 	dev_info(&dev->device, "real num tx,rx queues:%u, %u\n",
++ 		 net->real_num_tx_queues, nvdev->num_chn);
++ 
+  
+  	ret = register_netdev(net);
+  	if (ret != 0) {
+***************
+*** 952,959 ****
+  }
+  
+  MODULE_LICENSE("GPL");
+- MODULE_VERSION(HV_DRV_VERSION);
+  MODULE_DESCRIPTION("Microsoft Hyper-V network driver");
+  
+  module_init(netvsc_drv_init);
+  module_exit(netvsc_drv_exit);
+--- 967,975 ----
+  }
+  
+  MODULE_LICENSE("GPL");
+  MODULE_DESCRIPTION("Microsoft Hyper-V network driver");
++ MODULE_VERSION(HV_DRV_VERSION);
++ MODULE_ALIAS("vmbus:635161f83edfc546913ff2d2f965ed0e");
+  
+  module_init(netvsc_drv_init);
+  module_exit(netvsc_drv_exit);
+Only in hv-rhel6.x/hv/: overrides.mk
+Only in hv-rhel6.x/hv/: README
+Only in hv-rhel6.x/hv/: rhel6-hv-driver-install
+Only in hv-rhel6.x/hv/: rhel6-hv-driver-uninstall
+diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
+*** hv-rhel7.x/hv/rndis_filter.c	2015-05-14 07:05:22.423085200 -0700
+--- hv-rhel6.x/hv/rndis_filter.c	2015-05-14 07:05:22.414084798 -0700
+***************
+*** 238,244 ****
+  
+  	packet->send_completion = NULL;
+  
+! 	ret = netvsc_send(dev->net_dev->dev, packet);
+  	return ret;
+  }
+  
+--- 238,244 ----
+  
+  	packet->send_completion = NULL;
+  
+! 	ret = netvsc_send(dev->net_dev->dev, packet, true);
+  	return ret;
+  }
+  
+***************
+*** 470,476 ****
+  	struct rndis_query_request *query;
+  	struct rndis_query_complete *query_complete;
+  	int ret = 0;
+! 	unsigned long t;
+  
+  	if (!result)
+  		return -EINVAL;
+--- 470,476 ----
+  	struct rndis_query_request *query;
+  	struct rndis_query_complete *query_complete;
+  	int ret = 0;
+! 	int t;
+  
+  	if (!result)
+  		return -EINVAL;
+***************
+*** 560,567 ****
+  	char macstr[2*ETH_ALEN+1];
+  	u32 extlen = sizeof(struct rndis_config_parameter_info) +
+  		2*NWADR_STRLEN + 4*ETH_ALEN;
+! 	int ret;
+! 	unsigned long t;
+  
+  	request = get_rndis_request(rdev, RNDIS_MSG_SET,
+  		RNDIS_MESSAGE_SIZE(struct rndis_set_request) + extlen);
+--- 560,566 ----
+  	char macstr[2*ETH_ALEN+1];
+  	u32 extlen = sizeof(struct rndis_config_parameter_info) +
+  		2*NWADR_STRLEN + 4*ETH_ALEN;
+! 	int ret, t;
+  
+  	request = get_rndis_request(rdev, RNDIS_MSG_SET,
+  		RNDIS_MESSAGE_SIZE(struct rndis_set_request) + extlen);
+***************
+*** 588,600 ****
+--- 587,608 ----
+  
+  	cfg_nwadr = (wchar_t *)((ulong)cpi + cpi->parameter_name_offset);
+  	cfg_mac = (wchar_t *)((ulong)cpi + cpi->parameter_value_offset);
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
++ 	ret = utf8s_to_utf16s(NWADR_STR, NWADR_STRLEN, cfg_nwadr);
++ #else
+  	ret = utf8s_to_utf16s(NWADR_STR, NWADR_STRLEN, UTF16_HOST_ENDIAN,
+  			      cfg_nwadr, NWADR_STRLEN);
++ #endif
+  	if (ret < 0)
+  		goto cleanup;
+  	snprintf(macstr, 2*ETH_ALEN+1, "%pm", mac);
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
++ 	ret = utf8s_to_utf16s(macstr, 2*ETH_ALEN, cfg_mac);
++ #else
+  	ret = utf8s_to_utf16s(macstr, 2*ETH_ALEN, UTF16_HOST_ENDIAN,
+  			      cfg_mac, 2*ETH_ALEN);
++ #endif
++ 
+  	if (ret < 0)
+  		goto cleanup;
+  
+***************
+*** 624,631 ****
+  	return ret;
+  }
+  
+! static int
+! rndis_filter_set_offload_params(struct hv_device *hdev,
+  				struct ndis_offload_params *req_offloads)
+  {
+  	struct netvsc_device *nvdev = hv_get_drvdata(hdev);
+--- 632,638 ----
+  	return ret;
+  }
+  
+! int rndis_filter_set_offload_params(struct hv_device *hdev,
+  				struct ndis_offload_params *req_offloads)
+  {
+  	struct netvsc_device *nvdev = hv_get_drvdata(hdev);
+***************
+*** 636,643 ****
+  	struct ndis_offload_params *offload_params;
+  	struct rndis_set_complete *set_complete;
+  	u32 extlen = sizeof(struct ndis_offload_params);
+! 	int ret;
+! 	unsigned long t;
+  	u32 vsp_version = nvdev->nvsp_version;
+  
+  	if (vsp_version <= NVSP_PROTOCOL_VERSION_4) {
+--- 643,649 ----
+  	struct ndis_offload_params *offload_params;
+  	struct rndis_set_complete *set_complete;
+  	u32 extlen = sizeof(struct ndis_offload_params);
+! 	int ret, t;
+  	u32 vsp_version = nvdev->nvsp_version;
+  
+  	if (vsp_version <= NVSP_PROTOCOL_VERSION_4) {
+***************
+*** 700,706 ****
+  	0x6a, 0x42, 0xb7, 0x3b, 0xbe, 0xac, 0x01, 0xfa
+  };
+  
+! static int rndis_filter_set_rss_param(struct rndis_device *rdev, int num_queue)
+  {
+  	struct net_device *ndev = rdev->net_dev->ndev;
+  	struct rndis_request *request;
+--- 706,712 ----
+  	0x6a, 0x42, 0xb7, 0x3b, 0xbe, 0xac, 0x01, 0xfa
+  };
+  
+! int rndis_filter_set_rss_param(struct rndis_device *rdev, int num_queue)
+  {
+  	struct net_device *ndev = rdev->net_dev->ndev;
+  	struct rndis_request *request;
+***************
+*** 711,718 ****
+  	struct ndis_recv_scale_param *rssp;
+  	u32 *itab;
+  	u8 *keyp;
+! 	int i, ret;
+! 	unsigned long t;
+  
+  	request = get_rndis_request(
+  			rdev, RNDIS_MSG_SET,
+--- 717,723 ----
+  	struct ndis_recv_scale_param *rssp;
+  	u32 *itab;
+  	u8 *keyp;
+! 	int i, t, ret;
+  
+  	request = get_rndis_request(
+  			rdev, RNDIS_MSG_SET,
+***************
+*** 796,803 ****
+  	struct rndis_set_request *set;
+  	struct rndis_set_complete *set_complete;
+  	u32 status;
+! 	int ret;
+! 	unsigned long t;
+  	struct net_device *ndev;
+  
+  	ndev = dev->net_dev->ndev;
+--- 801,807 ----
+  	struct rndis_set_request *set;
+  	struct rndis_set_complete *set_complete;
+  	u32 status;
+! 	int ret, t;
+  	struct net_device *ndev;
+  
+  	ndev = dev->net_dev->ndev;
+***************
+*** 853,860 ****
+  	struct rndis_initialize_request *init;
+  	struct rndis_initialize_complete *init_complete;
+  	u32 status;
+! 	int ret;
+! 	unsigned long t;
+  
+  	request = get_rndis_request(dev, RNDIS_MSG_INIT,
+  			RNDIS_MESSAGE_SIZE(struct rndis_initialize_request));
+--- 857,863 ----
+  	struct rndis_initialize_request *init;
+  	struct rndis_initialize_complete *init_complete;
+  	u32 status;
+! 	int ret, t;
+  
+  	request = get_rndis_request(dev, RNDIS_MSG_INIT,
+  			RNDIS_MESSAGE_SIZE(struct rndis_initialize_request));
+***************
+*** 1004,1010 ****
+  	struct netvsc_device_info *device_info = additional_info;
+  	struct ndis_offload_params offloads;
+  	struct nvsp_message *init_packet;
+! 	unsigned long t;
+  	struct ndis_recv_scale_cap rsscap;
+  	u32 rsscap_size = sizeof(struct ndis_recv_scale_cap);
+  	u32 mtu, size;
+--- 1007,1013 ----
+  	struct netvsc_device_info *device_info = additional_info;
+  	struct ndis_offload_params offloads;
+  	struct nvsp_message *init_packet;
+! 	int t;
+  	struct ndis_recv_scale_cap rsscap;
+  	u32 rsscap_size = sizeof(struct ndis_recv_scale_cap);
+  	u32 mtu, size;
+diff -crB hv-rhel7.x/hv/storvsc_drv.c hv-rhel6.x/hv/storvsc_drv.c
+*** hv-rhel7.x/hv/storvsc_drv.c	2015-05-14 07:05:22.423085200 -0700
+--- hv-rhel6.x/hv/storvsc_drv.c	2015-05-14 07:05:22.414084798 -0700
+***************
+*** 680,691 ****
+  /* Disgusting wrapper functions */
+  static inline unsigned long sg_kmap_atomic(struct scatterlist *sgl)
+  {
+! 	return (unsigned long)kmap_atomic(sg_page(sgl));
+  }
+  
+  static inline void sg_kunmap_atomic(unsigned long addr)
+  {
+! 	kunmap_atomic((void *)addr);
+  }
+  
+  
+--- 680,691 ----
+  /* Disgusting wrapper functions */
+  static inline unsigned long sg_kmap_atomic(struct scatterlist *sgl)
+  {
+! 	return (unsigned long)kmap_atomic(sg_page(sgl), KM_IRQ0);
+  }
+  
+  static inline void sg_kunmap_atomic(unsigned long addr)
+  {
+! 	kunmap_atomic((void *)addr, KM_IRQ0);
+  }
+  
+  
+***************
+*** 1651,1661 ****
+  	 * this. So, don't send it.
+  	 */
+  	case SET_WINDOW:
+!                 scsi_build_sense_buffer(0, scmnd->sense_buffer, ILLEGAL_REQUEST,
+!                     0x20, 0);
+!                 scmnd->result = SAM_STAT_CHECK_CONDITION;
+!                 set_driver_byte(scmnd, DRIVER_SENSE);
+!                 set_host_byte(scmnd, DID_ABORT);
+  		allowed = false;
+  		break;
+  	default:
+--- 1651,1660 ----
+  	 * this. So, don't send it.
+  	 */
+  	case SET_WINDOW:
+! 		scsi_build_sense_buffer(0, scmnd->sense_buffer,
+! 					ILLEGAL_REQUEST, 0, 0);
+! 
+! 		scmnd->result = (DRIVER_SENSE << 24) | SAM_STAT_CHECK_CONDITION;
+  		allowed = false;
+  		break;
+  	default:
+***************
+*** 1693,1698 ****
+--- 1692,1699 ----
+  	u32 length;
+  
+  
++ 	scmnd->scsi_done = done;
++ 
+  	if (vmstor_current_major <= VMSTOR_WIN8_MAJOR) {
+  		/*
+  		 * On legacy hosts filter unimplemented commands.
+Only in hv-rhel7.x/hv/tools: hv_get_dhcp_info
+Only in hv-rhel7.x/hv/tools: hv_get_dns_info
+diff -crB hv-rhel7.x/hv/tools/hv_kvp_daemon.c hv-rhel6.x/hv/tools/hv_kvp_daemon.c
+*** hv-rhel7.x/hv/tools/hv_kvp_daemon.c	2015-05-14 07:05:22.424085245 -0700
+--- hv-rhel6.x/hv/tools/hv_kvp_daemon.c	2015-05-14 07:05:22.415084843 -0700
+***************
+*** 35,40 ****
+--- 35,41 ----
+  #include <arpa/inet.h>
+  #include <linux/connector.h>
+  #include "../include/uapi/linux/hyperv.h"
++ #include "../include/linux/hv_compat.h"
+  #include <linux/netlink.h>
+  #include <ifaddrs.h>
+  #include <netdb.h>
+Only in hv-rhel7.x/hv/tools: hv_set_ifconfig
+Only in hv-rhel7.x/hv/tools: Makefile
+diff -crB hv-rhel7.x/hv/vmbus_drv.c hv-rhel6.x/hv/vmbus_drv.c
+*** hv-rhel7.x/hv/vmbus_drv.c	2015-05-14 07:05:22.424085245 -0700
+--- hv-rhel6.x/hv/vmbus_drv.c	2015-05-14 07:05:22.415084843 -0700
+***************
+*** 23,29 ****
+  #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+  
+  #include <linux/init.h>
+- #include <linux/version.h>
+  #include <linux/module.h>
+  #include <linux/device.h>
+  #include <linux/interrupt.h>
+--- 23,28 ----
+***************
+*** 31,419 ****
+  #include <linux/slab.h>
+  #include <linux/acpi.h>
+  #include <linux/completion.h>
+- #include <asm/mshyperv.h>
+  #include "include/linux/hyperv.h"
+  #include <linux/kernel_stat.h>
+  #include <linux/clockchips.h>
+  #include "include/asm/hyperv.h"
+  #include <asm/hypervisor.h>
+  #include "hyperv_vmbus.h"
+  
+! static struct acpi_device  *hv_acpi_dev;
+! 
+! static struct tasklet_struct msg_dpc;
+! static struct completion probe_event;
+! static int irq;
+! 
+! struct resource hyperv_mmio = {
+! 	.name  = "hyperv mmio",
+! 	.flags = IORESOURCE_MEM,
+! };
+! EXPORT_SYMBOL_GPL(hyperv_mmio);
+! 
+! static int vmbus_exists(void)
+! {
+! 	if (hv_acpi_dev == NULL)
+! 		return -ENODEV;
+! 
+! 	return 0;
+! }
+! 
+! #define VMBUS_ALIAS_LEN ((sizeof((struct hv_vmbus_device_id *)0)->guid) * 2)
+! static void print_alias_name(struct hv_device *hv_dev, char *alias_name)
+! {
+! 	int i;
+! 	for (i = 0; i < VMBUS_ALIAS_LEN; i += 2)
+! 		sprintf(&alias_name[i], "%02x", hv_dev->dev_type.b[i/2]);
+! }
+! 
+! static u8 channel_monitor_group(struct vmbus_channel *channel)
+! {
+! 	return (u8)channel->offermsg.monitorid / 32;
+! }
+! 
+! static u8 channel_monitor_offset(struct vmbus_channel *channel)
+! {
+! 	return (u8)channel->offermsg.monitorid % 32;
+! }
+! 
+! static u32 channel_pending(struct vmbus_channel *channel,
+! 			   struct hv_monitor_page *monitor_page)
+! {
+! 	u8 monitor_group = channel_monitor_group(channel);
+! 	return monitor_page->trigger_group[monitor_group].pending;
+! }
+! 
+! static u32 channel_latency(struct vmbus_channel *channel,
+! 			   struct hv_monitor_page *monitor_page)
+! {
+! 	u8 monitor_group = channel_monitor_group(channel);
+! 	u8 monitor_offset = channel_monitor_offset(channel);
+! 	return monitor_page->latency[monitor_group][monitor_offset];
+! }
+! 
+! static u32 channel_conn_id(struct vmbus_channel *channel,
+! 			   struct hv_monitor_page *monitor_page)
+! {
+! 	u8 monitor_group = channel_monitor_group(channel);
+! 	u8 monitor_offset = channel_monitor_offset(channel);
+! 	return monitor_page->parameter[monitor_group][monitor_offset].connectionid.u.id;
+! }
+! 
+! static ssize_t id_show(struct device *dev, struct device_attribute *dev_attr,
+! 		       char *buf)
+! {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+! 
+! 	if (!hv_dev->channel)
+! 		return -ENODEV;
+! 	return sprintf(buf, "%d\n", hv_dev->channel->offermsg.child_relid);
+! }
+! static DEVICE_ATTR_RO(id);
+! 
+! static ssize_t state_show(struct device *dev, struct device_attribute *dev_attr,
+! 			  char *buf)
+! {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+! 
+! 	if (!hv_dev->channel)
+! 		return -ENODEV;
+! 	return sprintf(buf, "%d\n", hv_dev->channel->state);
+! }
+! static DEVICE_ATTR_RO(state);
+  
+! static ssize_t monitor_id_show(struct device *dev,
+! 			       struct device_attribute *dev_attr, char *buf)
+! {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+  
+! 	if (!hv_dev->channel)
+! 		return -ENODEV;
+! 	return sprintf(buf, "%d\n", hv_dev->channel->offermsg.monitorid);
+! }
+! static DEVICE_ATTR_RO(monitor_id);
+  
+! static ssize_t class_id_show(struct device *dev,
+! 			       struct device_attribute *dev_attr, char *buf)
+! {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+  
+! 	if (!hv_dev->channel)
+! 		return -ENODEV;
+! 	return sprintf(buf, "{%pUl}\n",
+! 		       hv_dev->channel->offermsg.offer.if_type.b);
+! }
+! static DEVICE_ATTR_RO(class_id);
+  
+! static ssize_t device_id_show(struct device *dev,
+! 			      struct device_attribute *dev_attr, char *buf)
+! {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+  
+! 	if (!hv_dev->channel)
+! 		return -ENODEV;
+! 	return sprintf(buf, "{%pUl}\n",
+! 		       hv_dev->channel->offermsg.offer.if_instance.b);
+! }
+! static DEVICE_ATTR_RO(device_id);
+  
+! static ssize_t modalias_show(struct device *dev,
+! 			     struct device_attribute *dev_attr, char *buf)
+! {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+! 	char alias_name[VMBUS_ALIAS_LEN + 1];
+  
+! 	print_alias_name(hv_dev, alias_name);
+! 	return sprintf(buf, "vmbus:%s\n", alias_name);
+! }
+! static DEVICE_ATTR_RO(modalias);
+  
+! static ssize_t server_monitor_pending_show(struct device *dev,
+! 					   struct device_attribute *dev_attr,
+! 					   char *buf)
+! {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+  
+- 	if (!hv_dev->channel)
+- 		return -ENODEV;
+- 	return sprintf(buf, "%d\n",
+- 		       channel_pending(hv_dev->channel,
+- 				       vmbus_connection.monitor_pages[1]));
+- }
+- static DEVICE_ATTR_RO(server_monitor_pending);
+- 
+- static ssize_t client_monitor_pending_show(struct device *dev,
+- 					   struct device_attribute *dev_attr,
+- 					   char *buf)
+- {
+- 	struct hv_device *hv_dev = device_to_hv_device(dev);
+  
+- 	if (!hv_dev->channel)
+- 		return -ENODEV;
+- 	return sprintf(buf, "%d\n",
+- 		       channel_pending(hv_dev->channel,
+- 				       vmbus_connection.monitor_pages[1]));
+- }
+- static DEVICE_ATTR_RO(client_monitor_pending);
+- 
+- static ssize_t server_monitor_latency_show(struct device *dev,
+- 					   struct device_attribute *dev_attr,
+- 					   char *buf)
+- {
+- 	struct hv_device *hv_dev = device_to_hv_device(dev);
+  
+! 	if (!hv_dev->channel)
+! 		return -ENODEV;
+! 	return sprintf(buf, "%d\n",
+! 		       channel_latency(hv_dev->channel,
+! 				       vmbus_connection.monitor_pages[0]));
+! }
+! static DEVICE_ATTR_RO(server_monitor_latency);
+! 
+! static ssize_t client_monitor_latency_show(struct device *dev,
+! 					   struct device_attribute *dev_attr,
+! 					   char *buf)
+  {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+  
+! 	if (!hv_dev->channel)
+! 		return -ENODEV;
+! 	return sprintf(buf, "%d\n",
+! 		       channel_latency(hv_dev->channel,
+! 				       vmbus_connection.monitor_pages[1]));
+! }
+! static DEVICE_ATTR_RO(client_monitor_latency);
+! 
+! static ssize_t server_monitor_conn_id_show(struct device *dev,
+! 					   struct device_attribute *dev_attr,
+! 					   char *buf)
+! {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+  
+! 	if (!hv_dev->channel)
+! 		return -ENODEV;
+! 	return sprintf(buf, "%d\n",
+! 		       channel_conn_id(hv_dev->channel,
+! 				       vmbus_connection.monitor_pages[0]));
+! }
+! static DEVICE_ATTR_RO(server_monitor_conn_id);
+! 
+! static ssize_t client_monitor_conn_id_show(struct device *dev,
+! 					   struct device_attribute *dev_attr,
+! 					   char *buf)
+! {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+  
+! 	if (!hv_dev->channel)
+! 		return -ENODEV;
+! 	return sprintf(buf, "%d\n",
+! 		       channel_conn_id(hv_dev->channel,
+! 				       vmbus_connection.monitor_pages[1]));
+  }
+- static DEVICE_ATTR_RO(client_monitor_conn_id);
+  
+! static ssize_t out_intr_mask_show(struct device *dev,
+! 				  struct device_attribute *dev_attr, char *buf)
+! {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+! 	struct hv_ring_buffer_debug_info outbound;
+  
+! 	if (!hv_dev->channel)
+! 		return -ENODEV;
+! 	hv_ringbuffer_get_debuginfo(&hv_dev->channel->outbound, &outbound);
+! 	return sprintf(buf, "%d\n", outbound.current_interrupt_mask);
+! }
+! static DEVICE_ATTR_RO(out_intr_mask);
+  
+! static ssize_t out_read_index_show(struct device *dev,
+! 				   struct device_attribute *dev_attr, char *buf)
+  {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+! 	struct hv_ring_buffer_debug_info outbound;
+! 
+! 	if (!hv_dev->channel)
+  		return -ENODEV;
+- 	hv_ringbuffer_get_debuginfo(&hv_dev->channel->outbound, &outbound);
+- 	return sprintf(buf, "%d\n", outbound.current_read_index);
+- }
+- static DEVICE_ATTR_RO(out_read_index);
+  
+! static ssize_t out_write_index_show(struct device *dev,
+! 				    struct device_attribute *dev_attr,
+! 				    char *buf)
+! {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+! 	struct hv_ring_buffer_debug_info outbound;
+! 
+! 	if (!hv_dev->channel)
+! 		return -ENODEV;
+! 	hv_ringbuffer_get_debuginfo(&hv_dev->channel->outbound, &outbound);
+! 	return sprintf(buf, "%d\n", outbound.current_write_index);
+  }
+- static DEVICE_ATTR_RO(out_write_index);
+  
+! static ssize_t out_read_bytes_avail_show(struct device *dev,
+! 					 struct device_attribute *dev_attr,
+! 					 char *buf)
+  {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+! 	struct hv_ring_buffer_debug_info outbound;
+  
+! 	if (!hv_dev->channel)
+! 		return -ENODEV;
+! 	hv_ringbuffer_get_debuginfo(&hv_dev->channel->outbound, &outbound);
+! 	return sprintf(buf, "%d\n", outbound.bytes_avail_toread);
+! }
+! static DEVICE_ATTR_RO(out_read_bytes_avail);
+  
+! static ssize_t out_write_bytes_avail_show(struct device *dev,
+! 					  struct device_attribute *dev_attr,
+! 					  char *buf)
+! {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+! 	struct hv_ring_buffer_debug_info outbound;
+  
+! 	if (!hv_dev->channel)
+! 		return -ENODEV;
+! 	hv_ringbuffer_get_debuginfo(&hv_dev->channel->outbound, &outbound);
+! 	return sprintf(buf, "%d\n", outbound.bytes_avail_towrite);
+  }
+- static DEVICE_ATTR_RO(out_write_bytes_avail);
+  
+! static ssize_t in_intr_mask_show(struct device *dev,
+! 				 struct device_attribute *dev_attr, char *buf)
+  {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+! 	struct hv_ring_buffer_debug_info inbound;
+! 
+! 	if (!hv_dev->channel)
+! 		return -ENODEV;
+! 	hv_ringbuffer_get_debuginfo(&hv_dev->channel->inbound, &inbound);
+! 	return sprintf(buf, "%d\n", inbound.current_interrupt_mask);
+  }
+- static DEVICE_ATTR_RO(in_intr_mask);
+- 
+- static ssize_t in_read_index_show(struct device *dev,
+- 				  struct device_attribute *dev_attr, char *buf)
+- {
+- 	struct hv_device *hv_dev = device_to_hv_device(dev);
+- 	struct hv_ring_buffer_debug_info inbound;
+  
+- 	if (!hv_dev->channel)
+- 		return -ENODEV;
+- 	hv_ringbuffer_get_debuginfo(&hv_dev->channel->inbound, &inbound);
+- 	return sprintf(buf, "%d\n", inbound.current_read_index);
+- }
+- static DEVICE_ATTR_RO(in_read_index);
+  
+! static ssize_t in_write_index_show(struct device *dev,
+! 				   struct device_attribute *dev_attr, char *buf)
+  {
+  	struct hv_device *hv_dev = device_to_hv_device(dev);
+! 	struct hv_ring_buffer_debug_info inbound;
+! 
+! 	if (!hv_dev->channel)
+! 		return -ENODEV;
+! 	hv_ringbuffer_get_debuginfo(&hv_dev->channel->inbound, &inbound);
+! 	return sprintf(buf, "%d\n", inbound.current_write_index);
+! }
+! static DEVICE_ATTR_RO(in_write_index);
+  
+! static ssize_t in_read_bytes_avail_show(struct device *dev,
+! 					struct device_attribute *dev_attr,
+! 					char *buf)
+! {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+! 	struct hv_ring_buffer_debug_info inbound;
+  
+! 	if (!hv_dev->channel)
+! 		return -ENODEV;
+! 	hv_ringbuffer_get_debuginfo(&hv_dev->channel->inbound, &inbound);
+! 	return sprintf(buf, "%d\n", inbound.bytes_avail_toread);
+! }
+! static DEVICE_ATTR_RO(in_read_bytes_avail);
+  
+! static ssize_t in_write_bytes_avail_show(struct device *dev,
+! 					 struct device_attribute *dev_attr,
+! 					 char *buf)
+! {
+! 	struct hv_device *hv_dev = device_to_hv_device(dev);
+! 	struct hv_ring_buffer_debug_info inbound;
+  
+! 	if (!hv_dev->channel)
+! 		return -ENODEV;
+! 	hv_ringbuffer_get_debuginfo(&hv_dev->channel->inbound, &inbound);
+! 	return sprintf(buf, "%d\n", inbound.bytes_avail_towrite);
+  }
+- static DEVICE_ATTR_RO(in_write_bytes_avail);
+  
+  /* Set up per device attributes in /sys/bus/vmbus/devices/<bus device> */
+! static struct attribute *vmbus_attrs[] = {
+! 	&dev_attr_id.attr,
+! 	&dev_attr_state.attr,
+! 	&dev_attr_monitor_id.attr,
+! 	&dev_attr_class_id.attr,
+! 	&dev_attr_device_id.attr,
+! 	&dev_attr_modalias.attr,
+! 	&dev_attr_server_monitor_pending.attr,
+! 	&dev_attr_client_monitor_pending.attr,
+! 	&dev_attr_server_monitor_latency.attr,
+! 	&dev_attr_client_monitor_latency.attr,
+! 	&dev_attr_server_monitor_conn_id.attr,
+! 	&dev_attr_client_monitor_conn_id.attr,
+! 	&dev_attr_out_intr_mask.attr,
+! 	&dev_attr_out_read_index.attr,
+! 	&dev_attr_out_write_index.attr,
+! 	&dev_attr_out_read_bytes_avail.attr,
+! 	&dev_attr_out_write_bytes_avail.attr,
+! 	&dev_attr_in_intr_mask.attr,
+! 	&dev_attr_in_read_index.attr,
+! 	&dev_attr_in_write_index.attr,
+! 	&dev_attr_in_read_bytes_avail.attr,
+! 	&dev_attr_in_write_bytes_avail.attr,
+! 	NULL,
+  };
+! ATTRIBUTE_GROUPS(vmbus);
+  
+  /*
+   * vmbus_uevent - add uevent for our device
+--- 30,330 ----
+  #include <linux/slab.h>
+  #include <linux/acpi.h>
+  #include <linux/completion.h>
+  #include "include/linux/hyperv.h"
+  #include <linux/kernel_stat.h>
+  #include <linux/clockchips.h>
++ #include <linux/cpu.h>
++ #include <linux/version.h>
+  #include "include/asm/hyperv.h"
+  #include <asm/hypervisor.h>
++ #include "include/asm/mshyperv.h"
++ #include <linux/notifier.h>
++ #include <linux/ptrace.h>
+  #include "hyperv_vmbus.h"
+  
+! #if (RHEL_RELEASE_CODE <= 1541)
+! bool using_null_legacy_pic = false;
+! EXPORT_SYMBOL(using_null_legacy_pic);
+! #endif
+  
+! #if (RHEL_RELEASE_CODE < 1540)
+! #include <asm/mshyperv.h>
+  
+! int x86_hyper_ms_hyperv;
+! EXPORT_SYMBOL(x86_hyper_ms_hyperv);
+  
+! void *x86_hyper = &x86_hyper_ms_hyperv;
+! EXPORT_SYMBOL(x86_hyper);
+  
+! struct ms_hyperv_info ms_hyperv = {
+! 	.features = HV_X64_MSR_TIME_REF_COUNT_AVAILABLE |
+! 		    HV_X64_MSR_SYNTIMER_AVAILABLE,
+! };
+! EXPORT_SYMBOL(ms_hyperv);
+  
+! #endif
+  
+! static struct acpi_device  *hv_acpi_dev;
+  
+! static struct tasklet_struct msg_dpc;
+! static struct completion probe_event;
+! static int irq;
+  
+! struct hv_device_info {
+! 	u32 chn_id;
+! 	u32 chn_state;
+! 	uuid_le chn_type;
+! 	uuid_le chn_instance;
+! 
+! 	u32 monitor_id;
+! 	u32 server_monitor_pending;
+! 	u32 server_monitor_latency;
+! 	u32 server_monitor_conn_id;
+! 	u32 client_monitor_pending;
+! 	u32 client_monitor_latency;
+! 	u32 client_monitor_conn_id;
+  
+! 	struct hv_dev_port_info inbound;
+! 	struct hv_dev_port_info outbound;
+! };
+  
+  
+  
+! int hyperv_panic_event(struct notifier_block *nb,
+! 			unsigned long event, void *ptr)
+  {
+! 	struct pt_regs *regs;
+  
+! 	regs = task_pt_regs(current);
+  
+! 	wrmsrl(HV_X64_MSR_CRASH_P0, regs->ip);
+! 	wrmsrl(HV_X64_MSR_CRASH_P1, regs->ax);
+! 	wrmsrl(HV_X64_MSR_CRASH_P2, regs->bx);
+! 	wrmsrl(HV_X64_MSR_CRASH_P3, regs->cx);
+! 	wrmsrl(HV_X64_MSR_CRASH_P4, regs->dx);
+  
+! 	/*
+! 	 * Let Hyper-V know there is crash data available
+! 	 */
+! 	wrmsrl(HV_X64_MSR_CRASH_CTL, HV_CRASH_CTL_CRASH_NOTIFY);
+! 	return NOTIFY_DONE;
+  }
+  
+! static struct notifier_block hyperv_panic_block = {
+! 	.notifier_call = hyperv_panic_event,
+! };
+  
+! struct resource hyperv_mmio = {
+! 	.name  = "hyperv mmio",
+! 	.flags = IORESOURCE_MEM,
+! };
+! EXPORT_SYMBOL_GPL(hyperv_mmio);
+  
+! static int vmbus_exists(void)
+  {
+! 	if (hv_acpi_dev == NULL)
+  		return -ENODEV;
+  
+! 	return 0;
+  }
+  
+! static void get_channel_info(struct hv_device *device,
+! 				struct hv_device_info *info)
+  {
+! 	struct vmbus_channel_debug_info debug_info;
+  
+! 	if (!device->channel)
+! 		return;
+  
+! 	vmbus_get_debug_info(device->channel, &debug_info);
+  
+! 	info->chn_id = debug_info.relid;
+! 	info->chn_state = debug_info.state;
+! 	memcpy(&info->chn_type, &debug_info.interfacetype,
+! 		sizeof(uuid_le));
+! 	memcpy(&info->chn_instance, &debug_info.interface_instance,
+! 		sizeof(uuid_le));
+! 
+! 	info->monitor_id = debug_info.monitorid;
+! 
+! 	info->server_monitor_pending = debug_info.servermonitor_pending;
+! 	info->server_monitor_latency = debug_info.servermonitor_latency;
+! 	info->server_monitor_conn_id = debug_info.servermonitor_connectionid;
+! 
+! 	info->client_monitor_pending = debug_info.clientmonitor_pending;
+! 	info->client_monitor_latency = debug_info.clientmonitor_latency;
+! 	info->client_monitor_conn_id = debug_info.clientmonitor_connectionid;
+! 
+! 	info->inbound.int_mask = debug_info.inbound.current_interrupt_mask;
+! 	info->inbound.read_idx = debug_info.inbound.current_read_index;
+! 	info->inbound.write_idx = debug_info.inbound.current_write_index;
+! 	info->inbound.bytes_avail_toread =
+! 		debug_info.inbound.bytes_avail_toread;
+! 	info->inbound.bytes_avail_towrite =
+! 		debug_info.inbound.bytes_avail_towrite;
+! 
+! 	info->outbound.int_mask =
+! 		debug_info.outbound.current_interrupt_mask;
+! 	info->outbound.read_idx = debug_info.outbound.current_read_index;
+! 	info->outbound.write_idx = debug_info.outbound.current_write_index;
+! 	info->outbound.bytes_avail_toread =
+! 		debug_info.outbound.bytes_avail_toread;
+! 	info->outbound.bytes_avail_towrite =
+! 		debug_info.outbound.bytes_avail_towrite;
+  }
+  
+! #define VMBUS_ALIAS_LEN ((sizeof((struct hv_vmbus_device_id *)0)->guid) * 2)
+! static void print_alias_name(struct hv_device *hv_dev, char *alias_name)
+  {
+! 	int i;
+! 	for (i = 0; i < VMBUS_ALIAS_LEN; i += 2)
+! 		sprintf(&alias_name[i], "%02x", hv_dev->dev_type.b[i/2]);
+  }
+  
+  
+! /*
+!  * vmbus_show_device_attr - Show the device attribute in sysfs.
+!  *
+!  * This is invoked when user does a
+!  * "cat /sys/bus/vmbus/devices/<busdevice>/<attr name>"
+!  */
+! static ssize_t vmbus_show_device_attr(struct device *dev,
+! 				      struct device_attribute *dev_attr,
+! 				      char *buf)
+  {
+  	struct hv_device *hv_dev = device_to_hv_device(dev);
+! 	struct hv_device_info *device_info;
+! 	char alias_name[VMBUS_ALIAS_LEN + 1];
+! 	int ret = 0;
+  
+! 	device_info = kzalloc(sizeof(struct hv_device_info), GFP_KERNEL);
+! 	if (!device_info)
+! 		return ret;
+  
+! 	get_channel_info(hv_dev, device_info);
+  
+! 	if (!strcmp(dev_attr->attr.name, "class_id")) {
+! 		ret = sprintf(buf, "{%02x%02x%02x%02x-%02x%02x-%02x%02x-"
+! 				"%02x%02x-%02x%02x%02x%02x%02x%02x}\n",
+! 				device_info->chn_type.b[3],
+! 				device_info->chn_type.b[2],
+! 				device_info->chn_type.b[1],
+! 				device_info->chn_type.b[0],
+! 				device_info->chn_type.b[5],
+! 				device_info->chn_type.b[4],
+! 				device_info->chn_type.b[7],
+! 				device_info->chn_type.b[6],
+! 				device_info->chn_type.b[8],
+! 				device_info->chn_type.b[9],
+! 				device_info->chn_type.b[10],
+! 				device_info->chn_type.b[11],
+! 				device_info->chn_type.b[12],
+! 				device_info->chn_type.b[13],
+! 				device_info->chn_type.b[14],
+! 				device_info->chn_type.b[15]);
+! 	} else if (!strcmp(dev_attr->attr.name, "device_id")) {
+! 		ret = sprintf(buf, "{%02x%02x%02x%02x-%02x%02x-%02x%02x-"
+! 				"%02x%02x-%02x%02x%02x%02x%02x%02x}\n",
+! 				device_info->chn_instance.b[3],
+! 				device_info->chn_instance.b[2],
+! 				device_info->chn_instance.b[1],
+! 				device_info->chn_instance.b[0],
+! 				device_info->chn_instance.b[5],
+! 				device_info->chn_instance.b[4],
+! 				device_info->chn_instance.b[7],
+! 				device_info->chn_instance.b[6],
+! 				device_info->chn_instance.b[8],
+! 				device_info->chn_instance.b[9],
+! 				device_info->chn_instance.b[10],
+! 				device_info->chn_instance.b[11],
+! 				device_info->chn_instance.b[12],
+! 				device_info->chn_instance.b[13],
+! 				device_info->chn_instance.b[14],
+! 				device_info->chn_instance.b[15]);
+! 	} else if (!strcmp(dev_attr->attr.name, "modalias")) {
+! 		print_alias_name(hv_dev, alias_name);
+! 		ret = sprintf(buf, "vmbus:%s\n", alias_name);
+! 	} else if (!strcmp(dev_attr->attr.name, "state")) {
+! 		ret = sprintf(buf, "%d\n", device_info->chn_state);
+! 	} else if (!strcmp(dev_attr->attr.name, "id")) {
+! 		ret = sprintf(buf, "%d\n", device_info->chn_id);
+! 	} else if (!strcmp(dev_attr->attr.name, "out_intr_mask")) {
+! 		ret = sprintf(buf, "%d\n", device_info->outbound.int_mask);
+! 	} else if (!strcmp(dev_attr->attr.name, "out_read_index")) {
+! 		ret = sprintf(buf, "%d\n", device_info->outbound.read_idx);
+! 	} else if (!strcmp(dev_attr->attr.name, "out_write_index")) {
+! 		ret = sprintf(buf, "%d\n", device_info->outbound.write_idx);
+! 	} else if (!strcmp(dev_attr->attr.name, "out_read_bytes_avail")) {
+! 		ret = sprintf(buf, "%d\n",
+! 			       device_info->outbound.bytes_avail_toread);
+! 	} else if (!strcmp(dev_attr->attr.name, "out_write_bytes_avail")) {
+! 		ret = sprintf(buf, "%d\n",
+! 			       device_info->outbound.bytes_avail_towrite);
+! 	} else if (!strcmp(dev_attr->attr.name, "in_intr_mask")) {
+! 		ret = sprintf(buf, "%d\n", device_info->inbound.int_mask);
+! 	} else if (!strcmp(dev_attr->attr.name, "in_read_index")) {
+! 		ret = sprintf(buf, "%d\n", device_info->inbound.read_idx);
+! 	} else if (!strcmp(dev_attr->attr.name, "in_write_index")) {
+! 		ret = sprintf(buf, "%d\n", device_info->inbound.write_idx);
+! 	} else if (!strcmp(dev_attr->attr.name, "in_read_bytes_avail")) {
+! 		ret = sprintf(buf, "%d\n",
+! 			       device_info->inbound.bytes_avail_toread);
+! 	} else if (!strcmp(dev_attr->attr.name, "in_write_bytes_avail")) {
+! 		ret = sprintf(buf, "%d\n",
+! 			       device_info->inbound.bytes_avail_towrite);
+! 	} else if (!strcmp(dev_attr->attr.name, "monitor_id")) {
+! 		ret = sprintf(buf, "%d\n", device_info->monitor_id);
+! 	} else if (!strcmp(dev_attr->attr.name, "server_monitor_pending")) {
+! 		ret = sprintf(buf, "%d\n", device_info->server_monitor_pending);
+! 	} else if (!strcmp(dev_attr->attr.name, "server_monitor_latency")) {
+! 		ret = sprintf(buf, "%d\n", device_info->server_monitor_latency);
+! 	} else if (!strcmp(dev_attr->attr.name, "server_monitor_conn_id")) {
+! 		ret = sprintf(buf, "%d\n",
+! 			       device_info->server_monitor_conn_id);
+! 	} else if (!strcmp(dev_attr->attr.name, "client_monitor_pending")) {
+! 		ret = sprintf(buf, "%d\n", device_info->client_monitor_pending);
+! 	} else if (!strcmp(dev_attr->attr.name, "client_monitor_latency")) {
+! 		ret = sprintf(buf, "%d\n", device_info->client_monitor_latency);
+! 	} else if (!strcmp(dev_attr->attr.name, "client_monitor_conn_id")) {
+! 		ret = sprintf(buf, "%d\n",
+! 			       device_info->client_monitor_conn_id);
+! 	}
+  
+! 	kfree(device_info);
+! 	return ret;
+  }
+  
+  /* Set up per device attributes in /sys/bus/vmbus/devices/<bus device> */
+! static struct device_attribute vmbus_device_attrs[] = {
+! 	__ATTR(id, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR(state, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR(class_id, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR(device_id, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR(monitor_id, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR(modalias, S_IRUGO, vmbus_show_device_attr, NULL),
+! 
+! 	__ATTR(server_monitor_pending, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR(server_monitor_latency, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR(server_monitor_conn_id, S_IRUGO, vmbus_show_device_attr, NULL),
+! 
+! 	__ATTR(client_monitor_pending, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR(client_monitor_latency, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR(client_monitor_conn_id, S_IRUGO, vmbus_show_device_attr, NULL),
+! 
+! 	__ATTR(out_intr_mask, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR(out_read_index, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR(out_write_index, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR(out_read_bytes_avail, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR(out_write_bytes_avail, S_IRUGO, vmbus_show_device_attr, NULL),
+! 
+! 	__ATTR(in_intr_mask, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR(in_read_index, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR(in_write_index, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR(in_read_bytes_avail, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR(in_write_bytes_avail, S_IRUGO, vmbus_show_device_attr, NULL),
+! 	__ATTR_NULL
+  };
+! 
+  
+  /*
+   * vmbus_uevent - add uevent for our device
+***************
+*** 508,521 ****
+   */
+  static int vmbus_remove(struct device *child_device)
+  {
+! 	struct hv_driver *drv = drv_to_hv_drv(child_device->driver);
+  	struct hv_device *dev = device_to_hv_device(child_device);
+  
+! 	if (drv->remove)
+! 		drv->remove(dev);
+! 	else
+! 		pr_err("remove not set for driver %s\n",
+! 			dev_name(child_device));
+  
+  	return 0;
+  }
+--- 419,444 ----
+   */
+  static int vmbus_remove(struct device *child_device)
+  {
+! 	struct hv_driver *drv;
+  	struct hv_device *dev = device_to_hv_device(child_device);
++ 	u32 relid = dev->channel->offermsg.child_relid;
+  
+! 	if (child_device->driver) {
+! 		drv = drv_to_hv_drv(child_device->driver);
+! 		if (drv->remove)
+! 			drv->remove(dev);
+! 		else {
+! 			hv_process_channel_removal(dev->channel, relid);
+! 			pr_err("remove not set for driver %s\n",
+! 				dev_name(child_device));
+! 		}
+! 	} else {
+! 		/*
+! 		 * We don't have a driver for this device; deal with the
+! 		 * rescind message by removing the channel.
+! 		 */
+! 		hv_process_channel_removal(dev->channel, relid);
+! 	}
+  
+  	return 0;
+  }
+***************
+*** 556,568 ****
+  
+  /* The one and only one */
+  static struct bus_type  hv_bus = {
+! 	.name =		"vmbus",
+  	.match =		vmbus_match,
+  	.shutdown =		vmbus_shutdown,
+  	.remove =		vmbus_remove,
+  	.probe =		vmbus_probe,
+  	.uevent =		vmbus_uevent,
+! 	.dev_groups =		vmbus_groups,
+  };
+  
+  static const char *driver_name = "hyperv";
+--- 479,491 ----
+  
+  /* The one and only one */
+  static struct bus_type  hv_bus = {
+! 	.name =			"vmbus",
+  	.match =		vmbus_match,
+  	.shutdown =		vmbus_shutdown,
+  	.remove =		vmbus_remove,
+  	.probe =		vmbus_probe,
+  	.uevent =		vmbus_uevent,
+! 	.dev_attrs =    	vmbus_device_attrs,
+  };
+  
+  static const char *driver_name = "hyperv";
+***************
+*** 576,581 ****
+--- 499,508 ----
+  {
+  	struct onmessage_work_context *ctx;
+  
++ 	/* Do not process messages if we're in DISCONNECTED state */
++ 	if (vmbus_connection.conn_state == DISCONNECTED)
++ 		return;
++ 
+  	ctx = container_of(work, struct onmessage_work_context,
+  			   work);
+  	vmbus_onmessage(&ctx->msg);
+***************
+*** 616,636 ****
+  	void *page_addr = hv_context.synic_message_page[cpu];
+  	struct hv_message *msg = (struct hv_message *)page_addr +
+  				  VMBUS_MESSAGE_SINT;
+  	struct onmessage_work_context *ctx;
+  
+  	while (1) {
+! 		if (msg->header.message_type == HVMSG_NONE) {
+  			/* no msg */
+  			break;
+! 		} else {
+  			ctx = kmalloc(sizeof(*ctx), GFP_ATOMIC);
+  			if (ctx == NULL)
+  				continue;
+  			INIT_WORK(&ctx->work, vmbus_onmessage_work);
+  			memcpy(&ctx->msg, msg, sizeof(*msg));
+  			queue_work(vmbus_connection.work_queue, &ctx->work);
+! 		}
+  
+  		msg->header.message_type = HVMSG_NONE;
+  
+  		/*
+--- 543,577 ----
+  	void *page_addr = hv_context.synic_message_page[cpu];
+  	struct hv_message *msg = (struct hv_message *)page_addr +
+  				  VMBUS_MESSAGE_SINT;
++ 	struct vmbus_channel_message_header *hdr;
++ 	struct vmbus_channel_message_table_entry *entry;
++ 
+  	struct onmessage_work_context *ctx;
+  
+  	while (1) {
+! 		if (msg->header.message_type == HVMSG_NONE)
+  			/* no msg */
+  			break;
+! 
+! 		hdr = (struct vmbus_channel_message_header *)msg->u.payload;
+! 
+! 		if (hdr->msgtype >= CHANNELMSG_COUNT) {
+! 			WARN_ONCE(1, "unknown msgtype=%d\n", hdr->msgtype);
+! 			goto msg_handled;
+! 		}
+! 
+! 		entry = &channel_message_table[hdr->msgtype];
+! 		if (entry->handler_type == VMHT_BLOCKING) {
+  			ctx = kmalloc(sizeof(*ctx), GFP_ATOMIC);
+  			if (ctx == NULL)
+  				continue;
+  			INIT_WORK(&ctx->work, vmbus_onmessage_work);
+  			memcpy(&ctx->msg, msg, sizeof(*msg));
+  			queue_work(vmbus_connection.work_queue, &ctx->work);
+! 		} else
+! 			entry->message_handler(hdr);
+  
++ msg_handled:
+  		msg->header.message_type = HVMSG_NONE;
+  
+  		/*
+***************
+*** 653,663 ****
+  	}
+  }
+  
+- #if (RHEL_RELEASE_CODE >=1800 ) /* KYS; we may have to tweak this */
+- static void vmbus_isr(void)
+- #else
+  static irqreturn_t vmbus_isr(int irq, void *dev_id)
+- #endif
+  {
+  	int cpu = smp_processor_id();
+  	void *page_addr;
+--- 594,600 ----
+***************
+*** 667,677 ****
+  
+  	page_addr = hv_context.synic_event_page[cpu];
+  	if (page_addr == NULL)
+- #if (RHEL_RELEASE_CODE >=1800 ) /* KYS; we may have to tweak this */
+- 		return;
+- #else
+  		return IRQ_NONE;
+- #endif
+  
+  	event = (union hv_synic_event_flags *)page_addr +
+  					 VMBUS_MESSAGE_SINT;
+--- 604,610 ----
+***************
+*** 713,734 ****
+  		else
+  			tasklet_schedule(&msg_dpc);
+  	}
+- #if (RHEL_RELEASE_CODE >=1800 ) /* KYS; we may have to tweak this */
+- 	return;
+- #else
+  	if (handled)
+  		return IRQ_HANDLED;
+  	else
+  		return IRQ_NONE;
+  
+! #endif
+  }
+  
+! /*
+!  * vmbus interrupt flow handler:
+!  * vmbus interrupts can concurrently occur on multiple CPUs and
+!  * can be handled concurrently.
+!  */
+  
+  static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc)
+  {
+--- 646,690 ----
+  		else
+  			tasklet_schedule(&msg_dpc);
+  	}
+  	if (handled)
+  		return IRQ_HANDLED;
+  	else
+  		return IRQ_NONE;
++ }
+  
+! #ifdef CONFIG_HOTPLUG_CPU
+! static int hyperv_cpu_disable(void)
+! {
+! 	return -ENOSYS;
+  }
+  
+! static void hv_cpu_hotplug_quirk(bool vmbus_loaded)
+! {
+! 	static void *previous_cpu_disable;
+! 
+! 	/*
+! 	 * Offlining a CPU when running on newer hypervisors (WS2012R2, Win8,
+! 	 * ...) is not supported at this moment as channel interrupts are
+! 	 * distributed across all of them.
+! 	 */
+! 
+! 	if ((vmbus_proto_version == VERSION_WS2008) ||
+! 	    (vmbus_proto_version == VERSION_WIN7))
+! 		return;
+! 
+! 	if (vmbus_loaded) {
+! 		previous_cpu_disable = smp_ops.cpu_disable;
+! 		smp_ops.cpu_disable = hyperv_cpu_disable;
+! 		pr_notice("CPU offlining is not supported by hypervisor\n");
+! 	} else if (previous_cpu_disable)
+! 		smp_ops.cpu_disable = previous_cpu_disable;
+! }
+! #else
+! static void hv_cpu_hotplug_quirk(bool vmbus_loaded)
+! {
+! }
+! #endif
+! 
+  
+  static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc)
+  {
+***************
+*** 737,742 ****
+--- 693,721 ----
+  	desc->action->handler(irq, desc->action->dev_id);
+  }
+  
++ static cycle_t read_hv_clock(struct clocksource *arg)
++ {
++ 	cycle_t current_tick;
++ 	/*
++ 	 * Read the partition counter to get the current tick count. This count
++ 	 * is set to 0 when the partition is created and is incremented in
++ 	 * 100 nanosecond units.
++ 	 */
++ 	rdmsrl(HV_X64_MSR_TIME_REF_COUNT, current_tick);
++ 	return current_tick;
++ }
++ 
++ #define HV_CLOCK_SHIFT  22
++ static struct clocksource hyperv_cs = {
++ 	.name           = "hyperv_clocksource",
++ 	.rating         = 400, /* use this when running on Hyperv*/
++ 	.read           = read_hv_clock,
++ 	.mask           = CLOCKSOURCE_MASK(64),
++ 	.mult           = (100 << HV_CLOCK_SHIFT),
++ 	.shift          = HV_CLOCK_SHIFT,
++ 	.flags          = CLOCK_SOURCE_IS_CONTINUOUS,
++ };
++ 
+  /*
+   * vmbus_bus_init -Main vmbus driver initialization routine.
+   *
+***************
+*** 767,773 ****
+  
+  	if (ret != 0) {
+  		pr_err("Unable to request IRQ %d\n",
+! 			irq);
+  		goto err_unregister;
+  	}
+  
+--- 746,752 ----
+  
+  	if (ret != 0) {
+  		pr_err("Unable to request IRQ %d\n",
+!                            irq);
+  		goto err_unregister;
+  	}
+  
+***************
+*** 776,789 ****
+  	 * different CPUs. Establish an appropriate interrupt flow
+  	 * handler that can support this model.
+  	 */
+! 	irq_set_handler(irq, vmbus_flow_handler);
+! 
+! #if (RHEL_RELEASE_CODE >=1800 ) /* KYS; we may have to tweak this */
+! 
+! 	hv_setup_vmbus_irq(vmbus_isr);
+! 
+! #else
+  
+  	hv_register_vmbus_handler(irq, vmbus_isr);
+  #endif
+  
+--- 756,767 ----
+  	 * different CPUs. Establish an appropriate interrupt flow
+  	 * handler that can support this model.
+  	 */
+! 	set_irq_handler(irq, vmbus_flow_handler);
+  
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1541)
++ 	/*
++ 	 * Register our interrupt handler.
++ 	 */
+  	hv_register_vmbus_handler(irq, vmbus_isr);
+  #endif
+  
+***************
+*** 799,814 ****
+  	if (ret)
+  		goto err_alloc;
+  
+  	vmbus_request_offers();
+  
+  	return 0;
+  
+  err_alloc:
+- 	hv_synic_free();
+  	free_irq(irq, hv_acpi_dev);
+! #if (RHEL_RELEASE_CODE >=1800 ) /* KYS; we may have to tweak this */
+! 	hv_remove_vmbus_irq();
+! #endif
+  
+  err_unregister:
+  	bus_unregister(&hv_bus);
+--- 779,808 ----
+  	if (ret)
+  		goto err_alloc;
+  
++ 	hv_cpu_hotplug_quirk(true);
++ 
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540)
++ 	ms_hyperv.features |= HV_X64_MSR_TIME_REF_COUNT_AVAILABLE;
++ #endif
++ 
++ 	/*
++ 	 * Only register if the crash MSRs are available
++ 	 */
++ 	if (ms_hyperv.features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
++ 		atomic_notifier_chain_register(&panic_notifier_list,
++ 					       &hyperv_panic_block);
++ 	}
++ 
+  	vmbus_request_offers();
++ 	if (ms_hyperv.features & HV_X64_MSR_TIME_REF_COUNT_AVAILABLE)
++ 		clocksource_register(&hyperv_cs);
++ 
+  
+  	return 0;
+  
+  err_alloc:
+  	free_irq(irq, hv_acpi_dev);
+! 	hv_synic_free();
+  
+  err_unregister:
+  	bus_unregister(&hv_bus);
+***************
+*** 899,908 ****
+  {
+  	int ret = 0;
+  
+! 	static atomic_t device_num = ATOMIC_INIT(0);
+! 
+! 	dev_set_name(&child_device_obj->device, "vmbus_0_%d",
+! 		     atomic_inc_return(&device_num));
+  
+  	child_device_obj->device.bus = &hv_bus;
+  	child_device_obj->device.parent = &hv_acpi_dev->dev;
+--- 893,900 ----
+  {
+  	int ret = 0;
+  
+! 	dev_set_name(&child_device_obj->device, "vmbus_%d",
+! 		     child_device_obj->channel->id);
+  
+  	child_device_obj->device.bus = &hv_bus;
+  	child_device_obj->device.parent = &hv_acpi_dev->dev;
+***************
+*** 1051,1063 ****
+  
+  static void __exit vmbus_exit(void)
+  {
+! #if (RHEL_RELEASE_CODE >=1800 ) /* KYS; we may have to tweak this */
+! 	hv_remove_vmbus_irq();
+! #endif
+  	vmbus_free_channels();
+  	bus_unregister(&hv_bus);
+  	hv_cleanup();
+  	acpi_bus_unregister_driver(&vmbus_acpi_driver);
+  }
+  
+  
+--- 1043,1061 ----
+  
+  static void __exit vmbus_exit(void)
+  {
+! 	int cpu;
+! 
+! 	vmbus_connection.conn_state = DISCONNECTED;
+! 	hv_synic_clockevents_cleanup();
+! 	free_irq(irq, hv_acpi_dev);
+  	vmbus_free_channels();
+  	bus_unregister(&hv_bus);
+  	hv_cleanup();
++ 	for_each_online_cpu(cpu)
++ 		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
+  	acpi_bus_unregister_driver(&vmbus_acpi_driver);
++ 	hv_cpu_hotplug_quirk(false);
++ 	vmbus_disconnect();
+  }
+  
+  
