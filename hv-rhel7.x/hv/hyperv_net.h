@@ -130,7 +130,7 @@ struct hv_netvsc_packet {
 	u32 status;
 	bool part_of_skb;	// Nick
 
-	struct hv_device *device;
+	// struct hv_device *device;   // Nick
 	bool is_data_pkt;
 	u16 vlan_tci;
 
