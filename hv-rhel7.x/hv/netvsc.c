@@ -747,6 +747,7 @@ int netvsc_send(struct hv_device *device,
 			packet->page_buf_cnt = 0;
 		}
 	}
+	packet->send_completion_tid = 0;  // Nick
 	packet->send_buf_index = section_index;
 
 
