@@ -419,10 +419,12 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	//	dev_kfree_skb(skb);
 	//	net->stats.tx_dropped++;
 	//	return NETDEV_TX_OK;
-	pkt_sz = sizeof(struct hv_netvsc_packet) +
-		sizeof(struct rndis_message) +
-		NDIS_VLAN_PPI_SIZE + NDIS_CSUM_PPI_SIZE +
-		NDIS_LSO_PPI_SIZE + NDIS_HASH_PPI_SIZE;
+	//pkt_sz = sizeof(struct hv_netvsc_packet) +
+	//	sizeof(struct rndis_message) +
+	//	NDIS_VLAN_PPI_SIZE + NDIS_CSUM_PPI_SIZE +
+	//	NDIS_LSO_PPI_SIZE + NDIS_HASH_PPI_SIZE;
+	pkt_sz = sizeof(struct hv_netvsc_packet) + RNDIS_AND_PPI_SIZE;
+
 	if (head_room < pkt_sz) {
 		packet = kmalloc(pkt_sz, GFP_ATOMIC);
 		if (!packet) {
@@ -452,11 +454,12 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	//			sizeof(struct hv_netvsc_packet) +                 // Nick
 	//			(num_data_pgs * sizeof(struct hv_page_buffer)));  // Nick
 				sizeof(struct hv_netvsc_packet));     // Nick
-	memset(packet->rndis_msg, 0, sizeof(struct rndis_message) +   //  Nick
-			NDIS_VLAN_PPI_SIZE +    // Nick
-			NDIS_CSUM_PPI_SIZE +    // Nick
-			NDIS_LSO_PPI_SIZE +     // Nick
-			NDIS_HASH_PPI_SIZE);    // Nick
+	//memset(packet->rndis_msg, 0, sizeof(struct rndis_message) +   //  Nick
+	//		NDIS_VLAN_PPI_SIZE +    // Nick
+	//		NDIS_CSUM_PPI_SIZE +    // Nick
+	//		NDIS_LSO_PPI_SIZE +     // Nick
+	//		NDIS_HASH_PPI_SIZE);    // Nick
+	memset(packet->rndis_msg, 0, RNDIS_AND_PPI_SIZE);
 
 	/* Set the completion routine */
 	packet->send_completion = netvsc_xmit_completion;
@@ -876,9 +879,11 @@ static int netvsc_probe(struct hv_device *dev,
 	if (!net)
 		return -ENOMEM;
 
-	max_needed_headroom = sizeof(struct hv_netvsc_packet) +         // Nick
-				NDIS_VLAN_PPI_SIZE + NDIS_CSUM_PPI_SIZE + // Nick
-				NDIS_LSO_PPI_SIZE + NDIS_HASH_PPI_SIZE;   // Nick
+	max_needed_headroom = sizeof(struct hv_netvsc_packet) +           // Nick
+	//			sizeof(struct rndis_message) +	          // Nick
+	//			NDIS_VLAN_PPI_SIZE + NDIS_CSUM_PPI_SIZE + // Nick
+	//			NDIS_LSO_PPI_SIZE + NDIS_HASH_PPI_SIZE;   // Nick
+				RNDIS_AND_PPI_SIZE;
 	netif_carrier_off(net);
 
 	net_device_ctx = netdev_priv(net);
