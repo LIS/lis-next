@@ -742,8 +742,15 @@ int netvsc_send(struct hv_device *device,
 			msg_size = netvsc_copy_to_send_buf(net_device,
 							   section_index,
 							   packet);
-			skb = (struct sk_buff *)
-			      (unsigned long)packet->send_completion_tid;
+			//skb = (struct sk_buff *)  Nick
+			//      (unsigned long)packet->send_completion_tid;  Nick
+			if (!packet->part_of_skb) {
+				skb = (struct sk_buff *)
+				    (unsigned long)
+				    packet->send_completion_tid;
+
+				packet->send_completion_tid = 0;
+			}
 			packet->page_buf_cnt = 0;
 		}
 	}
