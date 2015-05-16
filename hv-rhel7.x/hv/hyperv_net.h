@@ -599,6 +599,15 @@ struct nvsp_message {
 
 #define VRSS_SEND_TAB_SIZE 16
 
+/* The context of the netvsc device */
+struct net_device_context {
+	/* point back to our device context */
+	struct hv_device *device_ctx;
+	struct delayed_work dwork;
+	struct work_struct work;
+	u32 msg_enable; /* debug level */
+};
+
 /* Per netvsc channel-specific */
 struct netvsc_device {
 	struct hv_device *dev;
@@ -649,6 +658,9 @@ struct netvsc_device {
 	unsigned char *cb_buffer;
 	/* The sub channel callback buffer */
 	unsigned char *sub_cb_buf;
+
+	/* The net device context */
+	struct net_device_context *nd_ctx;
 };
 
 /* NdisInitialize message */
