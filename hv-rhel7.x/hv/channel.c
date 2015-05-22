@@ -583,9 +583,9 @@ EXPORT_SYMBOL_GPL(vmbus_close);
  *
  * Mainly used by Hyper-V drivers.
  */
-int vmbus_sendpacket(struct vmbus_channel *channel, void *buffer,
+int vmbus_sendpacket_ctl(struct vmbus_channel *channel, void *buffer,
 			   u32 bufferlen, u64 requestid,
-			   enum vmbus_packet_type type, u32 flags)
+			   enum vmbus_packet_type type, u32 flags, bool kick_q)
 {
 	struct vmpacket_descriptor desc;
 	u32 packetlen = sizeof(struct vmpacket_descriptor) + bufferlen;
@@ -613,21 +613,34 @@ int vmbus_sendpacket(struct vmbus_channel *channel, void *buffer,
 
 	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
 
-	if (ret == 0 && signal)
-		vmbus_setevent(channel);
+	/*
+         * Signalling the host is conditional on many factors:
+         * 1. The ring state changed from being empty to non-empty.
+         *    This is tracked by the variable "signal".
+         * 2. The variable kick_q tracks if more data will be placed
+         *    on the ring. We will not signal if more data is
+         *    to be placed.
+         *
+         * If we cannot write to the ring-buffer; signal the host
+         * even if we may not have written anything. This is a rare
+         * enough condition that it should not matter.
+         */
+        if (((ret == 0) && kick_q && signal) || (ret))
+                vmbus_setevent(channel);
 
 	return ret;
+
 }
-EXPORT_SYMBOL(vmbus_sendpacket);
+EXPORT_SYMBOL(vmbus_sendpacket_ctl);
 
 /*
  * vmbus_sendpacket_pagebuffer - Send a range of single-page buffer
  * packets using a GPADL Direct packet type.
  */
-int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
+int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
 				     struct hv_page_buffer pagebuffers[],
 				     u32 pagecount, void *buffer, u32 bufferlen,
-				     u64 requestid)
+				     u64 requestid,u32 flags, bool kick_q)
 {
 	int ret;
 	int i;
@@ -676,12 +689,24 @@ int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
 
 	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
 
-	if (ret == 0 && signal)
-		vmbus_setevent(channel);
+	/*
+         * Signalling the host is conditional on many factors:
+         * 1. The ring state changed from being empty to non-empty.
+         *    This is tracked by the variable "signal".
+         * 2. The variable kick_q tracks if more data will be placed
+         *    on the ring. We will not signal if more data is
+         *    to be placed.
+         *
+         * If we cannot write to the ring-buffer; signal the host
+         * even if we may not have written anything. This is a rare
+         * enough condition that it should not matter.
+         */
+        if (((ret == 0) && kick_q && signal) || (ret))
+                vmbus_setevent(channel);
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(vmbus_sendpacket_pagebuffer);
+EXPORT_SYMBOL_GPL(vmbus_sendpacket_pagebuffer_ctl);
 
 /*
  * vmbus_sendpacket_multipagebuffer - Send a multi-page buffer packet
