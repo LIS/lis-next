@@ -128,9 +128,7 @@ struct ndis_tcp_ip_checksum_info;
 struct hv_netvsc_packet {
 	/* Bookkeeping stuff */
 	u32 status;
-	//bool part_of_skb;	// Nick
 
-	// struct hv_device *device;   // Nick
 	bool is_data_pkt;
 	u16 vlan_tci;
 
@@ -150,7 +148,6 @@ struct hv_netvsc_packet {
 	/* Points to the send/receive buffer where the ethernet frame is */
 	void *data;
 	u32 page_buf_cnt;
-	// struct hv_page_buffer page_buf[0];  Nick
 	struct hv_page_buffer *page_buf;
 };
 
@@ -1174,7 +1171,7 @@ struct rndis_message {
 #define RNDIS_HEADER_SIZE	(sizeof(struct rndis_message) - \
 				 sizeof(union rndis_message_container))
 
-#define RNDIS_AND_PPI_SIZE (sizeof(struct rndis_message) + NDIS_ALL_PPI_SIZE)  // Nick
+#define RNDIS_AND_PPI_SIZE (sizeof(struct rndis_message) + NDIS_ALL_PPI_SIZE)
 
 #define NDIS_PACKET_TYPE_DIRECTED	0x00000001
 #define NDIS_PACKET_TYPE_MULTICAST	0x00000002

@@ -717,7 +717,6 @@ int netvsc_send(struct hv_device *device,
 	u64 req_id;
 	unsigned int section_index = NETVSC_INVALID_INDEX;
 	u32 msg_size = 0;
-	// struct sk_buff *skb = NULL; // Nick
 	u16 q_idx = packet->q_idx;
 
 
@@ -742,19 +741,10 @@ int netvsc_send(struct hv_device *device,
 			msg_size = netvsc_copy_to_send_buf(net_device,
 							   section_index,
 							   packet);
-			//skb = (struct sk_buff *)  Nick
-			//      (unsigned long)packet->send_completion_tid;  Nick
-			//if (!packet->part_of_skb) {
-			//	skb = (struct sk_buff *)
-			//	    (unsigned long)
-			//	    packet->send_completion_tid;
-
-			//	packet->send_completion_tid = 0;
-			//}
 			packet->page_buf_cnt = 0;
 		}
 	}
-	packet->send_completion_tid = 0;  // Nick
+	packet->send_completion_tid = 0;
 	packet->send_buf_index = section_index;
 
 
@@ -817,12 +807,6 @@ int netvsc_send(struct hv_device *device,
 			   packet, ret);
 	}
 
-	//if (ret != 0) {
-	//	if (section_index != NETVSC_INVALID_INDEX)
-	//		netvsc_free_send_slot(net_device, section_index);
-	//} else if (skb) {
-	//	dev_kfree_skb_any(skb);
-	//}
 	if (ret !=0 && section_index != NETVSC_INVALID_INDEX)
 		netvsc_free_send_slot(net_device, section_index);
 
@@ -921,7 +905,6 @@ static void netvsc_receive(struct netvsc_device *net_device,
 	}
 
 	count = vmxferpage_packet->range_cnt;
-	// netvsc_packet->device = device;      Nick
 	netvsc_packet->channel = channel;
 
 	/* Each range represents 1 RNDIS pkt that contains 1 ethernet frame */
@@ -1089,7 +1072,7 @@ int netvsc_device_add(struct hv_device *device, void *additional_info)
 	ndev = net_device->ndev;
 
 	/* Add netvsc_device context to netvsc_device */
-	net_device->nd_ctx = netdev_priv(ndev);  // Nick
+	net_device->nd_ctx = netdev_priv(ndev);
 
 	/* Initialize the NetVSC channel extension */
 	init_completion(&net_device->channel_init_wait);
