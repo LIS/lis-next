@@ -717,7 +717,7 @@ int netvsc_send(struct hv_device *device,
 	u64 req_id;
 	unsigned int section_index = NETVSC_INVALID_INDEX;
 	u32 msg_size = 0;
-	struct sk_buff *skb = NULL;
+	// struct sk_buff *skb = NULL; // Nick
 	u16 q_idx = packet->q_idx;
 
 
@@ -817,12 +817,14 @@ int netvsc_send(struct hv_device *device,
 			   packet, ret);
 	}
 
-	if (ret != 0) {
-		if (section_index != NETVSC_INVALID_INDEX)
-			netvsc_free_send_slot(net_device, section_index);
-	} else if (skb) {
-		dev_kfree_skb_any(skb);
-	}
+	//if (ret != 0) {
+	//	if (section_index != NETVSC_INVALID_INDEX)
+	//		netvsc_free_send_slot(net_device, section_index);
+	//} else if (skb) {
+	//	dev_kfree_skb_any(skb);
+	//}
+	if (ret !=0 && section_index != NETVSC_INVALID_INDEX)
+		netvsc_free_send_slot(net_device, section_index);
 
 	return ret;
 }
