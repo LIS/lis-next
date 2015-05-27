@@ -248,8 +248,8 @@ void netvsc_xmit_completion(void *context)
 	// u32 index = packet->send_buf_index;  // Nick
 
 	// kfree(packet);  Nick
-	if (!packet->part_of_skb)  // Nick
-		kfree(packet);     // Nick
+	//if (!packet->part_of_skb)  // Nick
+	//	kfree(packet);     // Nick
 
 	// if (skb && (index == NETVSC_INVALID_INDEX))  Nick
 	if (skb)    // Nick
@@ -398,7 +398,7 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	u32 net_trans_info;
 	u32 hash;
 	u32 skb_length = skb->len;
-	u32 head_room = skb_headroom(skb);
+	//u32 head_room = skb_headroom(skb);  Nick
 	u32 pkt_sz;
 	struct hv_page_buffer page_buf[MAX_PAGE_BUFFER_COUNT];
 
@@ -434,21 +434,28 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	//	NDIS_LSO_PPI_SIZE + NDIS_HASH_PPI_SIZE;
 	pkt_sz = sizeof(struct hv_netvsc_packet) + RNDIS_AND_PPI_SIZE;
 
-	if (head_room < pkt_sz) {
-		packet = kmalloc(pkt_sz, GFP_ATOMIC);
-		if (!packet) {
-			/* out of memory, drop packet */
-			netdev_err(net, "unable to alloc hv_netvsc_packet\n");
-			dev_kfree_skb(skb);
-			net->stats.tx_dropped++;
-			return NETDEV_TX_OK;
-		}
-		packet->part_of_skb = false;
-	} else {
+	//if (head_room < pkt_sz) {
+	//	packet = kmalloc(pkt_sz, GFP_ATOMIC);
+	//	if (!packet) {
+	//		/* out of memory, drop packet */
+	//		netdev_err(net, "unable to alloc hv_netvsc_packet\n");
+	//		dev_kfree_skb(skb);
+	//		net->stats.tx_dropped++;
+	//		return NETDEV_TX_OK;
+	//	}
+	//	packet->part_of_skb = false;
+	//} else {
 		/* Use the headroom for building up the packet */
-		packet = (struct hv_netvsc_packet *)skb->head;
-		packet->part_of_skb = true;
+	//	packet = (struct hv_netvsc_packet *)skb->head;
+	//	packet->part_of_skb = true;
+	ret = skb_cow_head(skb, pkt_sz);
+	if (ret) {
+		netdev_err(net, "unable to alloc hv_netvsc_packet\n");
+		ret = -ENOMEM;
+		goto drop;
 	}
+	/* Use the headroom for building up the packet */
+	packet = (struct hv_netvsc_packet *)skb->head;	// Nick
 
 	packet->status = 0;                 // Nick
 	packet->vlan_tci = skb->vlan_tci;
@@ -612,8 +619,8 @@ drop:
 		net->stats.tx_packets++;
 	} else {
 		// kfree(packet);      Nick
-		if (!packet->part_of_skb)
-			kfree(packet);
+		//if (!packet->part_of_skb)
+		//	kfree(packet);
 		if (ret != -EAGAIN) {
 			dev_kfree_skb_any(skb);
 			net->stats.tx_dropped++;
