@@ -1,23 +1,30 @@
 echo "Building Modules"
 
 make -C /lib/modules/$(uname -r)/build M=`pwd` clean
+[ $? -eq 0 ] || exit 1
+
 make -C /lib/modules/$(uname -r)/build M=`pwd` modules
+[ $? -eq 0 ] || exit 1
 
 echo "Installing Modules"
 
 cp -f ./*.ko /lib/modules/$(uname -r)/extra/
+[ $? -eq 0 ] || exit 1
 
 echo "Generating Module dependencies"
 
 depmod
+[ $? -eq 0 ] || exit 1
 
 echo "Installing Modprobe Rules"
 
 cp -f ./hyperv_pvdrivers.conf /etc/modprobe.d/
+[ $? -eq 0 ] || exit 1
 
 echo "Generating initramfs"
 
 dracut --force  "initramfs-$(uname -r).img" $(uname -r)
+[ $? -eq 0 ] || exit 1
 
 echo "Saving old initramfs"
 
@@ -29,3 +36,6 @@ fi
 echo "Installing new initramfs"
 
 cp -f "initramfs-$(uname -r).img" /boot/"initramfs-$(uname -r).img"
+[ $? -eq 0 ] || exit 1
+
+echo "Completed!"

@@ -742,16 +742,20 @@ int netvsc_send(struct hv_device *device,
 			msg_size = netvsc_copy_to_send_buf(net_device,
 							   section_index,
 							   packet);
-			skb = (struct sk_buff *)
-			      (unsigned long)packet->send_completion_tid;
-			if (skb)
-				dev_kfree_skb_any(skb);
+			if (!packet->part_of_skb) {
+				skb = (struct sk_buff *)
+					(unsigned long)
+					packet->send_completion_tid;
+
+				packet->send_completion_tid = 0;
+			}
+			//if (skb)
+			//	dev_kfree_skb_any(skb);
 			packet->page_buf_cnt = 0;
-			packet->send_completion_tid = 0;
 		}
 	}
-	packet->send_buf_index = section_index;
 
+	packet->send_buf_index = section_index;
 
 	sendMessage.msg.v1_msg.send_rndis_pkt.send_buf_section_index =
 		section_index;
