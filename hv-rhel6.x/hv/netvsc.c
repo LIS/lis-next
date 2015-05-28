@@ -749,8 +749,6 @@ int netvsc_send(struct hv_device *device,
 
 				packet->send_completion_tid = 0;
 			}
-			//if (skb)
-			//	dev_kfree_skb_any(skb);
 			packet->page_buf_cnt = 0;
 		}
 	}
@@ -914,7 +912,6 @@ static void netvsc_receive(struct netvsc_device *net_device,
 	}
 
 	count = vmxferpage_packet->range_cnt;
-	netvsc_packet->device = device;
 	netvsc_packet->channel = channel;
 
 	/* Each range represents 1 RNDIS pkt that contains 1 ethernet frame */
