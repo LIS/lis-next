@@ -654,13 +654,25 @@ int vmbus_sendpacket_ctl(struct vmbus_channel *channel, void *buffer,
 	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
 
 	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
+	
+	/*
+         * Signalling the host is conditional on many factors:
+         * 1. The ring state changed from being empty to non-empty.
+         *    This is tracked by the variable "signal".
+         * 2. The variable kick_q tracks if more data will be placed
+         *    on the ring. We will not signal if more data is
+         *    to be placed.
+         *
+         * If we cannot write to the ring-buffer; signal the host
+         * even if we may not have written anything. This is a rare
+         * enough condition that it should not matter.
+         */
 
-	if ((ret == 0) && kick_q && signal)
-		vmbus_setevent(channel);
-	else if (ret)
-		vmbus_setevent(channel);
+	if (((ret == 0) && kick_q && signal) || (ret))
+        	vmbus_setevent(channel);
 
 	return ret;
+
 }
 EXPORT_SYMBOL(vmbus_sendpacket_ctl);
 
@@ -748,10 +760,20 @@ int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
 
 	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
 
-	if ((ret == 0) && kick_q && signal)
-		vmbus_setevent(channel);
-	else if (ret)
-		vmbus_setevent(channel);
+	/*
+         * Signalling the host is conditional on many factors:
+         * 1. The ring state changed from being empty to non-empty.
+         *    This is tracked by the variable "signal".
+         * 2. The variable kick_q tracks if more data will be placed
+         *    on the ring. We will not signal if more data is
+         *    to be placed.
+         *
+         * If we cannot write to the ring-buffer; signal the host
+         * even if we may not have written anything. This is a rare
+         * enough condition that it should not matter.
+         */
+        if (((ret == 0) && kick_q && signal) || (ret))
+                vmbus_setevent(channel);
 
 	return ret;
 }
