@@ -809,6 +809,9 @@ int netvsc_send(struct hv_device *device,
 			   packet, ret);
 	}
 
+	if (ret != 0 && section_index != NETVSC_INVALID_INDEX)
+		netvsc_free_send_slot(net_device, section_index);
+
 	return ret;
 }
 
