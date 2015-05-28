@@ -747,6 +747,7 @@ int netvsc_send(struct hv_device *device,
 			if (skb)
 				dev_kfree_skb_any(skb);
 			packet->page_buf_cnt = 0;
+			packet->send_completion_tid = 0;
 		}
 	}
 	packet->send_buf_index = section_index;
