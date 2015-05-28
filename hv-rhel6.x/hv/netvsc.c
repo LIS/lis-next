@@ -716,7 +716,6 @@ int netvsc_send(struct hv_device *device,
 	u64 req_id;
 	unsigned int section_index = NETVSC_INVALID_INDEX;
 	u32 msg_size = 0;
-	struct sk_buff *skb;
 	u16 q_idx = packet->q_idx;
 	u32 vmbus_flags = VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED;
 
@@ -742,17 +741,10 @@ int netvsc_send(struct hv_device *device,
 			msg_size = netvsc_copy_to_send_buf(net_device,
 							   section_index,
 							   packet);
-			if (!packet->part_of_skb) {
-				skb = (struct sk_buff *)
-					(unsigned long)
-					packet->send_completion_tid;
-
-				packet->send_completion_tid = 0;
-			}
 			packet->page_buf_cnt = 0;
 		}
 	}
-
+	//packet->send_completion_tid = 0;
 	packet->send_buf_index = section_index;
 
 	sendMessage.msg.v1_msg.send_rndis_pkt.send_buf_section_index =

@@ -128,7 +128,6 @@ struct ndis_tcp_ip_checksum_info;
 struct hv_netvsc_packet {
 	/* Bookkeeping stuff */
 	u32 status;
-	bool part_of_skb;
 
 	bool is_data_pkt;
 	u16 vlan_tci;
