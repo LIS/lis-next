@@ -677,18 +677,6 @@ cleanup:
 	return NULL;
 }
 
-/* Disgusting wrapper functions */
-static inline unsigned long sg_kmap_atomic(struct scatterlist *sgl)
-{
-	return (unsigned long)kmap_atomic(sg_page(sgl));
-}
-
-static inline void sg_kunmap_atomic(unsigned long addr)
-{
-	kunmap_atomic((void *)addr);
-}
-
-
 /* Assume the original sgl has enough room */
 static unsigned int copy_from_bounce_buffer(struct scatterlist *orig_sgl,
 					    struct scatterlist *bounce_sgl,
@@ -710,12 +698,15 @@ static unsigned int copy_from_bounce_buffer(struct scatterlist *orig_sgl,
 	cur_dest_sgl = orig_sgl;
 	cur_src_sgl = bounce_sgl;
 	for (i = 0; i < orig_sgl_count; i++) {
-		dest_addr = sg_kmap_atomic(cur_dest_sgl) + cur_dest_sgl->offset;
+		dest_addr = (unsigned long)
+				kmap_atomic(sg_page(cur_dest_sgl)) +
+				cur_dest_sgl->offset;
 		dest = dest_addr;
 		destlen = cur_dest_sgl->length;
 
 		if (bounce_addr == 0)
-			bounce_addr = sg_kmap_atomic(cur_src_sgl);
+			bounce_addr = (unsigned long)kmap_atomic(
+							sg_page(cur_src_sgl));
 
 		while (destlen) {
 			src = bounce_addr + cur_src_sgl->offset;
@@ -731,7 +722,7 @@ static unsigned int copy_from_bounce_buffer(struct scatterlist *orig_sgl,
 
 			if (cur_src_sgl->offset == cur_src_sgl->length) {
 				/* full */
-				sg_kunmap_atomic(bounce_addr);
+				kunmap_atomic((void *)bounce_addr);
 				j++;
 				/*
 				 * It is possible that the number of elements
@@ -744,8 +735,8 @@ static unsigned int copy_from_bounce_buffer(struct scatterlist *orig_sgl,
 					/*
 					 * We are done; cleanup and return.
 					 */
-					sg_kunmap_atomic(dest_addr -
-						cur_dest_sgl->offset);
+					kunmap_atomic((void *)(dest_addr -
+						cur_dest_sgl->offset));
 					local_irq_restore(flags);
 					return total_copied;
 				}
@@ -753,15 +744,17 @@ static unsigned int copy_from_bounce_buffer(struct scatterlist *orig_sgl,
 				/* if we need to use another bounce buffer */
 				if (destlen || (i < orig_sgl_count)) {
 					cur_src_sgl = sg_next(cur_src_sgl);
-					bounce_addr = sg_kmap_atomic(cur_src_sgl);
+					bounce_addr = (unsigned long)
+							kmap_atomic(
+							sg_page(cur_src_sgl));
 				}
 			} else if (destlen == 0 && (i == (orig_sgl_count - 1))) {
 				/* unmap the last bounce that is < PAGE_SIZE */
-				sg_kunmap_atomic(bounce_addr);
+				kunmap_atomic((void *)bounce_addr);
 			}
 		}
 
-		sg_kunmap_atomic(dest_addr - cur_dest_sgl->offset);
+		kunmap_atomic((void *)(dest_addr - cur_dest_sgl->offset));
 		cur_dest_sgl = sg_next(cur_dest_sgl);
 	}
 
@@ -791,12 +784,15 @@ static unsigned int copy_to_bounce_buffer(struct scatterlist *orig_sgl,
 	cur_dest_sgl = bounce_sgl;
 
 	for (i = 0; i < orig_sgl_count; i++) {
-		src_addr = sg_kmap_atomic(cur_src_sgl) + cur_src_sgl->offset;
+		src_addr = (unsigned long)
+				kmap_atomic(sg_page(cur_src_sgl)) +
+				cur_src_sgl->offset;
 		src = src_addr;
 		srclen = cur_src_sgl->length;
 
 		if (bounce_addr == 0)
-			bounce_addr = sg_kmap_atomic(cur_dest_sgl);
+			bounce_addr = (unsigned long)
+					kmap_atomic(sg_page(cur_dest_sgl));
 
 		while (srclen) {
 			/* assume bounce offset always == 0 */
@@ -813,23 +809,25 @@ static unsigned int copy_to_bounce_buffer(struct scatterlist *orig_sgl,
 
 			if (cur_dest_sgl->length == PAGE_SIZE) {
 				/* full..move to next entry */
-				sg_kunmap_atomic(bounce_addr);
+				kunmap_atomic((void *)bounce_addr);
 				bounce_addr = 0;
 			}
 
 			/* if we need to use another bounce buffer */
 			if (srclen && bounce_addr == 0) {
 				cur_dest_sgl = sg_next(cur_dest_sgl);
-				bounce_addr = sg_kmap_atomic(cur_dest_sgl);
+				bounce_addr = (unsigned long)
+						kmap_atomic(
+						sg_page(cur_dest_sgl));
 			}
 		}
 
-		sg_kunmap_atomic(src_addr - cur_src_sgl->offset);
+		kunmap_atomic((void *)(src_addr - cur_src_sgl->offset));
 		cur_src_sgl = sg_next(cur_src_sgl);
 	}
 
 	if (bounce_addr)
-		sg_kunmap_atomic(bounce_addr);
+		kunmap_atomic((void *)bounce_addr);
 
 	local_irq_restore(flags);
 
@@ -1746,8 +1744,7 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 		break;
 	default:
 		vm_srb->data_in = UNKNOWN_TYPE;
-		vm_srb->win8_extension.srb_flags |= (SRB_FLAGS_DATA_IN |
-						     SRB_FLAGS_DATA_OUT);
+		vm_srb->win8_extension.srb_flags |= SRB_FLAGS_NO_DATA_TRANSFER;
 		break;
 	}
 
@@ -1765,19 +1762,18 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 
 
 	sgl = (struct scatterlist *)scsi_sglist(scmnd);
+	sg_count = scsi_sg_count(scmnd);
+
 	length = scsi_bufflen(scmnd);
 	payload = (struct vmbus_packet_mpb_array *)&cmd_request->mpb;
 	payload_sz = sizeof(cmd_request->mpb);
 
-	if (scsi_sg_count(scmnd)) {
-		sgl = (struct scatterlist *)scsi_sglist(scmnd);
-		sg_count = scsi_sg_count(scmnd);
-
+	if (sg_count) {
 		/* check if we need to bounce the sgl */
 		if (do_bounce_buffer(sgl, scsi_sg_count(scmnd)) != -1) {
 			cmd_request->bounce_sgl =
-				create_bounce_buffer(sgl, scsi_sg_count(scmnd),
-						     scsi_bufflen(scmnd),
+				create_bounce_buffer(sgl, sg_count,
+						     length,
 						     vm_srb->data_in);
 			if (!cmd_request->bounce_sgl) {
 				ret = SCSI_MLQUEUE_HOST_BUSY;
@@ -1785,13 +1781,12 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 			}
 
 			cmd_request->bounce_sgl_count =
-				ALIGN(scsi_bufflen(scmnd), PAGE_SIZE) >>
+				ALIGN(length, PAGE_SIZE) >>
 					PAGE_SHIFT;
 
 			if (vm_srb->data_in == WRITE_TYPE)
 				copy_to_bounce_buffer(sgl,
-					cmd_request->bounce_sgl,
-					scsi_sg_count(scmnd));
+					cmd_request->bounce_sgl, sg_count);
 
 			sgl = cmd_request->bounce_sgl;
 			sg_count = cmd_request->bounce_sgl_count;
