@@ -412,21 +412,6 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 
 	pkt_sz = sizeof(struct hv_netvsc_packet) + RNDIS_AND_PPI_SIZE;
 
-	//if (head_room < pkt_sz) {
-	//	packet = kmalloc(pkt_sz, GFP_ATOMIC);
-	//	if (!packet) {
-	//		/* out of memory, drop packet */
-	//		netdev_err(net, "unable to alloc hv_netvsc_packet\n");
-	//		dev_kfree_skb(skb);
-	//		net->stats.tx_dropped++;
-	//		return NETDEV_TX_OK;
-	//	}
-	//	packet->part_of_skb = false;
-	//} else {
-	//	/* Use the headroom for building up the packet */
-	//	packet = (struct hv_netvsc_packet *)skb->head;
-	//	packet->part_of_skb = true;
-	//}
 	ret = skb_cow_head(skb, pkt_sz);
 	if (ret) {
 		netdev_err(net, "unable to alloc hv_netvsc_packet\n");

@@ -744,7 +744,6 @@ int netvsc_send(struct hv_device *device,
 			packet->page_buf_cnt = 0;
 		}
 	}
-	//packet->send_completion_tid = 0;
 	packet->send_buf_index = section_index;
 
 	sendMessage.msg.v1_msg.send_rndis_pkt.send_buf_section_index =
