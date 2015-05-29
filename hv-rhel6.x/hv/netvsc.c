@@ -716,7 +716,6 @@ int netvsc_send(struct hv_device *device,
 	u64 req_id;
 	unsigned int section_index = NETVSC_INVALID_INDEX;
 	u32 msg_size = 0;
-	struct sk_buff *skb;
 	u16 q_idx = packet->q_idx;
 	u32 vmbus_flags = VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED;
 
@@ -742,15 +741,10 @@ int netvsc_send(struct hv_device *device,
 			msg_size = netvsc_copy_to_send_buf(net_device,
 							   section_index,
 							   packet);
-			skb = (struct sk_buff *)
-			      (unsigned long)packet->send_completion_tid;
-			if (skb)
-				dev_kfree_skb_any(skb);
 			packet->page_buf_cnt = 0;
 		}
 	}
 	packet->send_buf_index = section_index;
-
 
 	sendMessage.msg.v1_msg.send_rndis_pkt.send_buf_section_index =
 		section_index;
@@ -813,6 +807,9 @@ int netvsc_send(struct hv_device *device,
 		netdev_err(ndev, "Unable to send packet %p ret %d\n",
 			   packet, ret);
 	}
+
+	if (ret != 0 && section_index != NETVSC_INVALID_INDEX)
+		netvsc_free_send_slot(net_device, section_index);
 
 	return ret;
 }
@@ -909,7 +906,6 @@ static void netvsc_receive(struct netvsc_device *net_device,
 	}
 
 	count = vmxferpage_packet->range_cnt;
-	netvsc_packet->device = device;
 	netvsc_packet->channel = channel;
 
 	/* Each range represents 1 RNDIS pkt that contains 1 ethernet frame */
@@ -1075,6 +1071,9 @@ int netvsc_device_add(struct hv_device *device, void *additional_info)
 	 * in struct netvsc_device *.
 	 */
 	ndev = net_device->ndev;
+
+	/* Add netvsc_device context to netvsc_device */
+	net_device->nd_ctx = netdev_priv(ndev);
 
 	/* Initialize the NetVSC channel extension */
 	init_completion(&net_device->channel_init_wait);
