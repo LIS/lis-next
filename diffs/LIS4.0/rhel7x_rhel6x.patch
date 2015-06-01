@@ -1,6 +1,7 @@
+Only in hv-rhel7.x/hv: CHANGELOG
 diff -crB hv-rhel7.x/hv/channel.c hv-rhel6.x/hv/channel.c
-*** hv-rhel7.x/hv/channel.c	2015-05-14 07:05:22.416084887 -0700
---- hv-rhel6.x/hv/channel.c	2015-05-14 07:05:22.375083056 -0700
+*** hv-rhel7.x/hv/channel.c	2015-05-29 15:02:41.649898801 -0400
+--- hv-rhel6.x/hv/channel.c	2015-05-29 15:02:41.646898801 -0400
 ***************
 *** 61,66 ****
 --- 61,110 ----
@@ -161,76 +162,82 @@ diff -crB hv-rhel7.x/hv/channel.c hv-rhel6.x/hv/channel.c
   }
   
 ***************
-*** 569,591 ****
+*** 569,588 ****
   }
   EXPORT_SYMBOL_GPL(vmbus_close);
   
-! /**
-!  * vmbus_sendpacket() - Send the specified buffer on the given channel
-!  * @channel: Pointer to vmbus_channel structure.
-!  * @buffer: Pointer to the buffer you want to receive the data into.
-!  * @bufferlen: Maximum size of what the the buffer will hold
-!  * @requestid: Identifier of the request
-!  * @type: Type of packet that is being send e.g. negotiate, time
-!  * packet etc.
-!  *
-!  * Sends data in @buffer directly to hyper-v via the vmbus
-!  * This will send the data unparsed to hyper-v.
-!  *
-!  * Mainly used by Hyper-V drivers.
-!  */
-! int vmbus_sendpacket(struct vmbus_channel *channel, void *buffer,
+- /**
+-  * vmbus_sendpacket() - Send the specified buffer on the given channel
+-  * @channel: Pointer to vmbus_channel structure.
+-  * @buffer: Pointer to the buffer you want to receive the data into.
+-  * @bufferlen: Maximum size of what the the buffer will hold
+-  * @requestid: Identifier of the request
+-  * @type: Type of packet that is being send e.g. negotiate, time
+-  * packet etc.
+-  *
+-  * Sends data in @buffer directly to hyper-v via the vmbus
+-  * This will send the data unparsed to hyper-v.
+-  *
+-  * Mainly used by Hyper-V drivers.
+-  */
+  int vmbus_sendpacket_ctl(struct vmbus_channel *channel, void *buffer,
   			   u32 bufferlen, u64 requestid,
-! 			   enum vmbus_packet_type type, u32 flags)
-  {
-  	struct vmpacket_descriptor desc;
-  	u32 packetlen = sizeof(struct vmpacket_descriptor) + bufferlen;
---- 625,633 ----
-  }
-  EXPORT_SYMBOL_GPL(vmbus_close);
-  
-! int vmbus_sendpacket_ctl(struct vmbus_channel *channel, void *buffer,
-  			   u32 bufferlen, u64 requestid,
-! 			   enum vmbus_packet_type type, u32 flags, bool kick_q)
-  {
-  	struct vmpacket_descriptor desc;
-  	u32 packetlen = sizeof(struct vmpacket_descriptor) + bufferlen;
+  			   enum vmbus_packet_type type, u32 flags, bool kick_q)
+--- 625,630 ----
 ***************
-*** 613,633 ****
+*** 612,618 ****
+  	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
   
   	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
+! 
+  	/*
+           * Signalling the host is conditional on many factors:
+           * 1. The ring state changed from being empty to non-empty.
+--- 654,660 ----
+  	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
   
-! 	if (ret == 0 && signal)
-  		vmbus_setevent(channel);
+  	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
+! 	
+  	/*
+           * Signalling the host is conditional on many factors:
+           * 1. The ring state changed from being empty to non-empty.
+***************
+*** 625,646 ****
+           * even if we may not have written anything. This is a rare
+           * enough condition that it should not matter.
+           */
+!         if (((ret == 0) && kick_q && signal) || (ret))
+!                 vmbus_setevent(channel);
   
   	return ret;
+  
   }
-  EXPORT_SYMBOL(vmbus_sendpacket);
+  EXPORT_SYMBOL(vmbus_sendpacket_ctl);
   
   /*
 !  * vmbus_sendpacket_pagebuffer - Send a range of single-page buffer
 !  * packets using a GPADL Direct packet type.
    */
-! int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
+  int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
   				     struct hv_page_buffer pagebuffers[],
   				     u32 pagecount, void *buffer, u32 bufferlen,
-! 				     u64 requestid)
+! 				     u64 requestid,u32 flags, bool kick_q)
   {
   	int ret;
   	int i;
---- 655,705 ----
-  
-  	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
-  
-! 	if ((ret == 0) && kick_q && signal)
-! 		vmbus_setevent(channel);
-! 	else if (ret)
-  		vmbus_setevent(channel);
+--- 667,717 ----
+           * even if we may not have written anything. This is a rare
+           * enough condition that it should not matter.
+           */
+! 
+! 	if (((ret == 0) && kick_q && signal) || (ret))
+!         	vmbus_setevent(channel);
   
   	return ret;
+  
   }
-+ EXPORT_SYMBOL(vmbus_sendpacket_ctl);
-+ 
+  EXPORT_SYMBOL(vmbus_sendpacket_ctl);
+  
 + /**
 +  * vmbus_sendpacket() - Send the specified buffer on the given channel
 +  * @channel: Pointer to vmbus_channel structure.
@@ -252,8 +259,8 @@ diff -crB hv-rhel7.x/hv/channel.c hv-rhel6.x/hv/channel.c
 + 	return vmbus_sendpacket_ctl(channel, buffer, bufferlen, requestid,
 + 				    type, flags, true);
 + }
-  EXPORT_SYMBOL(vmbus_sendpacket);
-  
++ EXPORT_SYMBOL(vmbus_sendpacket);
++ 
   /*
 !  * vmbus_sendpacket_pagebuffer_ctl - Send a range of single-page buffer
 !  * packets using a GPADL Direct packet type. This interface allows you
@@ -261,7 +268,7 @@ diff -crB hv-rhel7.x/hv/channel.c hv-rhel6.x/hv/channel.c
 !  * batched data. Also the sender can control the send flags
 !  * explicitly.
    */
-! int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
+  int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
   				     struct hv_page_buffer pagebuffers[],
   				     u32 pagecount, void *buffer, u32 bufferlen,
 ! 				     u64 requestid,
@@ -271,7 +278,7 @@ diff -crB hv-rhel7.x/hv/channel.c hv-rhel6.x/hv/channel.c
   	int ret;
   	int i;
 ***************
-*** 655,661 ****
+*** 668,674 ****
   
   	/* Setup the descriptor */
   	desc.type = VM_PKT_DATA_USING_GPA_DIRECT;
@@ -279,7 +286,7 @@ diff -crB hv-rhel7.x/hv/channel.c hv-rhel6.x/hv/channel.c
   	desc.dataoffset8 = descsize >> 3; /* in 8-bytes grandularity */
   	desc.length8 = (u16)(packetlen_aligned >> 3);
   	desc.transactionid = requestid;
---- 727,733 ----
+--- 739,745 ----
   
   	/* Setup the descriptor */
   	desc.type = VM_PKT_DATA_USING_GPA_DIRECT;
@@ -288,32 +295,11 @@ diff -crB hv-rhel7.x/hv/channel.c hv-rhel6.x/hv/channel.c
   	desc.length8 = (u16)(packetlen_aligned >> 3);
   	desc.transactionid = requestid;
 ***************
-*** 676,686 ****
-  
-  	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
-  
-! 	if (ret == 0 && signal)
-  		vmbus_setevent(channel);
-  
-  	return ret;
-  }
-  EXPORT_SYMBOL_GPL(vmbus_sendpacket_pagebuffer);
+*** 709,714 ****
+--- 780,802 ----
+  EXPORT_SYMBOL_GPL(vmbus_sendpacket_pagebuffer_ctl);
   
   /*
---- 748,777 ----
-  
-  	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
-  
-! 	if ((ret == 0) && kick_q && signal)
-! 		vmbus_setevent(channel);
-! 	else if (ret)
-  		vmbus_setevent(channel);
-  
-  	return ret;
-  }
-+ EXPORT_SYMBOL_GPL(vmbus_sendpacket_pagebuffer_ctl);
-+ 
-+ /*
 +  * vmbus_sendpacket_pagebuffer - Send a range of single-page buffer
 +  * packets using a GPADL Direct packet type.
 +  */
@@ -328,12 +314,15 @@ diff -crB hv-rhel7.x/hv/channel.c hv-rhel6.x/hv/channel.c
 + 					       flags, true);
 + 
 + }
-  EXPORT_SYMBOL_GPL(vmbus_sendpacket_pagebuffer);
-  
-  /*
++ EXPORT_SYMBOL_GPL(vmbus_sendpacket_pagebuffer);
++ 
++ /*
+   * vmbus_sendpacket_multipagebuffer - Send a multi-page buffer packet
+   * using a GPADL Direct packet type.
+   * The buffer includes the vmbus descriptor.
 diff -crB hv-rhel7.x/hv/channel_mgmt.c hv-rhel6.x/hv/channel_mgmt.c
-*** hv-rhel7.x/hv/channel_mgmt.c	2015-05-14 07:05:22.416084887 -0700
---- hv-rhel6.x/hv/channel_mgmt.c	2015-05-14 07:05:22.375083056 -0700
+*** hv-rhel7.x/hv/channel_mgmt.c	2015-05-29 14:59:45.932330701 -0400
+--- hv-rhel6.x/hv/channel_mgmt.c	2015-05-29 14:59:45.901330701 -0400
 ***************
 *** 32,43 ****
   
@@ -902,8 +891,8 @@ diff -crB hv-rhel7.x/hv/channel_mgmt.c hv-rhel6.x/hv/channel_mgmt.c
   
   	return outgoing_channel;
 diff -crB hv-rhel7.x/hv/connection.c hv-rhel6.x/hv/connection.c
-*** hv-rhel7.x/hv/connection.c	2015-05-14 07:05:22.416084887 -0700
---- hv-rhel6.x/hv/connection.c	2015-05-14 07:05:22.375083056 -0700
+*** hv-rhel7.x/hv/connection.c	2015-05-29 14:59:45.932330701 -0400
+--- hv-rhel6.x/hv/connection.c	2015-05-29 14:59:45.902330701 -0400
 ***************
 *** 30,37 ****
   #include <linux/slab.h>
@@ -1067,12 +1056,11 @@ diff -crB hv-rhel7.x/hv/connection.c hv-rhel6.x/hv/connection.c
   		if (msec < 2048)
   			msec *= 2;
   	}
-Only in hv-rhel6.x/hv/: git_add_files
-Only in hv-rhel7.x/hv/: hid-core.c
-Only in hv-rhel7.x/hv/: hid-debug.c
+Only in hv-rhel7.x/hv: hid-core.c
+Only in hv-rhel7.x/hv: hid-debug.c
 diff -crB hv-rhel7.x/hv/hid-hyperv.c hv-rhel6.x/hv/hid-hyperv.c
-*** hv-rhel7.x/hv/hid-hyperv.c	2015-05-14 07:05:22.417084932 -0700
---- hv-rhel6.x/hv/hid-hyperv.c	2015-05-14 07:05:22.395083949 -0700
+*** hv-rhel7.x/hv/hid-hyperv.c	2015-05-29 14:59:45.935330701 -0400
+--- hv-rhel6.x/hv/hid-hyperv.c	2015-05-29 14:59:45.902330701 -0400
 ***************
 *** 381,387 ****
   static int mousevsc_connect_to_vsp(struct hv_device *device)
@@ -1130,11 +1118,11 @@ diff -crB hv-rhel7.x/hv/hid-hyperv.c hv-rhel6.x/hv/hid-hyperv.c
 ! MODULE_ALIAS("vmbus:9eb6a8cf4a5bc04cb98b8ba1a1f3f95a");
   module_init(mousevsc_init);
   module_exit(mousevsc_exit);
-Only in hv-rhel7.x/hv/: hid-ids.h
-Only in hv-rhel7.x/hv/: hid-input.c
+Only in hv-rhel7.x/hv: hid-ids.h
+Only in hv-rhel7.x/hv: hid-input.c
 diff -crB hv-rhel7.x/hv/hv_balloon.c hv-rhel6.x/hv/hv_balloon.c
-*** hv-rhel7.x/hv/hv_balloon.c	2015-05-14 07:05:22.418084977 -0700
---- hv-rhel6.x/hv/hv_balloon.c	2015-05-14 07:05:22.395083949 -0700
+*** hv-rhel7.x/hv/hv_balloon.c	2015-05-29 14:59:45.938330701 -0400
+--- hv-rhel6.x/hv/hv_balloon.c	2015-05-29 14:59:45.904330701 -0400
 ***************
 *** 1267,1274 ****
   		 * The host expects us to post information on the memory
@@ -1154,8 +1142,8 @@ diff -crB hv-rhel7.x/hv/hv_balloon.c hv-rhel6.x/hv/hv_balloon.c
   	}
   
 diff -crB hv-rhel7.x/hv/hv.c hv-rhel6.x/hv/hv.c
-*** hv-rhel7.x/hv/hv.c	2015-05-14 07:05:22.418084977 -0700
---- hv-rhel6.x/hv/hv.c	2015-05-14 07:05:22.395083949 -0700
+*** hv-rhel7.x/hv/hv.c	2015-05-29 14:59:45.937330701 -0400
+--- hv-rhel6.x/hv/hv.c	2015-05-29 14:59:45.902330701 -0400
 ***************
 *** 25,34 ****
   #include <linux/mm.h>
@@ -1409,10 +1397,10 @@ diff -crB hv-rhel7.x/hv/hv.c hv-rhel6.x/hv/hv.c
 ! 
 ! 	hv_synic_free_cpu(cpu);
   }
-Only in hv-rhel7.x/hv/: hv_compat.c
+Only in hv-rhel7.x/hv: hv_compat.c
 diff -crB hv-rhel7.x/hv/hv_kvp.c hv-rhel6.x/hv/hv_kvp.c
-*** hv-rhel7.x/hv/hv_kvp.c	2015-05-14 07:05:22.418084977 -0700
---- hv-rhel6.x/hv/hv_kvp.c	2015-05-14 07:05:22.409084575 -0700
+*** hv-rhel7.x/hv/hv_kvp.c	2015-05-29 14:59:45.939330701 -0400
+--- hv-rhel6.x/hv/hv_kvp.c	2015-05-29 14:59:45.904330701 -0400
 ***************
 *** 85,98 ****
   static DECLARE_WORK(kvp_sendkey_work, kvp_send_key);
@@ -1551,8 +1539,8 @@ diff -crB hv-rhel7.x/hv/hv_kvp.c hv-rhel6.x/hv/hv_kvp.c
   
   	/*
 diff -crB hv-rhel7.x/hv/hv_snapshot.c hv-rhel6.x/hv/hv_snapshot.c
-*** hv-rhel7.x/hv/hv_snapshot.c	2015-05-14 07:05:22.418084977 -0700
---- hv-rhel6.x/hv/hv_snapshot.c	2015-05-14 07:05:22.409084575 -0700
+*** hv-rhel7.x/hv/hv_snapshot.c	2015-05-29 14:59:45.939330701 -0400
+--- hv-rhel6.x/hv/hv_snapshot.c	2015-05-29 14:59:45.904330701 -0400
 ***************
 *** 51,57 ****
   static void vss_respond_to_host(int error);
@@ -1570,10 +1558,10 @@ diff -crB hv-rhel7.x/hv/hv_snapshot.c hv-rhel6.x/hv/hv_snapshot.c
   static __u8 *recv_buffer;
   
   static void vss_send_op(struct work_struct *dummy);
-Only in hv-rhel7.x/hv/: hv_timesource.c
+Only in hv-rhel7.x/hv: hv_timesource.c
 diff -crB hv-rhel7.x/hv/hv_util.c hv-rhel6.x/hv/hv_util.c
-*** hv-rhel7.x/hv/hv_util.c	2015-05-14 07:05:22.418084977 -0700
---- hv-rhel6.x/hv/hv_util.c	2015-05-14 07:05:22.410084619 -0700
+*** hv-rhel7.x/hv/hv_util.c	2015-05-29 14:59:45.940330701 -0400
+--- hv-rhel6.x/hv/hv_util.c	2015-05-29 14:59:45.905330701 -0400
 ***************
 *** 340,351 ****
   
@@ -1644,10 +1632,9 @@ diff -crB hv-rhel7.x/hv/hv_util.c hv-rhel6.x/hv/hv_util.c
 + MODULE_ALIAS("vmbus:394f16571591784eab55382f3bd5422d");
 + MODULE_ALIAS("vmbus:e7f4a0a9455a964db8278a841e8c03e6");
 + MODULE_ALIAS("vmbus:292efa3523ea364296ae3a6ebacba440");
-Only in hv-rhel6.x/hv/: hyperv.conf
 diff -crB hv-rhel7.x/hv/hyperv_fb.c hv-rhel6.x/hv/hyperv_fb.c
-*** hv-rhel7.x/hv/hyperv_fb.c	2015-05-14 07:05:22.419085021 -0700
---- hv-rhel6.x/hv/hyperv_fb.c	2015-05-14 07:05:22.410084619 -0700
+*** hv-rhel7.x/hv/hyperv_fb.c	2015-05-29 14:59:45.940330701 -0400
+--- hv-rhel6.x/hv/hyperv_fb.c	2015-05-29 14:59:45.906330701 -0400
 ***************
 *** 680,686 ****
   	struct hvfb_par *par = info->par;
@@ -1725,8 +1712,8 @@ diff -crB hv-rhel7.x/hv/hyperv_fb.c hv-rhel6.x/hv/hyperv_fb.c
 + MODULE_VERSION(HV_DRV_VERSION);
 + MODULE_ALIAS("vmbus:02780ada77e3ac4a8e770558eb1073f8");
 diff -crB hv-rhel7.x/hv/hyperv-keyboard.c hv-rhel6.x/hv/hyperv-keyboard.c
-*** hv-rhel7.x/hv/hyperv-keyboard.c	2015-05-14 07:05:22.418084977 -0700
---- hv-rhel6.x/hv/hyperv-keyboard.c	2015-05-14 07:05:22.410084619 -0700
+*** hv-rhel7.x/hv/hyperv-keyboard.c	2015-05-29 14:59:45.940330701 -0400
+--- hv-rhel6.x/hv/hyperv-keyboard.c	2015-05-29 14:59:45.905330701 -0400
 ***************
 *** 449,454 ****
   
@@ -1743,8 +1730,8 @@ diff -crB hv-rhel7.x/hv/hyperv-keyboard.c hv-rhel6.x/hv/hyperv-keyboard.c
   module_init(hv_kbd_init);
   module_exit(hv_kbd_exit);
 diff -crB hv-rhel7.x/hv/hyperv_net.h hv-rhel6.x/hv/hyperv_net.h
-*** hv-rhel7.x/hv/hyperv_net.h	2015-05-14 07:05:22.419085021 -0700
---- hv-rhel6.x/hv/hyperv_net.h	2015-05-14 07:05:22.410084619 -0700
+*** hv-rhel7.x/hv/hyperv_net.h	2015-05-29 15:02:41.650898801 -0400
+--- hv-rhel6.x/hv/hyperv_net.h	2015-05-29 15:02:41.647898801 -0400
 ***************
 *** 26,32 ****
   
@@ -1763,26 +1750,76 @@ diff -crB hv-rhel7.x/hv/hyperv_net.h hv-rhel6.x/hv/hyperv_net.h
   /* RSS related */
   #define OID_GEN_RECEIVE_SCALE_CAPABILITIES 0x00010203  /* query only */
 ***************
-*** 184,190 ****
+*** 183,189 ****
   int netvsc_device_add(struct hv_device *device, void *additional_info);
   int netvsc_device_remove(struct hv_device *device);
   int netvsc_send(struct hv_device *device,
 ! 		struct hv_netvsc_packet *packet);
   void netvsc_linkstatus_callback(struct hv_device *device_obj,
   				struct rndis_message *resp);
-  int netvsc_recv_callback(struct hv_device *device_obj,
---- 184,190 ----
+  void netvsc_xmit_completion(void *context);
+--- 183,189 ----
   int netvsc_device_add(struct hv_device *device, void *additional_info);
   int netvsc_device_remove(struct hv_device *device);
   int netvsc_send(struct hv_device *device,
 ! 		struct hv_netvsc_packet *packet, bool kick_q);
   void netvsc_linkstatus_callback(struct hv_device *device_obj,
   				struct rndis_message *resp);
-  int netvsc_recv_callback(struct hv_device *device_obj,
-Only in hv-rhel6.x/hv/: hyperv_pvdrivers.conf
+  void netvsc_xmit_completion(void *context);
+***************
+*** 596,602 ****
+  
+  #define VRSS_SEND_TAB_SIZE 16
+  
+! /* The context of the netvsc device */
+  struct net_device_context {
+  	/* point back to our device context */
+  	struct hv_device *device_ctx;
+--- 596,602 ----
+  
+  #define VRSS_SEND_TAB_SIZE 16
+  
+! /* The conetxt of the netvsc device */
+  struct net_device_context {
+  	/* point back to our device context */
+  	struct hv_device *device_ctx;
+***************
+*** 656,662 ****
+  	/* The sub channel callback buffer */
+  	unsigned char *sub_cb_buf;
+  
+! 	/* The net device context */
+  	struct net_device_context *nd_ctx;
+  };
+  
+--- 656,662 ----
+  	/* The sub channel callback buffer */
+  	unsigned char *sub_cb_buf;
+  
+! 	/* the net device context */
+  	struct net_device_context *nd_ctx;
+  };
+  
+***************
+*** 957,963 ****
+  
+  /* Total size of all PPI data */
+  #define NDIS_ALL_PPI_SIZE (NDIS_VLAN_PPI_SIZE + NDIS_CSUM_PPI_SIZE + \
+! 		NDIS_LSO_PPI_SIZE + NDIS_HASH_PPI_SIZE)
+  
+  /* Format of Information buffer passed in a SetRequest for the OID */
+  /* OID_GEN_RNDIS_CONFIG_PARAMETER. */
+--- 957,963 ----
+  
+  /* Total size of all PPI data */
+  #define NDIS_ALL_PPI_SIZE (NDIS_VLAN_PPI_SIZE + NDIS_CSUM_PPI_SIZE + \
+! 			  NDIS_LSO_PPI_SIZE + NDIS_HASH_PPI_SIZE)
+  
+  /* Format of Information buffer passed in a SetRequest for the OID */
+  /* OID_GEN_RNDIS_CONFIG_PARAMETER. */
 diff -crB hv-rhel7.x/hv/hyperv_vmbus.h hv-rhel6.x/hv/hyperv_vmbus.h
-*** hv-rhel7.x/hv/hyperv_vmbus.h	2015-05-14 07:05:22.419085021 -0700
---- hv-rhel6.x/hv/hyperv_vmbus.h	2015-05-14 07:05:22.411084664 -0700
+*** hv-rhel7.x/hv/hyperv_vmbus.h	2015-05-29 14:59:45.941330701 -0400
+--- hv-rhel6.x/hv/hyperv_vmbus.h	2015-05-29 14:59:45.907330701 -0400
 ***************
 *** 28,34 ****
   #include <linux/list.h>
@@ -1887,8 +1924,8 @@ diff -crB hv-rhel7.x/hv/hyperv_vmbus.h hv-rhel6.x/hv/hyperv_vmbus.h
   int vmbus_post_msg(void *buffer, size_t buflen);
   
 diff -crB hv-rhel7.x/hv/include/asm/hyperv.h hv-rhel6.x/hv/include/asm/hyperv.h
-*** hv-rhel7.x/hv/include/asm/hyperv.h	2015-05-14 07:05:22.419085021 -0700
---- hv-rhel6.x/hv/include/asm/hyperv.h	2015-05-14 07:05:22.411084664 -0700
+*** hv-rhel7.x/hv/include/asm/hyperv.h	2015-05-29 14:59:45.942330701 -0400
+--- hv-rhel6.x/hv/include/asm/hyperv.h	2015-05-29 14:59:45.908330701 -0400
 ***************
 *** 225,230 ****
 --- 225,232 ----
@@ -1901,8 +1938,8 @@ diff -crB hv-rhel7.x/hv/include/asm/hyperv.h hv-rhel6.x/hv/include/asm/hyperv.h
   
   typedef struct _HV_REFERENCE_TSC_PAGE {
 diff -crB hv-rhel7.x/hv/include/asm/mshyperv.h hv-rhel6.x/hv/include/asm/mshyperv.h
-*** hv-rhel7.x/hv/include/asm/mshyperv.h	2015-05-14 07:05:22.419085021 -0700
---- hv-rhel6.x/hv/include/asm/mshyperv.h	2015-05-14 07:05:22.411084664 -0700
+*** hv-rhel7.x/hv/include/asm/mshyperv.h	2015-05-29 14:59:45.942330701 -0400
+--- hv-rhel6.x/hv/include/asm/mshyperv.h	2015-05-29 14:59:45.908330701 -0400
 ***************
 *** 16,21 ****
 --- 16,23 ----
@@ -1915,8 +1952,8 @@ diff -crB hv-rhel7.x/hv/include/asm/mshyperv.h hv-rhel6.x/hv/include/asm/mshyper
   void hv_setup_vmbus_irq(void (*handler)(void));
   void hv_remove_vmbus_irq(void);
 diff -crB hv-rhel7.x/hv/include/linux/atomic.h hv-rhel6.x/hv/include/linux/atomic.h
-*** hv-rhel7.x/hv/include/linux/atomic.h	2015-05-14 07:05:22.419085021 -0700
---- hv-rhel6.x/hv/include/linux/atomic.h	2015-05-14 07:05:22.411084664 -0700
+*** hv-rhel7.x/hv/include/linux/atomic.h	2015-05-29 14:59:45.942330701 -0400
+--- hv-rhel6.x/hv/include/linux/atomic.h	2015-05-29 14:59:45.908330701 -0400
 ***************
 *** 1,131 ****
 - /* Atomic operations usable in machine independent code */
@@ -2061,8 +2098,8 @@ Only in hv-rhel7.x/hv/include/linux: hid-debug.h
 Only in hv-rhel7.x/hv/include/linux: hid.h
 Only in hv-rhel7.x/hv/include/linux: hidraw.h
 diff -crB hv-rhel7.x/hv/include/linux/hv_compat.h hv-rhel6.x/hv/include/linux/hv_compat.h
-*** hv-rhel7.x/hv/include/linux/hv_compat.h	2015-05-14 07:05:22.420085066 -0700
---- hv-rhel6.x/hv/include/linux/hv_compat.h	2015-05-14 07:05:22.411084664 -0700
+*** hv-rhel7.x/hv/include/linux/hv_compat.h	2015-05-29 14:59:45.944330701 -0400
+--- hv-rhel6.x/hv/include/linux/hv_compat.h	2015-05-29 14:59:45.909330701 -0400
 ***************
 *** 4,11 ****
   
@@ -2200,8 +2237,8 @@ diff -crB hv-rhel7.x/hv/include/linux/hv_compat.h hv-rhel6.x/hv/include/linux/hv
   /*
 --- 178,183 ----
 diff -crB hv-rhel7.x/hv/include/linux/hyperv.h hv-rhel6.x/hv/include/linux/hyperv.h
-*** hv-rhel7.x/hv/include/linux/hyperv.h	2015-05-14 07:05:22.420085066 -0700
---- hv-rhel6.x/hv/include/linux/hyperv.h	2015-05-14 07:05:22.411084664 -0700
+*** hv-rhel7.x/hv/include/linux/hyperv.h	2015-05-29 15:02:41.650898801 -0400
+--- hv-rhel6.x/hv/include/linux/hyperv.h	2015-05-29 14:59:45.909330701 -0400
 ***************
 *** 26,31 ****
 --- 26,32 ----
@@ -2306,42 +2343,63 @@ diff -crB hv-rhel7.x/hv/include/linux/hyperv.h hv-rhel6.x/hv/include/linux/hyper
   
   static inline void set_channel_read_state(struct vmbus_channel *c, bool state)
 ***************
-*** 861,866 ****
---- 890,903 ----
-  				  enum vmbus_packet_type type,
+*** 862,873 ****
   				  u32 flags);
   
-+ extern int vmbus_sendpacket_ctl(struct vmbus_channel *channel,
-+ 				  void *buffer,
-+ 				  u32 bufferLen,
-+ 				  u64 requestid,
-+ 				  enum vmbus_packet_type type,
-+ 				  u32 flags,
-+ 				  bool kick_q);
-+ 
+  extern int vmbus_sendpacket_ctl(struct vmbus_channel *channel,
+!                                   void *buffer,
+!                                   u32 bufferLen,
+!                                   u64 requestid,
+!                                   enum vmbus_packet_type type,
+!                                   u32 flags,
+!                                   bool kick_q);
+  
   extern int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
   					    struct hv_page_buffer pagebuffers[],
-  					    u32 pagecount,
+--- 891,902 ----
+  				  u32 flags);
+  
+  extern int vmbus_sendpacket_ctl(struct vmbus_channel *channel,
+! 				  void *buffer,
+! 				  u32 bufferLen,
+! 				  u64 requestid,
+! 				  enum vmbus_packet_type type,
+! 				  u32 flags,
+! 				  bool kick_q);
+  
+  extern int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
+  					    struct hv_page_buffer pagebuffers[],
 ***************
-*** 868,873 ****
---- 905,919 ----
-  					    u32 bufferlen,
+*** 877,889 ****
   					    u64 requestid);
   
-+ extern int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
-+ 					   struct hv_page_buffer pagebuffers[],
-+ 					   u32 pagecount,
-+ 					   void *buffer,
-+ 					   u32 bufferlen,
-+ 					   u64 requestid,
-+ 					   u32 flags,
-+ 					   bool kick_q);
-+ 
+  extern int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
+!                                            struct hv_page_buffer pagebuffers[],
+!                                            u32 pagecount,
+!                                            void *buffer,
+!                                            u32 bufferlen,
+!                                            u64 requestid,
+!                                            u32 flags,
+!                                            bool kick_q);
+  
   extern int vmbus_sendpacket_multipagebuffer(struct vmbus_channel *channel,
   					struct hv_multipage_buffer *mpb,
-  					void *buffer,
+--- 906,918 ----
+  					    u64 requestid);
+  
+  extern int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
+! 					   struct hv_page_buffer pagebuffers[],
+! 					   u32 pagecount,
+! 					   void *buffer,
+! 					   u32 bufferlen,
+! 					   u64 requestid,
+! 					   u32 flags,
+! 					   bool kick_q);
+  
+  extern int vmbus_sendpacket_multipagebuffer(struct vmbus_channel *channel,
+  					struct hv_multipage_buffer *mpb,
 ***************
-*** 904,909 ****
+*** 921,926 ****
 --- 950,967 ----
   
   extern void vmbus_ontimer(unsigned long data);
@@ -2362,7 +2420,7 @@ diff -crB hv-rhel7.x/hv/include/linux/hyperv.h hv-rhel6.x/hv/include/linux/hyper
   struct hv_driver {
   	const char *name;
 ***************
-*** 1107,1112 ****
+*** 1124,1129 ****
 --- 1165,1180 ----
   		}
   
@@ -2381,7 +2439,7 @@ diff -crB hv-rhel7.x/hv/include/linux/hyperv.h hv-rhel6.x/hv/include/linux/hyper
    */
   
 ***************
-*** 1213,1218 ****
+*** 1230,1235 ****
 --- 1281,1287 ----
   int hv_vss_init(struct hv_util_service *);
   void hv_vss_deinit(void);
@@ -2391,8 +2449,8 @@ diff -crB hv-rhel7.x/hv/include/linux/hyperv.h hv-rhel6.x/hv/include/linux/hyper
   extern struct resource hyperv_mmio;
   
 diff -crB hv-rhel7.x/hv/include/uapi/linux/hyperv.h hv-rhel6.x/hv/include/uapi/linux/hyperv.h
-*** hv-rhel7.x/hv/include/uapi/linux/hyperv.h	2015-05-14 07:05:22.421085111 -0700
---- hv-rhel6.x/hv/include/uapi/linux/hyperv.h	2015-05-14 07:05:22.413084753 -0700
+*** hv-rhel7.x/hv/include/uapi/linux/hyperv.h	2015-05-29 14:59:45.947330701 -0400
+--- hv-rhel6.x/hv/include/uapi/linux/hyperv.h	2015-05-29 14:59:45.926330701 -0400
 ***************
 *** 25,34 ****
   #ifndef _UAPI_HYPERV_H
@@ -2417,8 +2475,8 @@ diff -crB hv-rhel7.x/hv/include/uapi/linux/hyperv.h hv-rhel6.x/hv/include/uapi/l
   #endif
   
 diff -crB hv-rhel7.x/hv/include/uapi/linux/uuid.h hv-rhel6.x/hv/include/uapi/linux/uuid.h
-*** hv-rhel7.x/hv/include/uapi/linux/uuid.h	2015-05-14 07:05:22.422085155 -0700
---- hv-rhel6.x/hv/include/uapi/linux/uuid.h	2015-05-14 07:05:22.413084753 -0700
+*** hv-rhel7.x/hv/include/uapi/linux/uuid.h	2015-05-29 14:59:45.947330701 -0400
+--- hv-rhel6.x/hv/include/uapi/linux/uuid.h	2015-05-29 14:59:45.926330701 -0400
 ***************
 *** 18,25 ****
    * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
@@ -2468,8 +2526,8 @@ diff -crB hv-rhel7.x/hv/include/uapi/linux/uuid.h hv-rhel6.x/hv/include/uapi/lin
 ! 
 ! #endif
 diff -crB hv-rhel7.x/hv/Makefile hv-rhel6.x/hv/Makefile
-*** hv-rhel7.x/hv/Makefile	2015-05-14 07:05:22.415084843 -0700
---- hv-rhel6.x/hv/Makefile	2015-05-14 07:05:22.374083012 -0700
+*** hv-rhel7.x/hv/Makefile	2015-05-29 14:59:45.931330701 -0400
+--- hv-rhel6.x/hv/Makefile	2015-05-29 14:59:45.898330701 -0400
 ***************
 *** 7,13 ****
   obj-m	+= hid-hyperv.o
@@ -2487,10 +2545,13 @@ diff -crB hv-rhel7.x/hv/Makefile hv-rhel6.x/hv/Makefile
   
   hv_vmbus-y := vmbus_drv.o \
   		 hv.o connection.o channel.o \
-Only in hv-rhel7.x/hv/: mshyperv.c
+Only in hv-rhel7.x/hv: Module.markers
+Only in hv-rhel7.x/hv: modules.order
+Only in hv-rhel7.x/hv: Module.symvers
+Only in hv-rhel7.x/hv: mshyperv.c
 diff -crB hv-rhel7.x/hv/netvsc.c hv-rhel6.x/hv/netvsc.c
-*** hv-rhel7.x/hv/netvsc.c	2015-05-14 07:05:22.422085155 -0700
---- hv-rhel6.x/hv/netvsc.c	2015-05-14 07:05:22.413084753 -0700
+*** hv-rhel7.x/hv/netvsc.c	2015-05-29 15:02:41.650898801 -0400
+--- hv-rhel6.x/hv/netvsc.c	2015-05-29 15:02:41.647898801 -0400
 ***************
 *** 101,109 ****
   
@@ -2603,38 +2664,30 @@ diff -crB hv-rhel7.x/hv/netvsc.c hv-rhel6.x/hv/netvsc.c
   	struct netvsc_device *net_device;
   	int ret = 0;
 ***************
-*** 717,724 ****
-  	u64 req_id;
+*** 718,723 ****
+--- 717,723 ----
   	unsigned int section_index = NETVSC_INVALID_INDEX;
   	u32 msg_size = 0;
-! 	struct sk_buff *skb = NULL;
-  	u16 q_idx = packet->q_idx;
-  
-  
-  	net_device = get_outbound_net_device(device);
---- 716,724 ----
-  	u64 req_id;
-  	unsigned int section_index = NETVSC_INVALID_INDEX;
-  	u32 msg_size = 0;
-! 	struct sk_buff *skb;
   	u16 q_idx = packet->q_idx;
 + 	u32 vmbus_flags = VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED;
   
   
   	net_device = get_outbound_net_device(device);
 ***************
-*** 744,749 ****
---- 744,751 ----
-  							   packet);
-  			skb = (struct sk_buff *)
-  			      (unsigned long)packet->send_completion_tid;
-+ 			if (skb)
-+ 				dev_kfree_skb_any(skb);
+*** 744,753 ****
   			packet->page_buf_cnt = 0;
   		}
   	}
+- 	packet->send_completion_tid = 0;
+  	packet->send_buf_index = section_index;
+  
+- 
+  	sendMessage.msg.v1_msg.send_rndis_pkt.send_buf_section_index =
+  		section_index;
+  	sendMessage.msg.v1_msg.send_rndis_pkt.send_buf_section_size = msg_size;
+--- 744,751 ----
 ***************
-*** 768,785 ****
+*** 766,783 ****
   		return -ENODEV;
   
   	if (packet->page_buf_cnt) {
@@ -2653,7 +2706,7 @@ diff -crB hv-rhel7.x/hv/netvsc.c hv-rhel6.x/hv/netvsc.c
   	}
   
   	if (ret == 0) {
---- 770,790 ----
+--- 764,784 ----
   		return -ENODEV;
   
   	if (packet->page_buf_cnt) {
@@ -2676,24 +2729,25 @@ diff -crB hv-rhel7.x/hv/netvsc.c hv-rhel6.x/hv/netvsc.c
   
   	if (ret == 0) {
 ***************
-*** 809,821 ****
+*** 807,813 ****
   			   packet, ret);
   	}
   
-- 	if (ret != 0) {
-- 		if (section_index != NETVSC_INVALID_INDEX)
-- 			netvsc_free_send_slot(net_device, section_index);
-- 	} else if (skb) {
-- 		dev_kfree_skb_any(skb);
-- 	}
-- 
-  	return ret;
-  }
+! 	if (ret !=0 && section_index != NETVSC_INVALID_INDEX)
+  		netvsc_free_send_slot(net_device, section_index);
   
---- 814,819 ----
+  	return ret;
+--- 808,814 ----
+  			   packet, ret);
+  	}
+  
+! 	if (ret != 0 && section_index != NETVSC_INVALID_INDEX)
+  		netvsc_free_send_slot(net_device, section_index);
+  
+  	return ret;
 diff -crB hv-rhel7.x/hv/netvsc_drv.c hv-rhel6.x/hv/netvsc_drv.c
-*** hv-rhel7.x/hv/netvsc_drv.c	2015-05-14 07:05:22.422085155 -0700
---- hv-rhel6.x/hv/netvsc_drv.c	2015-05-14 07:05:22.413084753 -0700
+*** hv-rhel7.x/hv/netvsc_drv.c	2015-05-29 15:02:41.650898801 -0400
+--- hv-rhel6.x/hv/netvsc_drv.c	2015-05-29 15:02:41.648898801 -0400
 ***************
 *** 33,43 ****
 --- 33,45 ----
@@ -2709,19 +2763,37 @@ diff -crB hv-rhel7.x/hv/netvsc_drv.c hv-rhel6.x/hv/netvsc_drv.c
 + #include "include/linux/hyperv.h"
   #include "hyperv_net.h"
   
-  struct net_device_context {
+  
 ***************
-*** 190,217 ****
+*** 47,56 ****
+  MODULE_PARM_DESC(ring_size, "Ring buffer size (# of pages)");
+  
+  static const u32 default_msg = NETIF_MSG_DRV | NETIF_MSG_PROBE |
+! 		NETIF_MSG_LINK | NETIF_MSG_IFUP |
+! 		NETIF_MSG_IFDOWN | NETIF_MSG_RX_ERR |
+! 		NETIF_MSG_TX_ERR;
+! 
+  static int debug = -1;
+  module_param(debug, int, S_IRUGO);
+  MODULE_PARM_DESC(debug, "Debug level (0=none,...,16=all)");
+--- 49,57 ----
+  MODULE_PARM_DESC(ring_size, "Ring buffer size (# of pages)");
+  
+  static const u32 default_msg = NETIF_MSG_DRV | NETIF_MSG_PROBE |
+! 				NETIF_MSG_LINK | NETIF_MSG_IFUP |
+! 				NETIF_MSG_IFDOWN | NETIF_MSG_RX_ERR |
+! 				NETIF_MSG_TX_ERR;
+  static int debug = -1;
+  module_param(debug, int, S_IRUGO);
+  MODULE_PARM_DESC(debug, "Debug level (0=none,...,16=all)");
+***************
+*** 193,212 ****
   
   bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
   {
 ! 	struct flow_keys flow;
   	int data_len;
   
-! 	//if (!skb_flow_dissect(skb, &flow) ||
-! 	//    !(flow.n_proto == htons(ETH_P_IP) ||
-! 	//      flow.n_proto == htons(ETH_P_IPV6)))
-! 	//	return false;
 ! 	if (!skb_flow_dissect(skb, &flow))
   		return false;
   
@@ -2735,21 +2807,17 @@ diff -crB hv-rhel7.x/hv/netvsc_drv.c hv-rhel6.x/hv/netvsc_drv.c
 ! 	return true;
   }
   
-! static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)  //,
-! 			// void *accel_priv, select_queue_fallback_t fallback)
-  {
-  	struct net_device_context *net_device_ctx = netdev_priv(ndev);
-  	struct hv_device *hdev =  net_device_ctx->device_ctx;
---- 192,222 ----
+  static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
+--- 194,221 ----
   
   bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
   {
 ! 	struct iphdr *iphdr;
   	int data_len;
 + 	bool ret = false;
++ 
++ 	skb_reset_mac_header(skb);
   
-! 	skb_reset_mac_header(skb);
-! 
 ! 	if (eth_hdr(skb)->h_proto != htons(ETH_P_IP))
   		return false;
   
@@ -2768,12 +2836,9 @@ diff -crB hv-rhel7.x/hv/netvsc_drv.c hv-rhel6.x/hv/netvsc_drv.c
 ! 	return ret;
   }
   
-! static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
-  {
-  	struct net_device_context *net_device_ctx = netdev_priv(ndev);
-  	struct hv_device *hdev =  net_device_ctx->device_ctx;
+  static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 ***************
-*** 225,231 ****
+*** 223,229 ****
   	if (netvsc_set_hash(&hash, skb)) {
   		q_idx = nvsc_dev->send_table[hash % VRSS_SEND_TAB_SIZE] %
   			ndev->real_num_tx_queues;
@@ -2781,7 +2846,7 @@ diff -crB hv-rhel7.x/hv/netvsc_drv.c hv-rhel6.x/hv/netvsc_drv.c
   	}
   
   	return q_idx;
---- 230,237 ----
+--- 232,239 ----
   	if (netvsc_set_hash(&hash, skb)) {
   		q_idx = nvsc_dev->send_table[hash % VRSS_SEND_TAB_SIZE] %
   			ndev->real_num_tx_queues;
@@ -2791,8 +2856,8 @@ diff -crB hv-rhel7.x/hv/netvsc_drv.c hv-rhel6.x/hv/netvsc_drv.c
   
   	return q_idx;
 ***************
-*** 344,349 ****
---- 350,357 ----
+*** 339,344 ****
+--- 349,356 ----
   {
   	u32 ret_val = TRANSPORT_INFO_NOT_IP;
   
@@ -2802,44 +2867,44 @@ diff -crB hv-rhel7.x/hv/netvsc_drv.c hv-rhel6.x/hv/netvsc_drv.c
   		(eth_hdr(skb)->h_proto != htons(ETH_P_IPV6))) {
   		goto not_ip;
 ***************
-*** 386,391 ****
---- 394,400 ----
-  	u32 net_trans_info;
-  	u32 hash;
+*** 383,388 ****
+--- 395,401 ----
   	u32 skb_length = skb->len;
+  	u32 pkt_sz;
+  	struct hv_page_buffer page_buf[MAX_PAGE_BUFFER_COUNT];
 + 	bool kick_q = true;
   
   
   	/* We will atmost need two pages to describe the rndis
 ***************
-*** 444,450 ****
+*** 399,405 ****
   
-  	rndis_msg_size = RNDIS_MESSAGE_SIZE(struct rndis_packet);
+  	pkt_sz = sizeof(struct hv_netvsc_packet) + RNDIS_AND_PPI_SIZE;
   
-- 	//hash = skb_get_hash_raw(skb);
-  	hash = skb_get_hash(skb);
-  	if (hash != 0 && net->real_num_tx_queues > 1) {
-  		rndis_msg_size += NDIS_HASH_PPI_SIZE;
---- 453,458 ----
+- 	/* Use the headroom for building up the packet */
+  	ret = skb_cow_head(skb, pkt_sz);
+  	if (ret) {
+  		netdev_err(net, "unable to alloc hv_netvsc_packet\n");
+--- 412,417 ----
 ***************
-*** 559,565 ****
+*** 554,560 ****
   	packet->page_buf_cnt = init_page_array(rndis_msg, rndis_msg_size,
-  					skb, &packet->page_buf[0]);
+  					skb, &page_buf[0]);
   
 ! 	ret = netvsc_send(net_device_ctx->device_ctx, packet);
   
   drop:
   	if (ret == 0) {
---- 567,573 ----
+--- 568,574 ----
   	packet->page_buf_cnt = init_page_array(rndis_msg, rndis_msg_size,
-  					skb, &packet->page_buf[0]);
+  					skb, &page_buf[0]);
   
 ! 	ret = netvsc_send(net_device_ctx->device_ctx, packet, kick_q);
   
   drop:
   	if (ret == 0) {
 ***************
-*** 664,671 ****
+*** 658,665 ****
   	}
   
   	if (packet->vlan_tci & VLAN_TAG_PRESENT)
@@ -2857,7 +2922,7 @@ diff -crB hv-rhel7.x/hv/netvsc_drv.c hv-rhel6.x/hv/netvsc_drv.c
   	skb_record_rx_queue(skb, packet->channel->
   			    offermsg.offer.sub_channel_index);
 ***************
-*** 822,828 ****
+*** 816,822 ****
   		call_usermodehelper(argv[0], argv, envp, UMH_WAIT_EXEC);
   
   	if (notify)
@@ -2874,8 +2939,27 @@ diff -crB hv-rhel7.x/hv/netvsc_drv.c hv-rhel6.x/hv/netvsc_drv.c
   
   
 ***************
-*** 850,857 ****
---- 857,866 ----
+*** 835,842 ****
+  	if (!net)
+  		return -ENOMEM;
+  
+! 	max_needed_headroom = sizeof(struct hv_netvsc_packet) + 
+! 				RNDIS_AND_PPI_SIZE;
+  	netif_carrier_off(net);
+  
+  	net_device_ctx = netdev_priv(net);
+--- 848,855 ----
+  	if (!net)
+  		return -ENOMEM;
+  
+! 	max_needed_headroom = sizeof(struct hv_netvsc_packet) +
+! 					RNDIS_AND_PPI_SIZE;
+  	netif_carrier_off(net);
+  
+  	net_device_ctx = netdev_priv(net);
+***************
+*** 852,859 ****
+--- 864,873 ----
   
   	net->netdev_ops = &device_ops;
   
@@ -2887,8 +2971,31 @@ diff -crB hv-rhel7.x/hv/netvsc_drv.c hv-rhel6.x/hv/netvsc_drv.c
   			NETIF_F_IP_CSUM | NETIF_F_TSO;
   
 ***************
-*** 871,877 ****
---- 880,892 ----
+*** 863,872 ****
+  	/*
+  	 * Request additional head room in the skb.
+  	 * We will use this space to build the rndis
+! 	 * header and other state we need to maintain.
+  	 */
+! 	net->needed_headroom = max_needed_headroom; 
+! 
+  	/* Notify the netvsc driver of the new device */
+  	device_info.ring_size = ring_size;
+  	ret = rndis_filter_device_add(dev, &device_info);
+--- 877,886 ----
+  	/*
+  	 * Request additional head room in the skb.
+  	 * We will use this space to build the rndis
+! 	 * header and other state we need to maintain
+  	 */
+! 	net->needed_headroom = max_needed_headroom;
+!  
+  	/* Notify the netvsc driver of the new device */
+  	device_info.ring_size = ring_size;
+  	ret = rndis_filter_device_add(dev, &device_info);
+***************
+*** 880,886 ****
+--- 894,906 ----
   
   	nvdev = hv_get_drvdata(dev);
   	netif_set_real_num_tx_queues(net, nvdev->num_chn);
@@ -2903,7 +3010,7 @@ diff -crB hv-rhel7.x/hv/netvsc_drv.c hv-rhel6.x/hv/netvsc_drv.c
   	ret = register_netdev(net);
   	if (ret != 0) {
 ***************
-*** 952,959 ****
+*** 961,968 ****
   }
   
   MODULE_LICENSE("GPL");
@@ -2912,7 +3019,7 @@ diff -crB hv-rhel7.x/hv/netvsc_drv.c hv-rhel6.x/hv/netvsc_drv.c
   
   module_init(netvsc_drv_init);
   module_exit(netvsc_drv_exit);
---- 967,975 ----
+--- 981,989 ----
   }
   
   MODULE_LICENSE("GPL");
@@ -2922,13 +3029,38 @@ diff -crB hv-rhel7.x/hv/netvsc_drv.c hv-rhel6.x/hv/netvsc_drv.c
   
   module_init(netvsc_drv_init);
   module_exit(netvsc_drv_exit);
-Only in hv-rhel6.x/hv/: overrides.mk
-Only in hv-rhel6.x/hv/: README
-Only in hv-rhel6.x/hv/: rhel6-hv-driver-install
-Only in hv-rhel6.x/hv/: rhel6-hv-driver-uninstall
+diff -crB hv-rhel7.x/hv/README hv-rhel6.x/hv/README
+*** hv-rhel7.x/hv/README	2015-05-29 14:59:45.932330701 -0400
+--- hv-rhel6.x/hv/README	2015-05-29 14:59:45.898330701 -0400
+***************
+*** 1,9 ****
+  After unpacking the tar file; as root:
+  
+! 	Execute the script ./rhel5-hv-driver-install to build and install
+! 	Hyper-V drivers on a rhel5.x installation. Once the script completes,
+! 	reboot the machine to bringup RHEL5.X enlightened on Hyper-V.
+  
+  	To uninstall the Hyper-V drivers, execute the script
+! 	./rhel5-hv-driver-uninstall. Once the script completes, reboot the machine
+! 	to bringup RHEL5 in fully emulated mode.
+--- 1,9 ----
+  After unpacking the tar file; as root:
+  
+! 	Execute the script ./rhel6-hv-driver-install to build and install
+! 	Hyper-V drivers on a rhel6 installation. Once the script completes,
+! 	reboot the machine to bringup RHEL6 enlightened on Hyper-V.
+  
+  	To uninstall the Hyper-V drivers, execute the script
+! 	./rhel6-hv-driver-uninstall. Once the script completes, reboot the machine
+! 	to bringup RHEL6 in fully emulated mode.
+Only in hv-rhel7.x/hv: rhel5-hv-driver-install
+Only in hv-rhel7.x/hv: rhel5-hv-driver-uninstall
+Only in hv-rhel6.x/hv: rhel6-hv-driver-install
+Only in hv-rhel6.x/hv: rhel6-hv-driver-uninstall
+Only in hv-rhel7.x/hv: rhel7-hv-driver-install
 diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
-*** hv-rhel7.x/hv/rndis_filter.c	2015-05-14 07:05:22.423085200 -0700
---- hv-rhel6.x/hv/rndis_filter.c	2015-05-14 07:05:22.414084798 -0700
+*** hv-rhel7.x/hv/rndis_filter.c	2015-05-29 15:02:41.651898801 -0400
+--- hv-rhel6.x/hv/rndis_filter.c	2015-05-29 15:02:41.649898801 -0400
 ***************
 *** 238,244 ****
   
@@ -2947,7 +3079,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   }
   
 ***************
-*** 470,476 ****
+*** 471,477 ****
   	struct rndis_query_request *query;
   	struct rndis_query_complete *query_complete;
   	int ret = 0;
@@ -2955,7 +3087,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   
   	if (!result)
   		return -EINVAL;
---- 470,476 ----
+--- 471,477 ----
   	struct rndis_query_request *query;
   	struct rndis_query_complete *query_complete;
   	int ret = 0;
@@ -2964,7 +3096,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   	if (!result)
   		return -EINVAL;
 ***************
-*** 560,567 ****
+*** 561,568 ****
   	char macstr[2*ETH_ALEN+1];
   	u32 extlen = sizeof(struct rndis_config_parameter_info) +
   		2*NWADR_STRLEN + 4*ETH_ALEN;
@@ -2973,7 +3105,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   
   	request = get_rndis_request(rdev, RNDIS_MSG_SET,
   		RNDIS_MESSAGE_SIZE(struct rndis_set_request) + extlen);
---- 560,566 ----
+--- 561,567 ----
   	char macstr[2*ETH_ALEN+1];
   	u32 extlen = sizeof(struct rndis_config_parameter_info) +
   		2*NWADR_STRLEN + 4*ETH_ALEN;
@@ -2982,8 +3114,8 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   	request = get_rndis_request(rdev, RNDIS_MSG_SET,
   		RNDIS_MESSAGE_SIZE(struct rndis_set_request) + extlen);
 ***************
-*** 588,600 ****
---- 587,608 ----
+*** 589,601 ****
+--- 588,609 ----
   
   	cfg_nwadr = (wchar_t *)((ulong)cpi + cpi->parameter_name_offset);
   	cfg_mac = (wchar_t *)((ulong)cpi + cpi->parameter_value_offset);
@@ -3007,7 +3139,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   		goto cleanup;
   
 ***************
-*** 624,631 ****
+*** 625,632 ****
   	return ret;
   }
   
@@ -3016,7 +3148,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   				struct ndis_offload_params *req_offloads)
   {
   	struct netvsc_device *nvdev = hv_get_drvdata(hdev);
---- 632,638 ----
+--- 633,639 ----
   	return ret;
   }
   
@@ -3025,7 +3157,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   {
   	struct netvsc_device *nvdev = hv_get_drvdata(hdev);
 ***************
-*** 636,643 ****
+*** 637,644 ****
   	struct ndis_offload_params *offload_params;
   	struct rndis_set_complete *set_complete;
   	u32 extlen = sizeof(struct ndis_offload_params);
@@ -3034,7 +3166,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   	u32 vsp_version = nvdev->nvsp_version;
   
   	if (vsp_version <= NVSP_PROTOCOL_VERSION_4) {
---- 643,649 ----
+--- 644,650 ----
   	struct ndis_offload_params *offload_params;
   	struct rndis_set_complete *set_complete;
   	u32 extlen = sizeof(struct ndis_offload_params);
@@ -3043,7 +3175,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   
   	if (vsp_version <= NVSP_PROTOCOL_VERSION_4) {
 ***************
-*** 700,706 ****
+*** 701,707 ****
   	0x6a, 0x42, 0xb7, 0x3b, 0xbe, 0xac, 0x01, 0xfa
   };
   
@@ -3051,7 +3183,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   {
   	struct net_device *ndev = rdev->net_dev->ndev;
   	struct rndis_request *request;
---- 706,712 ----
+--- 707,713 ----
   	0x6a, 0x42, 0xb7, 0x3b, 0xbe, 0xac, 0x01, 0xfa
   };
   
@@ -3060,7 +3192,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   	struct net_device *ndev = rdev->net_dev->ndev;
   	struct rndis_request *request;
 ***************
-*** 711,718 ****
+*** 712,719 ****
   	struct ndis_recv_scale_param *rssp;
   	u32 *itab;
   	u8 *keyp;
@@ -3069,7 +3201,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   
   	request = get_rndis_request(
   			rdev, RNDIS_MSG_SET,
---- 717,723 ----
+--- 718,724 ----
   	struct ndis_recv_scale_param *rssp;
   	u32 *itab;
   	u8 *keyp;
@@ -3078,7 +3210,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   	request = get_rndis_request(
   			rdev, RNDIS_MSG_SET,
 ***************
-*** 796,803 ****
+*** 797,804 ****
   	struct rndis_set_request *set;
   	struct rndis_set_complete *set_complete;
   	u32 status;
@@ -3087,7 +3219,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   	struct net_device *ndev;
   
   	ndev = dev->net_dev->ndev;
---- 801,807 ----
+--- 802,808 ----
   	struct rndis_set_request *set;
   	struct rndis_set_complete *set_complete;
   	u32 status;
@@ -3096,7 +3228,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   
   	ndev = dev->net_dev->ndev;
 ***************
-*** 853,860 ****
+*** 854,861 ****
   	struct rndis_initialize_request *init;
   	struct rndis_initialize_complete *init_complete;
   	u32 status;
@@ -3105,7 +3237,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   
   	request = get_rndis_request(dev, RNDIS_MSG_INIT,
   			RNDIS_MESSAGE_SIZE(struct rndis_initialize_request));
---- 857,863 ----
+--- 858,864 ----
   	struct rndis_initialize_request *init;
   	struct rndis_initialize_complete *init_complete;
   	u32 status;
@@ -3114,7 +3246,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   	request = get_rndis_request(dev, RNDIS_MSG_INIT,
   			RNDIS_MESSAGE_SIZE(struct rndis_initialize_request));
 ***************
-*** 1004,1010 ****
+*** 1005,1011 ****
   	struct netvsc_device_info *device_info = additional_info;
   	struct ndis_offload_params offloads;
   	struct nvsp_message *init_packet;
@@ -3122,7 +3254,7 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   	struct ndis_recv_scale_cap rsscap;
   	u32 rsscap_size = sizeof(struct ndis_recv_scale_cap);
   	u32 mtu, size;
---- 1007,1013 ----
+--- 1008,1014 ----
   	struct netvsc_device_info *device_info = additional_info;
   	struct ndis_offload_params offloads;
   	struct nvsp_message *init_packet;
@@ -3131,37 +3263,213 @@ diff -crB hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
   	u32 rsscap_size = sizeof(struct ndis_recv_scale_cap);
   	u32 mtu, size;
 diff -crB hv-rhel7.x/hv/storvsc_drv.c hv-rhel6.x/hv/storvsc_drv.c
-*** hv-rhel7.x/hv/storvsc_drv.c	2015-05-14 07:05:22.423085200 -0700
---- hv-rhel6.x/hv/storvsc_drv.c	2015-05-14 07:05:22.414084798 -0700
+*** hv-rhel7.x/hv/storvsc_drv.c	2015-05-29 14:59:45.958330701 -0400
+--- hv-rhel6.x/hv/storvsc_drv.c	2015-05-29 17:12:25.788030406 -0400
 ***************
-*** 680,691 ****
-  /* Disgusting wrapper functions */
-  static inline unsigned long sg_kmap_atomic(struct scatterlist *sgl)
-  {
-! 	return (unsigned long)kmap_atomic(sg_page(sgl));
+*** 677,682 ****
+--- 677,694 ----
+  	return NULL;
   }
   
-  static inline void sg_kunmap_atomic(unsigned long addr)
-  {
-! 	kunmap_atomic((void *)addr);
-  }
++ /* Disgusting wrapper functions */
++ static inline unsigned long sg_kmap_atomic(struct scatterlist *sgl)
++ {
++ 	return (unsigned long)kmap_atomic(sg_page(sgl), KM_IRQ0);
++ }
++ 
++ static inline void sg_kunmap_atomic(unsigned long addr)
++ {
++ 	kunmap_atomic((void *)addr, KM_IRQ0);
++ }
++ 
++ 
+  /* Assume the original sgl has enough room */
+  static unsigned int copy_from_bounce_buffer(struct scatterlist *orig_sgl,
+  					    struct scatterlist *bounce_sgl,
+***************
+*** 698,712 ****
+  	cur_dest_sgl = orig_sgl;
+  	cur_src_sgl = bounce_sgl;
+  	for (i = 0; i < orig_sgl_count; i++) {
+! 		dest_addr = (unsigned long)
+! 				kmap_atomic(sg_page(cur_dest_sgl)) +
+! 				cur_dest_sgl->offset;
+  		dest = dest_addr;
+  		destlen = cur_dest_sgl->length;
   
+  		if (bounce_addr == 0)
+! 			bounce_addr = (unsigned long)kmap_atomic(
+! 							sg_page(cur_src_sgl));
   
---- 680,691 ----
-  /* Disgusting wrapper functions */
-  static inline unsigned long sg_kmap_atomic(struct scatterlist *sgl)
-  {
-! 	return (unsigned long)kmap_atomic(sg_page(sgl), KM_IRQ0);
-  }
+  		while (destlen) {
+  			src = bounce_addr + cur_src_sgl->offset;
+--- 710,721 ----
+  	cur_dest_sgl = orig_sgl;
+  	cur_src_sgl = bounce_sgl;
+  	for (i = 0; i < orig_sgl_count; i++) {
+! 		dest_addr = sg_kmap_atomic(cur_dest_sgl) + cur_dest_sgl->offset;
+  		dest = dest_addr;
+  		destlen = cur_dest_sgl->length;
   
-  static inline void sg_kunmap_atomic(unsigned long addr)
-  {
-! 	kunmap_atomic((void *)addr, KM_IRQ0);
-  }
+  		if (bounce_addr == 0)
+! 			bounce_addr = sg_kmap_atomic(cur_src_sgl);
   
+  		while (destlen) {
+  			src = bounce_addr + cur_src_sgl->offset;
+***************
+*** 722,728 ****
+  
+  			if (cur_src_sgl->offset == cur_src_sgl->length) {
+  				/* full */
+! 				kunmap_atomic((void *)bounce_addr);
+  				j++;
+  				/*
+  				 * It is possible that the number of elements
+--- 731,737 ----
+  
+  			if (cur_src_sgl->offset == cur_src_sgl->length) {
+  				/* full */
+! 				sg_kunmap_atomic(bounce_addr);
+  				j++;
+  				/*
+  				 * It is possible that the number of elements
+***************
+*** 735,742 ****
+  					/*
+  					 * We are done; cleanup and return.
+  					 */
+! 					kunmap_atomic((void *)(dest_addr -
+! 						cur_dest_sgl->offset));
+  					local_irq_restore(flags);
+  					return total_copied;
+  				}
+--- 744,751 ----
+  					/*
+  					 * We are done; cleanup and return.
+  					 */
+! 					sg_kunmap_atomic(dest_addr -
+! 						cur_dest_sgl->offset);
+  					local_irq_restore(flags);
+  					return total_copied;
+  				}
+***************
+*** 744,760 ****
+  				/* if we need to use another bounce buffer */
+  				if (destlen || (i < orig_sgl_count)) {
+  					cur_src_sgl = sg_next(cur_src_sgl);
+! 					bounce_addr = (unsigned long)
+! 							kmap_atomic(
+! 							sg_page(cur_src_sgl));
+  				}
+  			} else if (destlen == 0 && (i == (orig_sgl_count - 1))) {
+  				/* unmap the last bounce that is < PAGE_SIZE */
+! 				kunmap_atomic((void *)bounce_addr);
+  			}
+  		}
+  
+! 		kunmap_atomic((void *)(dest_addr - cur_dest_sgl->offset));
+  		cur_dest_sgl = sg_next(cur_dest_sgl);
+  	}
+  
+--- 753,767 ----
+  				/* if we need to use another bounce buffer */
+  				if (destlen || (i < orig_sgl_count)) {
+  					cur_src_sgl = sg_next(cur_src_sgl);
+! 					bounce_addr = sg_kmap_atomic(cur_src_sgl);
+  				}
+  			} else if (destlen == 0 && (i == (orig_sgl_count - 1))) {
+  				/* unmap the last bounce that is < PAGE_SIZE */
+! 				sg_kunmap_atomic(bounce_addr);
+  			}
+  		}
+  
+! 		sg_kunmap_atomic(dest_addr - cur_dest_sgl->offset);
+  		cur_dest_sgl = sg_next(cur_dest_sgl);
+  	}
   
 ***************
-*** 1651,1661 ****
+*** 784,798 ****
+  	cur_dest_sgl = bounce_sgl;
+  
+  	for (i = 0; i < orig_sgl_count; i++) {
+! 		src_addr = (unsigned long)
+! 				kmap_atomic(sg_page(cur_src_sgl)) +
+! 				cur_src_sgl->offset;
+  		src = src_addr;
+  		srclen = cur_src_sgl->length;
+  
+  		if (bounce_addr == 0)
+! 			bounce_addr = (unsigned long)
+! 					kmap_atomic(sg_page(cur_dest_sgl));
+  
+  		while (srclen) {
+  			/* assume bounce offset always == 0 */
+--- 791,802 ----
+  	cur_dest_sgl = bounce_sgl;
+  
+  	for (i = 0; i < orig_sgl_count; i++) {
+! 		src_addr = sg_kmap_atomic(cur_src_sgl) + cur_src_sgl->offset;
+  		src = src_addr;
+  		srclen = cur_src_sgl->length;
+  
+  		if (bounce_addr == 0)
+! 			bounce_addr = sg_kmap_atomic(cur_dest_sgl);
+  
+  		while (srclen) {
+  			/* assume bounce offset always == 0 */
+***************
+*** 809,833 ****
+  
+  			if (cur_dest_sgl->length == PAGE_SIZE) {
+  				/* full..move to next entry */
+! 				kunmap_atomic((void *)bounce_addr);
+  				bounce_addr = 0;
+  			}
+  
+  			/* if we need to use another bounce buffer */
+  			if (srclen && bounce_addr == 0) {
+  				cur_dest_sgl = sg_next(cur_dest_sgl);
+! 				bounce_addr = (unsigned long)
+! 						kmap_atomic(
+! 						sg_page(cur_dest_sgl));
+  			}
+  		}
+  
+! 		kunmap_atomic((void *)(src_addr - cur_src_sgl->offset));
+  		cur_src_sgl = sg_next(cur_src_sgl);
+  	}
+  
+  	if (bounce_addr)
+! 		kunmap_atomic((void *)bounce_addr);
+  
+  	local_irq_restore(flags);
+  
+--- 813,835 ----
+  
+  			if (cur_dest_sgl->length == PAGE_SIZE) {
+  				/* full..move to next entry */
+! 				sg_kunmap_atomic(bounce_addr);
+  				bounce_addr = 0;
+  			}
+  
+  			/* if we need to use another bounce buffer */
+  			if (srclen && bounce_addr == 0) {
+  				cur_dest_sgl = sg_next(cur_dest_sgl);
+! 				bounce_addr = sg_kmap_atomic(cur_dest_sgl);
+  			}
+  		}
+  
+! 		sg_kunmap_atomic(src_addr - cur_src_sgl->offset);
+  		cur_src_sgl = sg_next(cur_src_sgl);
+  	}
+  
+  	if (bounce_addr)
+! 		sg_kunmap_atomic(bounce_addr);
+  
+  	local_irq_restore(flags);
+  
+***************
+*** 1649,1659 ****
   	 * this. So, don't send it.
   	 */
   	case SET_WINDOW:
@@ -3185,7 +3493,7 @@ diff -crB hv-rhel7.x/hv/storvsc_drv.c hv-rhel6.x/hv/storvsc_drv.c
   		break;
   	default:
 ***************
-*** 1693,1698 ****
+*** 1691,1696 ****
 --- 1692,1699 ----
   	u32 length;
   
@@ -3198,8 +3506,8 @@ diff -crB hv-rhel7.x/hv/storvsc_drv.c hv-rhel6.x/hv/storvsc_drv.c
 Only in hv-rhel7.x/hv/tools: hv_get_dhcp_info
 Only in hv-rhel7.x/hv/tools: hv_get_dns_info
 diff -crB hv-rhel7.x/hv/tools/hv_kvp_daemon.c hv-rhel6.x/hv/tools/hv_kvp_daemon.c
-*** hv-rhel7.x/hv/tools/hv_kvp_daemon.c	2015-05-14 07:05:22.424085245 -0700
---- hv-rhel6.x/hv/tools/hv_kvp_daemon.c	2015-05-14 07:05:22.415084843 -0700
+*** hv-rhel7.x/hv/tools/hv_kvp_daemon.c	2015-05-29 14:59:45.959330701 -0400
+--- hv-rhel6.x/hv/tools/hv_kvp_daemon.c	2015-05-29 14:59:45.930330701 -0400
 ***************
 *** 35,40 ****
 --- 35,41 ----
@@ -3213,8 +3521,8 @@ diff -crB hv-rhel7.x/hv/tools/hv_kvp_daemon.c hv-rhel6.x/hv/tools/hv_kvp_daemon.
 Only in hv-rhel7.x/hv/tools: hv_set_ifconfig
 Only in hv-rhel7.x/hv/tools: Makefile
 diff -crB hv-rhel7.x/hv/vmbus_drv.c hv-rhel6.x/hv/vmbus_drv.c
-*** hv-rhel7.x/hv/vmbus_drv.c	2015-05-14 07:05:22.424085245 -0700
---- hv-rhel6.x/hv/vmbus_drv.c	2015-05-14 07:05:22.415084843 -0700
+*** hv-rhel7.x/hv/vmbus_drv.c	2015-05-29 14:59:45.960330701 -0400
+--- hv-rhel6.x/hv/vmbus_drv.c	2015-05-29 14:59:45.930330701 -0400
 ***************
 *** 23,29 ****
   #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -4343,3 +4651,4 @@ diff -crB hv-rhel7.x/hv/vmbus_drv.c hv-rhel6.x/hv/vmbus_drv.c
   }
   
   
+Only in hv-rhel7.x/hv: xorg.conf
