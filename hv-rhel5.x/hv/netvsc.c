@@ -754,6 +754,7 @@ int netvsc_send(struct hv_device *device,
 			if (skb)
 				dev_kfree_skb_any(skb);
 			packet->page_buf_cnt = 0;
+			packet->send_completion_tid = 0;
 		}
 	}
 	packet->send_buf_index = section_index;
@@ -912,7 +913,7 @@ static void netvsc_receive(struct netvsc_device *net_device,
 	}
 
 	count = vmxferpage_packet->range_cnt;
-	netvsc_packet->device = device;
+	// netvsc_packet->device = device;
 	netvsc_packet->channel = channel;
 
 	/* Each range represents 1 RNDIS pkt that contains 1 ethernet frame */
@@ -1078,6 +1079,9 @@ int netvsc_device_add(struct hv_device *device, void *additional_info)
 	 * in struct netvsc_device *.
 	 */
 	ndev = net_device->ndev;
+
+	/* Add netvsc_device context to netvsc_device */
+	net_device->nd_ctx = netdev_priv(ndev);
 
 	/* Initialize the NetVSC channel extension */
 	init_completion(&net_device->channel_init_wait);
