@@ -129,7 +129,7 @@ struct hv_netvsc_packet {
 	/* Bookkeeping stuff */
 	u32 status;
 
-	struct hv_device *device;
+	// struct hv_device *device;
 	bool is_data_pkt;
 	u16 vlan_tci;
 
