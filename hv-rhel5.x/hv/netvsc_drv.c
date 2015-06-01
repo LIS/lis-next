@@ -429,7 +429,7 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 			 // sizeof(struct rndis_message) +
 			 // NDIS_VLAN_PPI_SIZE + NDIS_CSUM_PPI_SIZE +
 			 // NDIS_LSO_PPI_SIZE + NDIS_HASH_PPI_SIZE, GFP_ATOMIC);
-			RNDIS_AND_PPI_SIZE;
+			RNDIS_AND_PPI_SIZE, GFP_ATOMIC);
 
 	if (!packet) {
 		/* out of memory, drop packet */
