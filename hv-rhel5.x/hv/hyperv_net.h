@@ -129,7 +129,6 @@ struct hv_netvsc_packet {
 	/* Bookkeeping stuff */
 	u32 status;
 
-	struct hv_device *device;
 	bool is_data_pkt;
 	u16 vlan_tci;
 
@@ -595,6 +594,16 @@ struct nvsp_message {
 
 #define VRSS_SEND_TAB_SIZE 16
 
+/* The context of the netvsc device */
+struct net_device_context {
+	/* point back to our device context */
+	struct hv_device *device_ctx;
+	struct net_device_stats stats;
+	struct delayed_work dwork;
+	struct work_struct work;
+	u32 msg_enable;
+};
+
 /* Per netvsc channel-specific */
 struct netvsc_device {
 	struct hv_device *dev;
@@ -645,6 +654,9 @@ struct netvsc_device {
 	unsigned char *cb_buffer;
 	/* The sub channel callback buffer */
 	unsigned char *sub_cb_buf;
+
+	/* The net device context */
+	struct net_device_context *nd_ctx;
 };
 
 /* NdisInitialize message */
@@ -942,6 +954,10 @@ struct ndis_tcp_lso_info {
 #define NDIS_HASH_PPI_SIZE (sizeof(struct rndis_per_packet_info) + \
 		sizeof(u32))
 
+/* Total size of all PPI data */
+#define NDIS_ALL_PPI_SIZE (NDIS_VLAN_PPI_SIZE + NDIS_CSUM_PPI_SIZE + \
+			   NDIS_LSO_PPI_SIZE + NDIS_HASH_PPI_SIZE)
+
 /* Format of Information buffer passed in a SetRequest for the OID */
 /* OID_GEN_RNDIS_CONFIG_PARAMETER. */
 struct rndis_config_parameter_info {
@@ -1153,6 +1169,8 @@ struct rndis_message {
 
 #define RNDIS_HEADER_SIZE	(sizeof(struct rndis_message) - \
 				 sizeof(union rndis_message_container))
+
+#define RNDIS_AND_PPI_SIZE (sizeof(struct rndis_message) + NDIS_ALL_PPI_SIZE)
 
 #define NDIS_PACKET_TYPE_DIRECTED	0x00000001
 #define NDIS_PACKET_TYPE_MULTICAST	0x00000002
