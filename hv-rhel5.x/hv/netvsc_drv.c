@@ -43,18 +43,20 @@
 #include "include/linux/hyperv.h"
 #include "hyperv_net.h"
 
-struct net_device_context {
-	/* point back to our device context */
-	struct hv_device *device_ctx;
-	struct net_device_stats stats;
-	struct delayed_work dwork;
-	struct work_struct work;
-};
 
 #define RING_SIZE_MIN 64
 static int ring_size = 128;
 module_param(ring_size, int, S_IRUGO);
 MODULE_PARM_DESC(ring_size, "Ring buffer size (# of pages)");
+
+static const u32 default_msg  = NETIF_MSG_DRV | NETIF_MSG_PROBE |
+				NETIF_MSG_LINK | NETIF_MSG_IFUP |
+				NETIF_MSG_IFDOWN | NETIF_MSG_RX_ERR |
+				NETIF_MSG_TX_ERR;
+static int debug = -1;
+module_param(debug, int, S_IRUGO);
+MODULE_PARM_DESC(debug, "Debug level (0=none,...16=all)");
+
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1291)
 static struct net_device_stats *netvsc_get_stats(struct net_device *net)
@@ -255,11 +257,10 @@ static void netvsc_xmit_completion(void *context)
 	struct hv_netvsc_packet *packet = (struct hv_netvsc_packet *)context;
 	struct sk_buff *skb = (struct sk_buff *)
 		(unsigned long)packet->send_completion_tid;
-	u32 index = packet->send_buf_index;
 
 	kfree(packet);
 
-	if (skb && (index == NETVSC_INVALID_INDEX))
+	if (skb)
 		dev_kfree_skb_any(skb);
 }
 
@@ -427,9 +428,8 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	/* Allocate a netvsc packet based on # of frags. */
 	packet = kzalloc(sizeof(struct hv_netvsc_packet) +
 			 (num_data_pgs * sizeof(struct hv_page_buffer)) +
-			 sizeof(struct rndis_message) +
-			 NDIS_VLAN_PPI_SIZE + NDIS_CSUM_PPI_SIZE +
-			 NDIS_LSO_PPI_SIZE + NDIS_HASH_PPI_SIZE, GFP_ATOMIC);
+			RNDIS_AND_PPI_SIZE, GFP_ATOMIC);
+
 	if (!packet) {
 		/* out of memory, drop packet */
 		netdev_err(net, "unable to allocate hv_netvsc_packet\n");
@@ -880,6 +880,11 @@ static int netvsc_probe(struct hv_device *dev,
 
 	net_device_ctx = netdev_priv(net);
 	net_device_ctx->device_ctx = dev;
+	net_device_ctx->msg_enable = netif_msg_init(debug, default_msg);
+	if (netif_msg_probe(net_device_ctx))
+		netdev_dbg(net, "netvsc msg_enable: %d\n",
+			net_device_ctx->msg_enable);
+
 	hv_set_drvdata(dev, net);
 	INIT_DELAYED_WORK(&net_device_ctx->dwork, netvsc_link_change);
 	INIT_WORK(&net_device_ctx->work, do_set_multicast,
