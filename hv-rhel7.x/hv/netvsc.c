@@ -744,7 +744,7 @@ int netvsc_send(struct hv_device *device,
 			packet->page_buf_cnt = 0;
 		}
 	}
-	packet->send_completion_tid = 0;
+
 	packet->send_buf_index = section_index;
 
 
@@ -766,12 +766,14 @@ int netvsc_send(struct hv_device *device,
 		return -ENODEV;
 
 	if (packet->page_buf_cnt) {
-		ret = vmbus_sendpacket_pagebuffer(out_channel,
+		ret = vmbus_sendpacket_pagebuffer_ctl(out_channel,
 						  packet->page_buf,
 						  packet->page_buf_cnt,
 						  &sendMessage,
 						  sizeof(struct nvsp_message),
-						  req_id);
+						  req_id,
+						  VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED,
+						  true);
 	} else {
 		ret = vmbus_sendpacket(out_channel, &sendMessage,
 				sizeof(struct nvsp_message),
