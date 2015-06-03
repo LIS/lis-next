@@ -428,7 +428,7 @@ static void init_vp_index(struct vmbus_channel *channel, const uuid_le *type_gui
         * NUMA node evenly.
          */
 
-	channelf (!primary) {
+	if (!primary) {
                while (true) {
                        next_node = next_numa_node_id++;
                        if (next_node == nr_node_ids)
