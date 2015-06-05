@@ -790,7 +790,7 @@ static struct clocksource hyperv_cs = {
          */
         .mult           = (100 << HV_CLOCK_SHIFT),
         .shift          = HV_CLOCK_SHIFT,
-        .flags          = CLOCK_SOURCE_VALID_FOR_HRES,
+        .flags          = CLOCK_SOURCE_IS_CONTINUOUS | CLOCK_SOURCE_VALID_FOR_HRES,
 };
 
 /*
