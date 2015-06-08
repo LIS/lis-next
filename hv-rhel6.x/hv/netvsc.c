@@ -221,17 +221,23 @@ static int netvsc_init_buf(struct hv_device *device)
 	struct netvsc_device *net_device;
 	struct nvsp_message *init_packet;
 	struct net_device *ndev;
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1536)
 	int node;
+#endif
 
 	net_device = get_outbound_net_device(device);
 	if (!net_device)
 		return -ENODEV;
 	ndev = net_device->ndev;
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1536)
 	node = cpu_to_node(device->channel->target_cpu);
 	net_device->recv_buf = vzalloc_node(net_device->recv_buf_size, node);
 	if (!net_device->recv_buf)
 		net_device->recv_buf = vzalloc(net_device->recv_buf_size);
+#else
+	net_device->recv_buf = vzalloc(net_device->recv_buf_size);
+#endif
 
 	if (!net_device->recv_buf) {
 		netdev_err(ndev, "unable to allocate receive "
@@ -320,9 +326,13 @@ static int netvsc_init_buf(struct hv_device *device)
 
 	/* Now setup the send buffer.
 	 */
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1536)
 	net_device->send_buf = vzalloc_node(net_device->send_buf_size, node);
 	if (!net_device->send_buf)
 		net_device->send_buf = vzalloc(net_device->send_buf_size);
+#else
+	net_device->send_buf = vzalloc(net_device->send_buf_size);
+#endif
 	
 	if (!net_device->send_buf) {
 		netdev_err(ndev, "unable to allocate send "
