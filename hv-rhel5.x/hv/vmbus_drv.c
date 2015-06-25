@@ -301,6 +301,24 @@ static ssize_t vmbus_show_device_attr(struct device *dev,
 	return ret;
 }
 
+static ssize_t vendor_show(struct device *dev,
+			   struct device_attribute *dev_attr,
+			   char *buf)
+{
+	struct hv_device *hv_dev = device_to_hv_device(dev);
+	return sprintf(buf, "0x%x\n", hv_dev->vendor_id);
+}
+/* static DEVICE_ATTR_RO(vendor); */
+
+static ssize_t device_show(struct device *dev,
+			   struct device_attribute *dev_attr,
+			   char *buf)
+{
+	struct hv_device *hv_dev = device_to_hv_device(dev);
+	return sprintf(buf, "0x%x\n", hv_dev->device_id);
+}
+/* static DEVICE_ATTR_RO(device); */
+
 /* Set up per device attributes in /sys/bus/vmbus/devices/<bus device> */
 static struct device_attribute vmbus_device_attrs[] = {
 	__ATTR(id, S_IRUGO, vmbus_show_device_attr, NULL),
@@ -329,6 +347,8 @@ static struct device_attribute vmbus_device_attrs[] = {
 	__ATTR(in_write_index, S_IRUGO, vmbus_show_device_attr, NULL),
 	__ATTR(in_read_bytes_avail, S_IRUGO, vmbus_show_device_attr, NULL),
 	__ATTR(in_write_bytes_avail, S_IRUGO, vmbus_show_device_attr, NULL),
+	__ATTR(vendor, S_IRUGO, vendor_show, NULL),
+	__ATTR(device, S_IRUGO, device_show, NULL),
 	__ATTR_NULL
 };
 
