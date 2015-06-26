@@ -648,6 +648,7 @@ int vmbus_sendpacket_ctl(struct vmbus_channel *channel, void *buffer,
 	u64 aligned_data = 0;
 	int ret;
 	bool signal = false;
+	int num_vecs = ((bufferlen != 0) ? 3 : 1);
 
 
 	/* Setup the descriptor */
@@ -665,8 +666,9 @@ int vmbus_sendpacket_ctl(struct vmbus_channel *channel, void *buffer,
 	bufferlist[2].iov_base = &aligned_data;
 	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
 
-	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
-	
+	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, num_vecs,
+				  &signal);
+
 	/*
          * Signalling the host is conditional on many factors:
          * 1. The ring state changed from being empty to non-empty.

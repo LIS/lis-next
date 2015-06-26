@@ -949,6 +949,8 @@ struct hv_device {
 
 	/* the device instance id of this device */
 	uuid_le dev_instance;
+	u16 vendor_id;
+	u16 device_id;
 
 	struct device device;
 
