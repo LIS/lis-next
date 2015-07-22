@@ -763,36 +763,6 @@ static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc)
 	desc->action->handler(irq, desc->action->dev_id);
 }
 
-#define HV_CLOCK_SHIFT  22
-
-static cycle_t read_hv_clock(struct clocksource *arg)
-{
-        cycle_t current_tick;
-        /*
-         * Read the partition counter to get the current tick count. This count
-         * is set to 0 when the partition is created and is incremented in
-         * 100 nanosecond units.
-         */
-        rdmsrl(HV_X64_MSR_TIME_REF_COUNT, current_tick);
-        return current_tick;
-}
-
-static struct clocksource hyperv_cs = {
-        .name           = "hyperv_clocksource_lis",
-        .rating         = 499, /* use this when running on Hyperv*/
-        .read           = read_hv_clock,
-        .mask           = CLOCKSOURCE_MASK(64),
-        /*
-         * The time ref counter in HyperV is in 100ns units.
-         * The definition of mult is:
-         * mult/2^shift = ns/cyc = 100
-         * mult = (100 << shift)
-         */
-        .mult           = (100 << HV_CLOCK_SHIFT),
-        .shift          = HV_CLOCK_SHIFT,
-        .flags          = CLOCK_SOURCE_IS_CONTINUOUS | CLOCK_SOURCE_VALID_FOR_HRES,
-};
-
 /*
  * vmbus_bus_init -Main vmbus driver initialization routine.
  *
@@ -862,10 +832,9 @@ static int vmbus_bus_init(int irq)
                 atomic_notifier_chain_register(&panic_notifier_list,
                                                &hyperv_panic_block);
         }
-        vmbus_request_offers();
-        if (ms_hyperv.features & HV_X64_MSR_TIME_REF_COUNT_AVAILABLE)
-                clocksource_register(&hyperv_cs);
-	
+
+	vmbus_request_offers();
+		
 	return 0;
 
 err_alloc:
