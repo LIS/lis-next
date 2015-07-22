@@ -517,6 +517,7 @@ struct hv_context {
 	u64 guestid;
 
 	void *hypercall_page;
+	void *tsc_page;
 
 	bool synic_initialized;
 
@@ -554,6 +555,14 @@ struct hv_context {
 };
 
 extern struct hv_context hv_context;
+
+struct ms_hyperv_tsc_page {
+       volatile u32 tsc_sequence;
+       u32 reserved1;
+       volatile u64 tsc_scale;
+       volatile s64 tsc_offset;
+       u64 reserved2[509];
+};
 
 /* Hv Interface */
 
