@@ -443,7 +443,14 @@ enum {
  * 47:16 - Linux kernel version number
  * 15:0  - Distro specific identification
  *
- *
+ * Distro specific identification are defined as:
+ *   SuSE SLE      0x10
+ *   RHEL          0x20
+ *   CentOS        0x21
+ *   Oracle (RHCK) 0x22
+ *   Oracle (UEK)  0x40
+ *   Debian        0x60
+ *   Ubuntu        0x80
  */
 
 #define HV_LINUX_VENDOR_ID		0x8100

@@ -221,13 +221,18 @@ static int netvsc_init_buf(struct hv_device *device)
 	struct netvsc_device *net_device;
 	struct nvsp_message *init_packet;
 	struct net_device *ndev;
+	int node;
 
 	net_device = get_outbound_net_device(device);
 	if (!net_device)
 		return -ENODEV;
 	ndev = net_device->ndev;
 
-	net_device->recv_buf = vzalloc(net_device->recv_buf_size);
+	node = cpu_to_node(device->channel->target_cpu);
+	net_device->recv_buf = vzalloc_node(net_device->recv_buf_size, node);
+	if (!net_device->recv_buf)
+		net_device->recv_buf = vzalloc(net_device->recv_buf_size);
+
 	if (!net_device->recv_buf) {
 		netdev_err(ndev, "unable to allocate receive "
 			"buffer of size %d\n", net_device->recv_buf_size);
@@ -315,7 +320,10 @@ static int netvsc_init_buf(struct hv_device *device)
 
 	/* Now setup the send buffer.
 	 */
-	net_device->send_buf = vzalloc(net_device->send_buf_size);
+	net_device->send_buf = vzalloc_node(net_device->send_buf_size, node);
+	if (!net_device->send_buf)
+		net_device->send_buf = vzalloc(net_device->send_buf_size);
+
 	if (!net_device->send_buf) {
 		netdev_err(ndev, "unable to allocate send "
 			   "buffer of size %d\n", net_device->send_buf_size);
@@ -717,7 +725,6 @@ int netvsc_send(struct hv_device *device,
 	u64 req_id;
 	unsigned int section_index = NETVSC_INVALID_INDEX;
 	u32 msg_size = 0;
-	struct sk_buff *skb = NULL;
 	u16 q_idx = packet->q_idx;
 
 
@@ -742,11 +749,10 @@ int netvsc_send(struct hv_device *device,
 			msg_size = netvsc_copy_to_send_buf(net_device,
 							   section_index,
 							   packet);
-			skb = (struct sk_buff *)
-			      (unsigned long)packet->send_completion_tid;
 			packet->page_buf_cnt = 0;
 		}
 	}
+
 	packet->send_buf_index = section_index;
 
 
@@ -768,12 +774,14 @@ int netvsc_send(struct hv_device *device,
 		return -ENODEV;
 
 	if (packet->page_buf_cnt) {
-		ret = vmbus_sendpacket_pagebuffer(out_channel,
+		ret = vmbus_sendpacket_pagebuffer_ctl(out_channel,
 						  packet->page_buf,
 						  packet->page_buf_cnt,
 						  &sendMessage,
 						  sizeof(struct nvsp_message),
-						  req_id);
+						  req_id,
+						  VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED,
+						  true);
 	} else {
 		ret = vmbus_sendpacket(out_channel, &sendMessage,
 				sizeof(struct nvsp_message),
@@ -809,12 +817,8 @@ int netvsc_send(struct hv_device *device,
 			   packet, ret);
 	}
 
-	if (ret != 0) {
-		if (section_index != NETVSC_INVALID_INDEX)
-			netvsc_free_send_slot(net_device, section_index);
-	} else if (skb) {
-		dev_kfree_skb_any(skb);
-	}
+	if (ret !=0 && section_index != NETVSC_INVALID_INDEX)
+		netvsc_free_send_slot(net_device, section_index);
 
 	return ret;
 }
@@ -911,7 +915,6 @@ static void netvsc_receive(struct netvsc_device *net_device,
 	}
 
 	count = vmxferpage_packet->range_cnt;
-	netvsc_packet->device = device;
 	netvsc_packet->channel = channel;
 
 	/* Each range represents 1 RNDIS pkt that contains 1 ethernet frame */
@@ -1077,6 +1080,9 @@ int netvsc_device_add(struct hv_device *device, void *additional_info)
 	 * in struct netvsc_device *.
 	 */
 	ndev = net_device->ndev;
+
+	/* Add netvsc_device context to netvsc_device */
+	net_device->nd_ctx = netdev_priv(ndev);
 
 	/* Initialize the NetVSC channel extension */
 	init_completion(&net_device->channel_init_wait);

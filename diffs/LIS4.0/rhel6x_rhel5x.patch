@@ -1,0 +1,5554 @@
+Only in hv-rhel5.x/hv: CHANGELOG
+diff -crB hv-rhel6.x/hv/channel.c hv-rhel5.x/hv/channel.c
+*** hv-rhel6.x/hv/channel.c	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/channel.c	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 299,305 ****
+  		gpadl_header->range[0].byte_offset = 0;
+  		gpadl_header->range[0].byte_count = size;
+  		for (i = 0; i < pfncount; i++)
+! 			gpadl_header->range[0].pfn_array[i] = slow_virt_to_phys(
+  				kbuffer + PAGE_SIZE * i) >> PAGE_SHIFT;
+  		*msginfo = msgheader;
+  		*messagecount = 1;
+--- 299,305 ----
+  		gpadl_header->range[0].byte_offset = 0;
+  		gpadl_header->range[0].byte_count = size;
+  		for (i = 0; i < pfncount; i++)
+! 			gpadl_header->range[0].pfn_array[i] = virt_to_phys(
+  				kbuffer + PAGE_SIZE * i) >> PAGE_SHIFT;
+  		*msginfo = msgheader;
+  		*messagecount = 1;
+***************
+*** 353,359 ****
+  			 * so the hypervisor gurantees that this is ok.
+  			 */
+  			for (i = 0; i < pfncurr; i++)
+! 				gpadl_body->pfn[i] = slow_virt_to_phys(
+  					kbuffer + PAGE_SIZE * (pfnsum + i)) >>
+  					PAGE_SHIFT;
+  
+--- 353,359 ----
+  			 * so the hypervisor gurantees that this is ok.
+  			 */
+  			for (i = 0; i < pfncurr; i++)
+! 				gpadl_body->pfn[i] = virt_to_phys(
+  					kbuffer + PAGE_SIZE * (pfnsum + i)) >>
+  					PAGE_SHIFT;
+  
+***************
+*** 381,387 ****
+  		gpadl_header->range[0].byte_offset = 0;
+  		gpadl_header->range[0].byte_count = size;
+  		for (i = 0; i < pagecount; i++)
+! 			gpadl_header->range[0].pfn_array[i] = slow_virt_to_phys(
+  				kbuffer + PAGE_SIZE * i) >> PAGE_SHIFT;
+  
+  		*msginfo = msgheader;
+--- 381,387 ----
+  		gpadl_header->range[0].byte_offset = 0;
+  		gpadl_header->range[0].byte_count = size;
+  		for (i = 0; i < pagecount; i++)
+! 			gpadl_header->range[0].pfn_array[i] = virt_to_phys(
+  				kbuffer + PAGE_SIZE * i) >> PAGE_SHIFT;
+  
+  		*msginfo = msgheader;
+***************
+*** 539,545 ****
+  	if (channel->target_cpu != get_cpu()) {
+  		put_cpu();
+  		smp_call_function_single(channel->target_cpu, reset_channel_cb,
+! 					 channel, true);
+  	} else {
+  		reset_channel_cb(channel);
+  		put_cpu();
+--- 539,545 ----
+  	if (channel->target_cpu != get_cpu()) {
+  		put_cpu();
+  		smp_call_function_single(channel->target_cpu, reset_channel_cb,
+! 					 channel, true, 1);
+  	} else {
+  		reset_channel_cb(channel);
+  		put_cpu();
+***************
+*** 654,660 ****
+  	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
+  
+  	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
+! 	
+  	/*
+           * Signalling the host is conditional on many factors:
+           * 1. The ring state changed from being empty to non-empty.
+--- 654,660 ----
+  	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
+  
+  	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
+! 
+  	/*
+           * Signalling the host is conditional on many factors:
+           * 1. The ring state changed from being empty to non-empty.
+***************
+*** 667,678 ****
+           * even if we may not have written anything. This is a rare
+           * enough condition that it should not matter.
+           */
+! 
+! 	if (((ret == 0) && kick_q && signal) || (ret))
+!         	vmbus_setevent(channel);
+  
+  	return ret;
+- 
+  }
+  EXPORT_SYMBOL(vmbus_sendpacket_ctl);
+  
+--- 667,676 ----
+           * even if we may not have written anything. This is a rare
+           * enough condition that it should not matter.
+           */
+!         if (((ret == 0) && kick_q && signal) || (ret))
+!                 vmbus_setevent(channel);
+  
+  	return ret;
+  }
+  EXPORT_SYMBOL(vmbus_sendpacket_ctl);
+  
+***************
+*** 774,780 ****
+           */
+          if (((ret == 0) && kick_q && signal) || (ret))
+                  vmbus_setevent(channel);
+! 
+  	return ret;
+  }
+  EXPORT_SYMBOL_GPL(vmbus_sendpacket_pagebuffer_ctl);
+--- 772,778 ----
+           */
+          if (((ret == 0) && kick_q && signal) || (ret))
+                  vmbus_setevent(channel);
+! 	
+  	return ret;
+  }
+  EXPORT_SYMBOL_GPL(vmbus_sendpacket_pagebuffer_ctl);
+diff -crB hv-rhel6.x/hv/channel_mgmt.c hv-rhel5.x/hv/channel_mgmt.c
+*** hv-rhel6.x/hv/channel_mgmt.c	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/channel_mgmt.c	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 191,197 ****
+  	if (channel->target_cpu != get_cpu()) {
+  		put_cpu();
+  		smp_call_function_single(channel->target_cpu,
+! 					 percpu_channel_deq, channel, true);
+  	} else {
+  		percpu_channel_deq(channel);
+  		put_cpu();
+--- 191,197 ----
+  	if (channel->target_cpu != get_cpu()) {
+  		put_cpu();
+  		smp_call_function_single(channel->target_cpu,
+! 					 percpu_channel_deq, channel, true, 1);
+  	} else {
+  		percpu_channel_deq(channel);
+  		put_cpu();
+***************
+*** 257,263 ****
+  			put_cpu();
+  			smp_call_function_single(newchannel->target_cpu,
+  						 percpu_channel_enq,
+! 						 newchannel, true);
+  		} else {
+  			percpu_channel_enq(newchannel);
+  			put_cpu();
+--- 257,263 ----
+  			put_cpu();
+  			smp_call_function_single(newchannel->target_cpu,
+  						 percpu_channel_enq,
+! 						 newchannel, true, 1);
+  		} else {
+  			percpu_channel_enq(newchannel);
+  			put_cpu();
+***************
+*** 280,286 ****
+  				put_cpu();
+  				smp_call_function_single(newchannel->target_cpu,
+  							 percpu_channel_enq,
+! 							 newchannel, true);
+  			} else {
+  				percpu_channel_enq(newchannel);
+  				put_cpu();
+--- 280,286 ----
+  				put_cpu();
+  				smp_call_function_single(newchannel->target_cpu,
+  							 percpu_channel_enq,
+! 							 newchannel, true, 1);
+  			} else {
+  				percpu_channel_enq(newchannel);
+  				put_cpu();
+***************
+*** 338,344 ****
+  	if (newchannel->target_cpu != get_cpu()) {
+  		put_cpu();
+  		smp_call_function_single(newchannel->target_cpu,
+! 					 percpu_channel_deq, newchannel, true);
+  	} else {
+  		percpu_channel_deq(newchannel);
+  		put_cpu();
+--- 338,344 ----
+  	if (newchannel->target_cpu != get_cpu()) {
+  		put_cpu();
+  		smp_call_function_single(newchannel->target_cpu,
+! 					 percpu_channel_deq, newchannel, true, 1);
+  	} else {
+  		percpu_channel_deq(newchannel);
+  		put_cpu();
+***************
+*** 413,420 ****
+  		return;
+  	}
+  	cur_cpu = (++next_vp % max_cpus);
+! 	channel->target_cpu = cur_cpu;
+! 	channel->target_vp = hv_context.vp_index[cur_cpu];
+  }
+  
+  /*
+--- 413,424 ----
+  		return;
+  	}
+  	cur_cpu = (++next_vp % max_cpus);
+! 	/*
+! 	 * On RHEL 5.x, all interrupts are delivered on the boot cpu.
+! 	 * Check to see if we can do better on later versions of RHEL.
+! 	 */
+! 	channel->target_cpu = 0;
+! 	channel->target_vp = 0;
+  }
+  
+  /*
+diff -crB hv-rhel6.x/hv/connection.c hv-rhel5.x/hv/connection.c
+*** hv-rhel6.x/hv/connection.c	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/connection.c	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 79,88 ****
+--- 79,90 ----
+  	msg->interrupt_page = virt_to_phys(vmbus_connection.int_page);
+  	msg->monitor_page1 = virt_to_phys(vmbus_connection.monitor_pages[0]);
+  	msg->monitor_page2 = virt_to_phys(vmbus_connection.monitor_pages[1]);
++ #ifdef KYS
+  	if (version == VERSION_WIN8_1) {
+  		msg->target_vcpu = hv_context.vp_index[get_cpu()];
+  		put_cpu();
+  	}
++ #endif
+  
+  	/*
+  	 * Add to list before we send the request since we may
+Only in hv-rhel5.x/hv: hid-core.c
+Only in hv-rhel5.x/hv: hid-debug.c
+Only in hv-rhel5.x/hv: hid-ids.h
+Only in hv-rhel5.x/hv: hid-input.c
+diff -crB hv-rhel6.x/hv/hv_balloon.c hv-rhel5.x/hv/hv_balloon.c
+*** hv-rhel6.x/hv/hv_balloon.c	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/hv_balloon.c	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 21,26 ****
+--- 21,27 ----
+  #include <linux/kernel.h>
+  #include <linux/jiffies.h>
+  #include <linux/mman.h>
++ #include <linux/swap.h> //KYS
+  #include <linux/delay.h>
+  #include <linux/init.h>
+  #include <linux/module.h>
+***************
+*** 451,458 ****
+  	struct work_struct wrk;
+  };
+  
+! static bool hot_add = true;
+! static bool do_hot_add;
+  /*
+   * Delay reporting memory pressure by
+   * the specified number of seconds.
+--- 452,459 ----
+  	struct work_struct wrk;
+  };
+  
+! static int hot_add = 0;
+! static int do_hot_add;
+  /*
+   * Delay reporting memory pressure by
+   * the specified number of seconds.
+***************
+*** 464,470 ****
+   */
+  static unsigned long last_post_time;
+  
+! module_param(hot_add, bool, (S_IRUGO | S_IWUSR));
+  MODULE_PARM_DESC(hot_add, "If set attempt memory hot_add");
+  
+  module_param(pressure_report_delay, uint, (S_IRUGO | S_IWUSR));
+--- 465,471 ----
+   */
+  static unsigned long last_post_time;
+  
+! module_param(hot_add, int, (S_IRUGO | S_IWUSR));
+  MODULE_PARM_DESC(hot_add, "If set attempt memory hot_add");
+  
+  module_param(pressure_report_delay, uint, (S_IRUGO | S_IWUSR));
+***************
+*** 864,870 ****
+  
+  #endif
+  
+! static void hot_add_req(struct work_struct *dummy)
+  {
+  	struct dm_hot_add_response resp;
+  #ifdef CONFIG_MEMORY_HOTPLUG
+--- 865,871 ----
+  
+  #endif
+  
+! static void hot_add_req(void *dummy)
+  {
+  	struct dm_hot_add_response resp;
+  #ifdef CONFIG_MEMORY_HOTPLUG
+***************
+*** 1133,1139 ****
+  
+  
+  
+! static void balloon_up(struct work_struct *dummy)
+  {
+  	unsigned int num_pages = dm_device.balloon_wrk.num_pages;
+  	unsigned int num_ballooned = 0;
+--- 1134,1140 ----
+  
+  
+  
+! static void balloon_up(void *dummy)
+  {
+  	unsigned int num_pages = dm_device.balloon_wrk.num_pages;
+  	unsigned int num_ballooned = 0;
+***************
+*** 1452,1459 ****
+  	init_completion(&dm_device.config_event);
+  	INIT_LIST_HEAD(&dm_device.ha_region_list);
+  	mutex_init(&dm_device.ha_region_mutex);
+! 	INIT_WORK(&dm_device.balloon_wrk.wrk, balloon_up);
+! 	INIT_WORK(&dm_device.ha_wrk.wrk, hot_add_req);
+  	dm_device.host_specified_ha_region = false;
+  
+  	dm_device.thread =
+--- 1453,1460 ----
+  	init_completion(&dm_device.config_event);
+  	INIT_LIST_HEAD(&dm_device.ha_region_list);
+  	mutex_init(&dm_device.ha_region_mutex);
+! 	INIT_WORK(&dm_device.balloon_wrk.wrk, balloon_up, &dm_device.balloon_wrk.wrk);
+! 	INIT_WORK(&dm_device.ha_wrk.wrk, hot_add_req, &dm_device.ha_wrk.wrk);
+  	dm_device.host_specified_ha_region = false;
+  
+  	dm_device.thread =
+Only in hv-rhel5.x/hv: hv_compat.c
+diff -crB hv-rhel6.x/hv/hv_fcopy.c hv-rhel5.x/hv/hv_fcopy.c
+*** hv-rhel6.x/hv/hv_fcopy.c	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/hv_fcopy.c	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 19,25 ****
+  
+  #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+  
+! #include <linux/semaphore.h>
+  #include <linux/fs.h>
+  #include <linux/nls.h>
+  #include <linux/workqueue.h>
+--- 19,25 ----
+  
+  #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+  
+! #include <asm/semaphore.h>
+  #include <linux/fs.h>
+  #include <linux/nls.h>
+  #include <linux/workqueue.h>
+***************
+*** 75,85 ****
+  static bool in_hand_shake = true;
+  static void fcopy_send_data(void);
+  static void fcopy_respond_to_host(int error);
+! static void fcopy_work_func(struct work_struct *dummy);
+! static DECLARE_DELAYED_WORK(fcopy_work, fcopy_work_func);
+  static u8 *recv_buffer;
+  
+! static void fcopy_work_func(struct work_struct *dummy)
+  {
+  	/*
+  	 * If the timer fires, the user-mode component has not responded;
+--- 75,86 ----
+  static bool in_hand_shake = true;
+  static void fcopy_send_data(void);
+  static void fcopy_respond_to_host(int error);
+! static void fcopy_work_func(void *dummy);
+! static DECLARE_DELAYED_WORK(fcopy_work, fcopy_work_func, &fcopy_work);
+! 
+  static u8 *recv_buffer;
+  
+! static void fcopy_work_func(void *dummy)
+  {
+  	/*
+  	 * If the timer fires, the user-mode component has not responded;
+***************
+*** 146,158 ****
+  		smsg_out->hdr.operation = operation;
+  		smsg_in = (struct hv_start_fcopy *)fcopy_transaction.fcopy_msg;
+  
+! 		utf16s_to_utf8s((wchar_t *)smsg_in->file_name, W_MAX_PATH,
+! 				UTF16_LITTLE_ENDIAN,
+! 				(__u8 *)smsg_out->file_name, W_MAX_PATH - 1);
+! 
+! 		utf16s_to_utf8s((wchar_t *)smsg_in->path_name, W_MAX_PATH,
+! 				UTF16_LITTLE_ENDIAN,
+! 				(__u8 *)smsg_out->path_name, W_MAX_PATH - 1);
+  
+  		smsg_out->copy_flags = smsg_in->copy_flags;
+  		smsg_out->file_size = smsg_in->file_size;
+--- 147,159 ----
+  		smsg_out->hdr.operation = operation;
+  		smsg_in = (struct hv_start_fcopy *)fcopy_transaction.fcopy_msg;
+  
+! 		utf8_wcstombs((__u8 *)smsg_out->file_name,
+! 			      (wchar_t *)smsg_in->file_name,
+! 			      W_MAX_PATH - 1);
+! 
+! 		utf8_wcstombs((__u8 *)smsg_out->path_name,
+! 			      (wchar_t *)smsg_in->path_name,
+! 			      W_MAX_PATH - 1);
+  
+  		smsg_out->copy_flags = smsg_in->copy_flags;
+  		smsg_out->file_size = smsg_in->file_size;
+***************
+*** 258,264 ****
+  		/*
+  		 * Send the information to the user-level daemon.
+  		 */
+! 		schedule_delayed_work(&fcopy_work, 5*HZ);
+  		fcopy_send_data();
+  		return;
+  	}
+--- 259,265 ----
+  		/*
+  		 * Send the information to the user-level daemon.
+  		 */
+! 		schedule_delayed_work(&fcopy_work.work, 5*HZ);
+  		fcopy_send_data();
+  		return;
+  	}
+***************
+*** 391,397 ****
+  
+  static struct miscdevice fcopy_misc = {
+  	.minor          = MISC_DYNAMIC_MINOR,
+! 	.name           = "vmbus/hv_fcopy",
+  	.fops           = &fcopy_fops,
+  };
+  
+--- 392,398 ----
+  
+  static struct miscdevice fcopy_misc = {
+  	.minor          = MISC_DYNAMIC_MINOR,
+! 	.name           = "hv_fcopy",
+  	.fops           = &fcopy_fops,
+  };
+  
+diff -crB hv-rhel6.x/hv/hv_kvp.c hv-rhel5.x/hv/hv_kvp.c
+*** hv-rhel6.x/hv/hv_kvp.c	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/hv_kvp.c	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 23,33 ****
+  #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+  
+  #include <linux/net.h>
+  #include <linux/nls.h>
+  #include <linux/connector.h>
+  #include <linux/workqueue.h>
+! #include "include/linux/hyperv.h"
+! 
+  
+  /*
+   * Pre win8 version numbers used in ws2008 and ws 2008 r2 (win7)
+--- 23,35 ----
+  #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+  
+  #include <linux/net.h>
++ #include <asm/semaphore.h>
+  #include <linux/nls.h>
+  #include <linux/connector.h>
+  #include <linux/workqueue.h>
+! #include <linux/cdev.h>
+! #include <linux/hyperv.h>
+! #include <linux/cdev.h>
+  
+  /*
+   * Pre win8 version numbers used in ws2008 and ws 2008 r2 (win7)
+***************
+*** 32,48 ****
+  /*
+   * Pre win8 version numbers used in ws2008 and ws 2008 r2 (win7)
+   */
+  #define WS2008_SRV_MAJOR	1
+  #define WS2008_SRV_MINOR	0
+! #define WS2008_SRV_VERSION     (WS2008_SRV_MAJOR << 16 | WS2008_SRV_MINOR)
+  
+- #define WIN7_SRV_MAJOR   3
+- #define WIN7_SRV_MINOR   0
+- #define WIN7_SRV_VERSION     (WIN7_SRV_MAJOR << 16 | WIN7_SRV_MINOR)
+- 
+- #define WIN8_SRV_MAJOR   4
+- #define WIN8_SRV_MINOR   0
+- #define WIN8_SRV_VERSION     (WIN8_SRV_MAJOR << 16 | WIN8_SRV_MINOR)
+  
+  /*
+   * Global state maintained for transaction that is being processed.
+--- 34,53 ----
+  /*
+   * Pre win8 version numbers used in ws2008 and ws 2008 r2 (win7)
+   */
++ 
+  #define WS2008_SRV_MAJOR	1
+  #define WS2008_SRV_MINOR	0
+! #define WS2008_SRV_VERSION	(WS2008_SRV_MAJOR << 16 | WS2008_SRV_MINOR)
+! 
+! #define WIN7_SRV_MAJOR		3
+! #define WIN7_SRV_MINOR		0
+! #define WIN7_SRV_VERSION	(WIN7_SRV_MAJOR << 16 | WIN7_SRV_MINOR)
+! 
+! #define WIN8_SRV_MAJOR		4
+! #define WIN8_SRV_MINOR		0
+! #define WIN8_SRV_VERSION	(WIN8_SRV_MAJOR << 16 | WIN8_SRV_MINOR)
+! 
+  
+  
+  /*
+   * Global state maintained for transaction that is being processed.
+***************
+*** 57,67 ****
+--- 62,81 ----
+  	bool active; /* transaction status - active or not */
+  	int recv_len; /* number of bytes received. */
+  	struct hv_kvp_msg  *kvp_msg; /* current message */
++ 	struct hv_kvp_msg  message; /* current message; sent to daemon */
++ 	struct hv_kvp_msg  out_message; /* current message; sent to host */
+  	struct vmbus_channel *recv_channel; /* chn we got the request */
+  	u64 recv_req_id; /* request ID. */
+  	void *kvp_context; /* for the channel callback */
++ 	struct semaphore read_sema;
+  } kvp_transaction;
+  
++ 
++ 
++ static dev_t kvp_dev;
++ static bool daemon_died = false;
++ static bool opened; /* currently device opened */
++ static struct task_struct *dtp; /* daemon task ptr */
+  /*
+   * Before we can accept KVP messages from the host, we need
+   * to handshake with the user level daemon. This state tracks
+***************
+*** 74,123 ****
+   */
+  static int dm_reg_value;
+  
+! static void kvp_send_key(struct work_struct *dummy);
+  
+  
+  static void kvp_respond_to_host(struct hv_kvp_msg *msg, int error);
+! static void kvp_work_func(struct work_struct *dummy);
+! static void kvp_register(int);
+  
+! static DECLARE_DELAYED_WORK(kvp_work, kvp_work_func);
+! static DECLARE_WORK(kvp_sendkey_work, kvp_send_key);
+  
+- static struct cb_id kvp_id = { CN_KVP_IDX, CN_KVP_VAL };
+- static char kvp_name[] = "kvp_kernel_module";
+  static u8 *recv_buffer;
+- /*
+-  * Register the kernel component with the user-level daemon.
+-  * As part of this registration, pass the LIC version number.
+-  * This number has no meaning, it satisfies the registration protocol.
+-  */
+- 
+- static void
+- kvp_register(int reg_value)
+- {
+- 
+- 	struct cn_msg *msg;
+- 	struct hv_kvp_msg *kvp_msg;
+- 	char *version;
+- 
+- 	msg = kzalloc(sizeof(*msg) + sizeof(struct hv_kvp_msg), GFP_ATOMIC);
+  
+- 	if (msg) {
+- 		kvp_msg = (struct hv_kvp_msg *)msg->data;
+- 		version = kvp_msg->body.kvp_register.version;
+- 		msg->id.idx =  CN_KVP_IDX;
+- 		msg->id.val = CN_KVP_VAL;
+- 
+- 		kvp_msg->kvp_hdr.operation = reg_value;
+- 		strcpy(version, HV_DRV_VERSION);
+- 		msg->len = sizeof(struct hv_kvp_msg);
+- 		cn_netlink_send(msg, 0, GFP_ATOMIC);
+- 		kfree(msg);
+- 	}
+- }
+  static void
+! kvp_work_func(struct work_struct *dummy)
+  {
+  	/*
+  	 * If the timer fires, the user-mode component has not responded;
+--- 88,105 ----
+   */
+  static int dm_reg_value;
+  
+! static void kvp_send_key(void *dummy);
+  
+  
+  static void kvp_respond_to_host(struct hv_kvp_msg *msg, int error);
+! static void kvp_work_func(void *dummy);
+  
+! static DECLARE_DELAYED_WORK(kvp_work, kvp_work_func, &kvp_work);
+  
+  static u8 *recv_buffer;
+  
+  static void
+! kvp_work_func(void *dummy)
+  {
+  	/*
+  	 * If the timer fires, the user-mode component has not responded;
+***************
+*** 126,159 ****
+  	kvp_respond_to_host(NULL, HV_E_FAIL);
+  }
+  
+! static void poll_channel(struct vmbus_channel *channel)
+! {
+! 	if (channel->target_cpu != smp_processor_id())
+! 		smp_call_function_single(channel->target_cpu,
+! 					 hv_kvp_onchannelcallback,
+! 					 channel, true);
+! 	else
+! 		hv_kvp_onchannelcallback(channel);
+! }
+! 
+! 
+! static int kvp_handle_handshake(struct hv_kvp_msg *msg)
+  {
+  	int ret = 1;
+  
+! 	switch (msg->kvp_hdr.operation) {
+! 	case KVP_OP_REGISTER:
+! 		dm_reg_value = KVP_OP_REGISTER;
+! 		pr_info("KVP: IP injection functionality not available\n");
+! 		pr_info("KVP: Upgrade the KVP daemon\n");
+! 		break;
+  	case KVP_OP_REGISTER1:
+  		dm_reg_value = KVP_OP_REGISTER1;
+  		break;
+  	default:
+  		pr_info("KVP: incompatible daemon\n");
+  		pr_info("KVP: KVP version: %d, Daemon version: %d\n",
+! 			KVP_OP_REGISTER1, msg->kvp_hdr.operation);
+  		ret = 0;
+  	}
+  
+--- 108,125 ----
+  	kvp_respond_to_host(NULL, HV_E_FAIL);
+  }
+  
+! static int kvp_handle_handshake(int op)
+  {
+  	int ret = 1;
+  
+! 	switch (op) {
+  	case KVP_OP_REGISTER1:
+  		dm_reg_value = KVP_OP_REGISTER1;
+  		break;
+  	default:
+  		pr_info("KVP: incompatible daemon\n");
+  		pr_info("KVP: KVP version: %d, Daemon version: %d\n",
+! 			KVP_OP_REGISTER1, op);
+  		ret = 0;
+  	}
+  
+***************
+*** 162,231 ****
+  		 * We have a compatible daemon; complete the handshake.
+  		 */
+  		pr_info("KVP: user-mode registering done.\n");
+- 		kvp_register(dm_reg_value);
+  		kvp_transaction.active = false;
+! 		if (kvp_transaction.kvp_context)
+! 			poll_channel(kvp_transaction.kvp_context);
+! 	}
+! 	return ret;
+! }
+  
+  
+! /*
+!  * Callback when data is received from user mode.
+!  */
+! 
+! static void
+! kvp_cn_callback(struct cn_msg *msg, struct netlink_skb_parms *nsp)
+! {
+! 	struct hv_kvp_msg *message;
+! 	struct hv_kvp_msg_enumerate *data;
+! 	int	error = 0;
+! 
+! 	message = (struct hv_kvp_msg *)msg->data;
+! 
+! 	/*
+! 	 * If we are negotiating the version information
+! 	 * with the daemon; handle that first.
+! 	 */
+! 
+! 	if (in_hand_shake) {
+! 		if (kvp_handle_handshake(message))
+! 			in_hand_shake = false;
+! 		return;
+! 	}
+! 
+! 	/*
+! 	 * Based on the version of the daemon, we propagate errors from the
+! 	 * daemon differently.
+! 	 */
+! 
+! 	data = &message->body.kvp_enum_data;
+! 
+! 	switch (dm_reg_value) {
+! 	case KVP_OP_REGISTER:
+! 		/*
+! 		 * Null string is used to pass back error condition.
+! 		 */
+! 		if (data->data.key[0] == 0)
+! 			error = HV_S_CONT;
+! 		break;
+  
+- 	case KVP_OP_REGISTER1:
+- 		/*
+- 		 * We use the message header information from
+- 		 * the user level daemon to transmit errors.
+- 		 */
+- 		error = message->error;
+- 		break;
+  	}
+! 
+! 	/*
+! 	 * Complete the transaction by forwarding the key value
+! 	 * to the host. But first, cancel the timeout.
+! 	 */
+! 	if (cancel_delayed_work_sync(&kvp_work))
+! 		kvp_respond_to_host(message, error);
+  }
+  
+  
+--- 128,143 ----
+  		 * We have a compatible daemon; complete the handshake.
+  		 */
+  		pr_info("KVP: user-mode registering done.\n");
+  		kvp_transaction.active = false;
+! 		set_channel_read_state((struct vmbus_channel *)kvp_transaction.kvp_context,
+! 					true);
+  
+  
+! 		if (kvp_transaction.kvp_context)
+! 			hv_kvp_onchannelcallback(kvp_transaction.kvp_context);
+  
+  	}
+! 	return ret;
+  }
+  
+  
+***************
+*** 240,314 ****
+  		/*
+  		 * Transform all parameters into utf16 encoding.
+  		 */
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
+! 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.ip_addr,
+! 				strlen((char *)in->body.kvp_ip_val.ip_addr),
+! 				(wchar_t *)out->kvp_ip_val.ip_addr);
+! #else
+! 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.ip_addr,
+! 				strlen((char *)in->body.kvp_ip_val.ip_addr),
+! 				UTF16_HOST_ENDIAN,
+! 				(wchar_t *)out->kvp_ip_val.ip_addr,
+! 				MAX_IP_ADDR_SIZE);
+! #endif
+! 
+  		if (len < 0)
+  			return len;
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
+! 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.sub_net,
+! 				strlen((char *)in->body.kvp_ip_val.sub_net),
+! 				(wchar_t *)out->kvp_ip_val.sub_net);
+! #else
+! 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.sub_net,
+! 				strlen((char *)in->body.kvp_ip_val.sub_net),
+! 				UTF16_HOST_ENDIAN,
+! 				(wchar_t *)out->kvp_ip_val.sub_net,
+! 				MAX_IP_ADDR_SIZE);
+! #endif
+  		if (len < 0)
+  			return len;
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
+! 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.gate_way,
+! 				strlen((char *)in->body.kvp_ip_val.gate_way),
+! 				(wchar_t *)out->kvp_ip_val.gate_way);
+! #else
+! 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.gate_way,
+! 				strlen((char *)in->body.kvp_ip_val.gate_way),
+! 				UTF16_HOST_ENDIAN,
+! 				(wchar_t *)out->kvp_ip_val.gate_way,
+! 				MAX_GATEWAY_SIZE);
+! #endif
+! 
+  		if (len < 0)
+  			return len;
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
+! 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.dns_addr,
+! 				strlen((char *)in->body.kvp_ip_val.dns_addr),
+! 				(wchar_t *)out->kvp_ip_val.dns_addr);
+! #else
+! 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.dns_addr,
+! 				strlen((char *)in->body.kvp_ip_val.dns_addr),
+! 				UTF16_HOST_ENDIAN,
+! 				(wchar_t *)out->kvp_ip_val.dns_addr,
+! 				MAX_IP_ADDR_SIZE);
+! #endif
+  		if (len < 0)
+  			return len;
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
+! 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.adapter_id,
+! 				strlen((char *)in->body.kvp_ip_val.adapter_id),
+! 				(wchar_t *)out->kvp_ip_val.adapter_id);
+! #else
+! 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.adapter_id,
+! 				strlen((char *)in->body.kvp_ip_val.adapter_id),
+! 				UTF16_HOST_ENDIAN,
+! 				(wchar_t *)out->kvp_ip_val.adapter_id,
+! 				MAX_IP_ADDR_SIZE);
+! #endif
+  		if (len < 0)
+  			return len;
+  
+--- 152,184 ----
+  		/*
+  		 * Transform all parameters into utf16 encoding.
+  		 */
+! 		len = utf8_mbstowcs((wchar_t *)out->kvp_ip_val.ip_addr,
+! 				(char *)in->body.kvp_ip_val.ip_addr,
+! 				strlen((char *)in->body.kvp_ip_val.ip_addr));
+  		if (len < 0)
+  			return len;
+  
+! 		len = utf8_mbstowcs((wchar_t *)out->kvp_ip_val.sub_net,
+! 				(char *)in->body.kvp_ip_val.sub_net,
+! 				strlen((char *)in->body.kvp_ip_val.sub_net));
+  		if (len < 0)
+  			return len;
+  
+! 		len = utf8_mbstowcs((wchar_t *)out->kvp_ip_val.gate_way,
+! 				(char *)in->body.kvp_ip_val.gate_way,
+! 				strlen((char *)in->body.kvp_ip_val.gate_way));
+  		if (len < 0)
+  			return len;
+  
+! 		len = utf8_mbstowcs((wchar_t *)out->kvp_ip_val.dns_addr,
+! 				(char *)in->body.kvp_ip_val.dns_addr,
+! 				strlen((char *)in->body.kvp_ip_val.dns_addr));
+  		if (len < 0)
+  			return len;
+  
+! 		len = utf8_mbstowcs((wchar_t *)out->kvp_ip_val.adapter_id,
+! 				(char *)in->body.kvp_ip_val.adapter_id,
+! 				strlen((char *)in->body.kvp_ip_val.adapter_id));
+  		if (len < 0)
+  			return len;
+  
+***************
+*** 331,368 ****
+  		/*
+  		 * Transform all parameters into utf8 encoding.
+  		 */
+! 		utf16s_to_utf8s((wchar_t *)in->kvp_ip_val.ip_addr,
+! 				MAX_IP_ADDR_SIZE,
+! 				UTF16_LITTLE_ENDIAN,
+! 				(__u8 *)out->body.kvp_ip_val.ip_addr,
+  				MAX_IP_ADDR_SIZE);
+  
+! 		utf16s_to_utf8s((wchar_t *)in->kvp_ip_val.sub_net,
+! 				MAX_IP_ADDR_SIZE,
+! 				UTF16_LITTLE_ENDIAN,
+! 				(__u8 *)out->body.kvp_ip_val.sub_net,
+  				MAX_IP_ADDR_SIZE);
+  
+! 		utf16s_to_utf8s((wchar_t *)in->kvp_ip_val.gate_way,
+! 				MAX_GATEWAY_SIZE,
+! 				UTF16_LITTLE_ENDIAN,
+! 				(__u8 *)out->body.kvp_ip_val.gate_way,
+! 				MAX_GATEWAY_SIZE);
+! 
+! 		utf16s_to_utf8s((wchar_t *)in->kvp_ip_val.dns_addr,
+! 				MAX_IP_ADDR_SIZE,
+! 				UTF16_LITTLE_ENDIAN,
+! 				(__u8 *)out->body.kvp_ip_val.dns_addr,
+  				MAX_IP_ADDR_SIZE);
+  
+  		out->body.kvp_ip_val.dhcp_enabled = in->kvp_ip_val.dhcp_enabled;
+  
+  	default:
+! 		utf16s_to_utf8s((wchar_t *)in->kvp_ip_val.adapter_id,
+! 				MAX_ADAPTER_ID_SIZE,
+! 				UTF16_LITTLE_ENDIAN,
+! 				(__u8 *)out->body.kvp_ip_val.adapter_id,
+! 				MAX_ADAPTER_ID_SIZE);
+  
+  		out->body.kvp_ip_val.addr_family = in->kvp_ip_val.addr_family;
+  	}
+--- 201,228 ----
+  		/*
+  		 * Transform all parameters into utf8 encoding.
+  		 */
+! 		utf8_wcstombs((__u8 *)out->body.kvp_ip_val.ip_addr,
+! 				(wchar_t *)in->kvp_ip_val.ip_addr,
+  				MAX_IP_ADDR_SIZE);
+  
+! 		utf8_wcstombs((__u8 *)out->body.kvp_ip_val.sub_net,
+! 				(wchar_t *)in->kvp_ip_val.sub_net,
+  				MAX_IP_ADDR_SIZE);
+  
+! 		utf8_wcstombs((__u8 *)out->body.kvp_ip_val.gate_way,
+! 				(wchar_t *)in->kvp_ip_val.gate_way,
+! 				MAX_IP_ADDR_SIZE);
+! 
+! 		utf8_wcstombs((__u8 *)out->body.kvp_ip_val.dns_addr,
+! 				(wchar_t *)in->kvp_ip_val.dns_addr,
+  				MAX_IP_ADDR_SIZE);
+  
+  		out->body.kvp_ip_val.dhcp_enabled = in->kvp_ip_val.dhcp_enabled;
+  
+  	default:
+! 		utf8_wcstombs((__u8 *)out->body.kvp_ip_val.adapter_id,
+! 				(wchar_t *)in->kvp_ip_val.adapter_id,
+! 				MAX_IP_ADDR_SIZE);
+  
+  		out->body.kvp_ip_val.addr_family = in->kvp_ip_val.addr_family;
+  	}
+***************
+*** 372,396 ****
+  
+  
+  static void
+! kvp_send_key(struct work_struct *dummy)
+  {
+! 	struct cn_msg *msg;
+! 	struct hv_kvp_msg *message;
+  	struct hv_kvp_msg *in_msg;
+  	__u8 operation = kvp_transaction.kvp_msg->kvp_hdr.operation;
+  	__u8 pool = kvp_transaction.kvp_msg->kvp_hdr.pool;
+  	__u32 val32;
+  	__u64 val64;
+- 	int rc;
+  
+! 	msg = kzalloc(sizeof(*msg) + sizeof(struct hv_kvp_msg) , GFP_ATOMIC);
+! 	if (!msg)
+! 		return;
+! 
+! 	msg->id.idx =  CN_KVP_IDX;
+! 	msg->id.val = CN_KVP_VAL;
+  
+- 	message = (struct hv_kvp_msg *)msg->data;
+  	message->kvp_hdr.operation = operation;
+  	message->kvp_hdr.pool = pool;
+  	in_msg = kvp_transaction.kvp_msg;
+--- 232,248 ----
+  
+  
+  static void
+! kvp_send_key(void *dummy)
+  {
+! 	struct hv_kvp_msg *message = &kvp_transaction.message;
+  	struct hv_kvp_msg *in_msg;
+  	__u8 operation = kvp_transaction.kvp_msg->kvp_hdr.operation;
+  	__u8 pool = kvp_transaction.kvp_msg->kvp_hdr.pool;
+  	__u32 val32;
+  	__u64 val64;
+  
+! 	memset(message, 0, sizeof(struct hv_kvp_msg));
+  
+  	message->kvp_hdr.operation = operation;
+  	message->kvp_hdr.pool = pool;
+  	in_msg = kvp_transaction.kvp_msg;
+***************
+*** 419,431 ****
+  			/*
+  			 * The value is a string - utf16 encoding.
+  			 */
+  			message->body.kvp_set.data.value_size =
+! 				utf16s_to_utf8s(
+! 				(wchar_t *)in_msg->body.kvp_set.data.value,
+! 				in_msg->body.kvp_set.data.value_size,
+! 				UTF16_LITTLE_ENDIAN,
+  				message->body.kvp_set.data.value,
+! 				HV_KVP_EXCHANGE_MAX_VALUE_SIZE - 1) + 1;
+  				break;
+  
+  		case REG_U32:
+--- 271,287 ----
+  			/*
+  			 * The value is a string - utf16 encoding.
+  			 */
++ 			if (in_msg->body.kvp_set.data.value_size >=
++ 				HV_KVP_EXCHANGE_MAX_VALUE_SIZE) {
++ 				pr_err("KVP: Value size invalid\n");
++ 				goto done;
++ 			}
++ 
+  			message->body.kvp_set.data.value_size =
+! 				utf8_wcstombs(
+  				message->body.kvp_set.data.value,
+! 				(wchar_t *)in_msg->body.kvp_set.data.value,
+! 				in_msg->body.kvp_set.data.value_size) + 1;
+  				break;
+  
+  		case REG_U32:
+***************
+*** 452,474 ****
+  
+  		}
+  	case KVP_OP_GET:
+  		message->body.kvp_set.data.key_size =
+! 			utf16s_to_utf8s(
+! 			(wchar_t *)in_msg->body.kvp_set.data.key,
+! 			in_msg->body.kvp_set.data.key_size,
+! 			UTF16_LITTLE_ENDIAN,
+  			message->body.kvp_set.data.key,
+! 			HV_KVP_EXCHANGE_MAX_KEY_SIZE - 1) + 1;
+  			break;
+  
+  	case KVP_OP_DELETE:
+  		message->body.kvp_delete.key_size =
+! 			utf16s_to_utf8s(
+! 			(wchar_t *)in_msg->body.kvp_delete.key,
+! 			in_msg->body.kvp_delete.key_size,
+! 			UTF16_LITTLE_ENDIAN,
+  			message->body.kvp_delete.key,
+! 			HV_KVP_EXCHANGE_MAX_KEY_SIZE - 1) + 1;
+  			break;
+  
+  	case KVP_OP_ENUMERATE:
+--- 308,332 ----
+  
+  		}
+  	case KVP_OP_GET:
++ 		if (in_msg->body.kvp_set.data.key_size >=
++ 			HV_KVP_EXCHANGE_MAX_KEY_SIZE) {
++ 			pr_err("KVP: Key size invalid\n");
++ 			goto done;
++ 		}
++ 
+  		message->body.kvp_set.data.key_size =
+! 			utf8_wcstombs(
+  			message->body.kvp_set.data.key,
+! 			(wchar_t *)in_msg->body.kvp_set.data.key,
+! 			 HV_KVP_EXCHANGE_MAX_KEY_SIZE - 1) + 1;
+  			break;
+  
+  	case KVP_OP_DELETE:
+  		message->body.kvp_delete.key_size =
+! 			utf8_wcstombs(
+  			message->body.kvp_delete.key,
+! 			(wchar_t *)in_msg->body.kvp_delete.key,
+! 			 HV_KVP_EXCHANGE_MAX_KEY_SIZE - 1) + 1;
+  			break;
+  
+  	case KVP_OP_ENUMERATE:
+***************
+*** 476,491 ****
+  			in_msg->body.kvp_enum_data.index;
+  			break;
+  	}
+! 
+! 	msg->len = sizeof(struct hv_kvp_msg);
+! 	rc = cn_netlink_send(msg, 0, GFP_ATOMIC);
+! 	if (rc) {
+! 		pr_debug("KVP: failed to communicate to the daemon: %d\n", rc);
+! 		if (cancel_delayed_work_sync(&kvp_work))
+! 			kvp_respond_to_host(message, HV_E_FAIL);
+! 	}
+! 
+! 	kfree(msg);
+  
+  	return;
+  }
+--- 334,341 ----
+  			in_msg->body.kvp_enum_data.index;
+  			break;
+  	}
+! done:
+! 	up(&kvp_transaction.read_sema);
+  
+  	return;
+  }
+***************
+*** 509,525 ****
+  	u64	req_id;
+  	int ret;
+  
+- 	/*
+- 	 * If a transaction is not active; log and return.
+- 	 */
+  
+- 	if (!kvp_transaction.active) {
+- 		/*
+- 		 * This is a spurious call!
+- 		 */
+- 		pr_warn("KVP: Transaction not active\n");
+- 		return;
+- 	}
+  	/*
+  	 * Copy the global state for completing the transaction. Note that
+  	 * only one transaction can be active at a time.
+--- 359,365 ----
+***************
+*** 552,557 ****
+--- 392,401 ----
+  		 * Something failed or we have timedout;
+  		 * terminate the current host-side iteration.
+  		 */
++ 	kvp_msg = (struct hv_kvp_msg *)
++ 			&recv_buffer[sizeof(struct vmbuspipe_hdr) +
++ 			sizeof(struct icmsg_hdr)];
++ 
+  		goto response_done;
+  	}
+  
+***************
+*** 591,616 ****
+  	 * will be less than or equal to the MAX size (including the
+  	 * terminating character).
+  	 */
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
+! 	keylen = utf8s_to_utf16s(key_name, strlen(key_name),
+! 				(wchar_t *) kvp_data->key);
+! #else
+! 	keylen = utf8s_to_utf16s(key_name, strlen(key_name), UTF16_HOST_ENDIAN,
+! 				(wchar_t *) kvp_data->key,
+! 				(HV_KVP_EXCHANGE_MAX_KEY_SIZE / 2) - 2);
+! #endif
+  	kvp_data->key_size = 2*(keylen + 1); /* utf16 encoding */
+  
+  copy_value:
+  	value = msg_to_host->body.kvp_enum_data.data.value;
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
+! 	valuelen = utf8s_to_utf16s(value, strlen(value),
+! 				(wchar_t *) kvp_data->value);
+! #else
+! 	valuelen = utf8s_to_utf16s(value, strlen(value), UTF16_HOST_ENDIAN,
+! 				(wchar_t *) kvp_data->value,
+! 				(HV_KVP_EXCHANGE_MAX_VALUE_SIZE / 2) - 2);
+! #endif
+  	kvp_data->value_size = 2*(valuelen + 1); /* utf16 encoding */
+  
+  	/*
+--- 437,449 ----
+  	 * will be less than or equal to the MAX size (including the
+  	 * terminating character).
+  	 */
+! 	keylen = utf8_mbstowcs((wchar_t *) kvp_data->key, key_name, strlen(key_name));
+! 
+  	kvp_data->key_size = 2*(keylen + 1); /* utf16 encoding */
+  
+  copy_value:
+  	value = msg_to_host->body.kvp_enum_data.data.value;
+! 	valuelen = utf8_mbstowcs((wchar_t *) kvp_data->value, value, strlen(value));
+  	kvp_data->value_size = 2*(valuelen + 1); /* utf16 encoding */
+  
+  	/*
+***************
+*** 625,633 ****
+  response_done:
+  	icmsghdrp->icflags = ICMSGHDRFLAG_TRANSACTION | ICMSGHDRFLAG_RESPONSE;
+  
+  	vmbus_sendpacket(channel, recv_buffer, buf_len, req_id,
+  				VM_PKT_DATA_INBAND, 0);
+! 	poll_channel(channel);
+  }
+  
+  /*
+--- 458,467 ----
+  response_done:
+  	icmsghdrp->icflags = ICMSGHDRFLAG_TRANSACTION | ICMSGHDRFLAG_RESPONSE;
+  
++ 
+  	vmbus_sendpacket(channel, recv_buffer, buf_len, req_id,
+  				VM_PKT_DATA_INBAND, 0);
+! 
+  }
+  
+  /*
+***************
+*** 650,658 ****
+  
+  	struct icmsg_hdr *icmsghdrp;
+  	struct icmsg_negotiate *negop = NULL;
+! 	int util_fw_version;
+  	int kvp_srv_version;
+  
+  	if (kvp_transaction.active) {
+  		/*
+  		 * We will defer processing this callback once
+--- 484,493 ----
+  
+  	struct icmsg_hdr *icmsghdrp;
+  	struct icmsg_negotiate *negop = NULL;
+!         int util_fw_version;
+  	int kvp_srv_version;
+  
++ 
+  	if (kvp_transaction.active) {
+  		/*
+  		 * We will defer processing this callback once
+***************
+*** 662,668 ****
+  		return;
+  	}
+  
+! 	vmbus_recvpacket(channel, recv_buffer, PAGE_SIZE * 4, &recvlen,
+  			 &requestid);
+  
+  	if (recvlen > 0) {
+--- 497,503 ----
+  		return;
+  	}
+  
+! 	vmbus_recvpacket(channel, recv_buffer, PAGE_SIZE * 2, &recvlen,
+  			 &requestid);
+  
+  	if (recvlen > 0) {
+***************
+*** 689,696 ****
+  				kvp_srv_version = WIN8_SRV_VERSION;
+  			}
+  			vmbus_prep_negotiate_resp(icmsghdrp, negop,
+! 				 recv_buffer, util_fw_version,
+! 				 kvp_srv_version);
+  
+  		} else {
+  			kvp_msg = (struct hv_kvp_msg *)&recv_buffer[
+--- 524,532 ----
+  				kvp_srv_version = WIN8_SRV_VERSION;
+  			}
+  			vmbus_prep_negotiate_resp(icmsghdrp, negop,
+! 				recv_buffer, util_fw_version,
+! 				kvp_srv_version);
+! 
+  
+  		} else {
+  			kvp_msg = (struct hv_kvp_msg *)&recv_buffer[
+***************
+*** 705,711 ****
+  			kvp_transaction.recv_len = recvlen;
+  			kvp_transaction.recv_channel = channel;
+  			kvp_transaction.recv_req_id = requestid;
+- 			kvp_transaction.active = true;
+  			kvp_transaction.kvp_msg = kvp_msg;
+  
+  			/*
+--- 541,546 ----
+***************
+*** 717,724 ****
+  			 * Set a timeout to deal with
+  			 * user-mode not responding.
+  			 */
+! 			schedule_work(&kvp_sendkey_work);
+! 			schedule_delayed_work(&kvp_work, 5*HZ);
+  
+  			return;
+  
+--- 552,559 ----
+  			 * Set a timeout to deal with
+  			 * user-mode not responding.
+  			 */
+! 			kvp_send_key(NULL);
+! 			schedule_delayed_work(&kvp_work.work, 5*HZ);
+  
+  			return;
+  
+***************
+*** 731,747 ****
+  				       recvlen, requestid,
+  				       VM_PKT_DATA_INBAND, 0);
+  	}
+  
+  }
+  
+  int
+  hv_kvp_init(struct hv_util_service *srv)
+  {
+- 	int err;
+- 
+- 	err = cn_add_callback(&kvp_id, kvp_name, kvp_cn_callback);
+- 	if (err)
+- 		return err;
+  	recv_buffer = srv->recv_buffer;
+  
+  	/*
+--- 567,774 ----
+  				       recvlen, requestid,
+  				       VM_PKT_DATA_INBAND, 0);
+  	}
++ }
++ 
++ /*
++  * Create a char device that can support read/write for passing
++  * KVP payload.
++  */
++ struct cdev kvp_cdev;
++ struct class *cl;
++ struct device *sysfs_dev;
++ 
++ static ssize_t kvp_read(struct file *file, char __user *buf,
++ 		size_t count, loff_t *ppos)
++ {
++ 	size_t remaining;
++ 	int ret;
++ 	/*
++ 	 * Wait until there is something to be read.
++ 	 */
++ 	ret = down_interruptible(&kvp_transaction.read_sema);
++ 
++ 	if (ret)
++ 		return ret;
++ 
++ 	/*
++ 	 * Now copy the complete KVP message to the user.
++ 	 */
++ 
++ 	if (count < sizeof(struct hv_kvp_msg)) {
++ 		return 0;
++ 	}
+  
++ 	remaining = copy_to_user(buf, &kvp_transaction.message,
++ 				 sizeof(struct hv_kvp_msg));
++ 
++ 	if (remaining)
++ 		return -EFAULT;
++ 
++ 	return (sizeof(struct hv_kvp_msg));
+  }
+  
++ static ssize_t kvp_write(struct file *file, const char __user *buf,
++ 			size_t count, loff_t *ppos)
++ {
++ 	struct hv_kvp_msg *message = &kvp_transaction.out_message;
++ 	struct hv_kvp_msg_enumerate *data;
++ 	size_t copied;
++ 	int error = 0;
++ 
++ 	memset(message, 0, sizeof(struct hv_kvp_msg));
++ 
++ 	if (count != sizeof(struct hv_kvp_msg)) {
++ 		return 0;
++ 	}
++ 
++ 	copied = copy_from_user(message, buf, sizeof(struct hv_kvp_msg));
++ 
++ 	if (copied) {
++ 		return -EFAULT;
++ 	}
++ 
++ 
++ 	if (in_hand_shake) {
++ 		if (kvp_handle_handshake(message->kvp_hdr.operation))
++ 			in_hand_shake = false;
++ 		return 0;
++ 	}
++ 
++ 	/*
++ 	 * Based on the version of the daemon, we propagate errors from the
++ 	 * daemon differently.
++ 	 */
++ 
++ 	data = &message->body.kvp_enum_data;
++ 
++ 	switch (dm_reg_value) {
++ 	case KVP_OP_REGISTER:
++ 		/*
++ 		 * Null string is used to pass back error condition.
++ 		 */
++ 		if (data->data.key[0] == 0)
++ 			error = HV_S_CONT;
++ 		break;
++ 
++ 	case KVP_OP_REGISTER1:
++ 		/*
++ 		 * We use the message header information from
++ 		 * the user level daemon to transmit errors.
++ 		 */
++ 		error = message->error;
++ 		break;
++ 	}
++ 
++ 	/*
++ 	 * Complete the transaction by forwarding the key value
++ 	 * to the host. But first, cancel the timeout.
++ 	 */
++ 	if (cancel_delayed_work_sync(&kvp_work)) {
++ 		kvp_respond_to_host(message, error);
++ 	}
++ 	
++ 	return (sizeof(struct hv_kvp_msg));
++ }
++ 
++ int kvp_open(struct inode *inode, struct file *f)
++ {
++ 	/*
++ 	 * The daemon alive; setup the state.
++ 	 */
++ 	if (opened)
++ 		return -EBUSY;
++ 
++ 	opened = true;
++ 	dtp = current;
++ 	daemon_died = false;
++ 	return 0;
++ }
++ 
++ int kvp_release(struct inode *inode, struct file *f)
++ {
++ 	/*
++ 	 * The daemon has exited; reset the state.
++ 	 */
++ 	daemon_died = true;
++ 	in_hand_shake = true;
++ 	dtp = NULL;
++ 	opened = false;
++ 	return 0;
++ }
++ 
++ 
++ static const struct file_operations kvp_fops = {
++         .read           = kvp_read,
++         .write          = kvp_write,
++ 	.release	= kvp_release,
++ 	.open		= kvp_open, 
++ };
++ 
++ 
++ static int kvp_dev_init(void)
++ {
++ 	int result;
++ 
++ 	result = alloc_chrdev_region(&kvp_dev, 1, 1, "hv_kvp");
++ 
++ 	if (result < 0) {
++ 		printk(KERN_ERR "hv_kvp: cannot get major number\n");
++ 		return result;
++ 	}
++ 
++ 	cl = class_create(THIS_MODULE, "chardev");
++ 	if (IS_ERR(cl)) {
++ 		printk(KERN_ERR "Error creating kvp class.\n");
++ 		unregister_chrdev_region(kvp_dev, 1 );
++                 return PTR_ERR(cl);
++         }
++ 
++ 	sysfs_dev = device_create(cl, NULL, kvp_dev, "%s", "hv_kvp");
++ 	if (IS_ERR(sysfs_dev)) {
++ 		printk(KERN_ERR "KVP Device creation failed\n");
++ 		class_destroy(cl);
++ 		unregister_chrdev_region(kvp_dev, 1 );
++ 		return  PTR_ERR(sysfs_dev);
++ 	}
++ 
++ 	cdev_init(&kvp_cdev, &kvp_fops);
++ 	kvp_cdev.owner = THIS_MODULE;
++ 	kvp_cdev.ops = &kvp_fops;
++ 
++ 	result = cdev_add(&kvp_cdev, kvp_dev, 1);
++ 
++ 	if (result) {
++ 		printk(KERN_ERR "hv_kvp: cannot cdev_add\n");
++ 		goto dev_error;
++ 	}
++ 	return result;
++ 
++ dev_error:
++ 	printk(KERN_ERR "hv_kvp: cannot add cdev; result: %d\n", result);
++ 	device_destroy(cl, kvp_dev);
++ 	class_destroy(cl);
++ 	unregister_chrdev_region(kvp_dev, 1);
++ 	return result;
++ }
++ 
++ static void kvp_dev_deinit(void)
++ {
++ 	/*
++ 	 * first kill the daemon.
++ 	 */
++ 	if (dtp != NULL)
++ 		send_sig(SIGKILL, dtp, 0);
++ 	opened = false;
++ 	device_destroy(cl, kvp_dev);
++ 	class_destroy(cl);
++ 	cdev_del(&kvp_cdev);
++ 	unregister_chrdev_region(kvp_dev, 1);
++ }
++ 
++ 
+  int
+  hv_kvp_init(struct hv_util_service *srv)
+  {
+  	recv_buffer = srv->recv_buffer;
+  
+  	/*
+***************
+*** 751,763 ****
+  	 * has registered.
+  	 */
+  	kvp_transaction.active = true;
+  
+! 	return 0;
+  }
+  
+  void hv_kvp_deinit(void)
+  {
+! 	cn_del_callback(&kvp_id);
+  	cancel_delayed_work_sync(&kvp_work);
+! 	cancel_work_sync(&kvp_sendkey_work);
+  }
+--- 778,791 ----
+  	 * has registered.
+  	 */
+  	kvp_transaction.active = true;
++ 	sema_init(&kvp_transaction.read_sema, 1);
+  
+! 	return kvp_dev_init();
+  }
+  
+  void hv_kvp_deinit(void)
+  {
+! 
+  	cancel_delayed_work_sync(&kvp_work);
+! 	kvp_dev_deinit();
+  }
+diff -crB hv-rhel6.x/hv/hv_snapshot.c hv-rhel5.x/hv/hv_snapshot.c
+*** hv-rhel6.x/hv/hv_snapshot.c	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/hv_snapshot.c	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 54,70 ****
+  static char vss_name[] = "vss_kernel_module";
+  static __u8 *recv_buffer;
+  
+! static void vss_send_op(struct work_struct *dummy);
+! static void vss_timeout_func(struct work_struct *dummy);
+  
+! static DECLARE_DELAYED_WORK(vss_timeout_work, vss_timeout_func);
+! static DECLARE_WORK(vss_send_op_work, vss_send_op);
+  
+  /*
+   * Callback when data is received from user mode.
+   */
+  
+! static void vss_timeout_func(struct work_struct *dummy)
+  {
+  	/*
+  	 * Timeout waiting for userspace component to reply happened.
+--- 54,70 ----
+  static char vss_name[] = "vss_kernel_module";
+  static __u8 *recv_buffer;
+  
+! static void vss_send_op(void *dummy);
+! static void vss_timeout_func(void *dummy);
+  
+! static DECLARE_DELAYED_WORK(vss_timeout_work, vss_timeout_func, &vss_timeout_work);
+! static DECLARE_WORK(vss_send_op_work, vss_send_op, &vss_send_op_work);
+  
+  /*
+   * Callback when data is received from user mode.
+   */
+  
+! static void vss_timeout_func(void *dummy)
+  {
+  	/*
+  	 * Timeout waiting for userspace component to reply happened.
+***************
+*** 74,82 ****
+  }
+  
+  static void
+! vss_cn_callback(struct cn_msg *msg, struct netlink_skb_parms *nsp)
+  {
+  	struct hv_vss_msg *vss_msg;
+  
+  	vss_msg = (struct hv_vss_msg *)msg->data;
+  
+--- 74,83 ----
+  }
+  
+  static void
+! vss_cn_callback(void *cb_data)
+  {
+  	struct hv_vss_msg *vss_msg;
++ 	struct cn_msg *msg = (struct cn_msg *)cb_data;
+  
+  	vss_msg = (struct hv_vss_msg *)msg->data;
+  
+***************
+*** 93,99 ****
+  }
+  
+  
+! static void vss_send_op(struct work_struct *dummy)
+  {
+  	int op = vss_transaction.msg->vss_hdr.operation;
+  	int rc;
+--- 94,100 ----
+  }
+  
+  
+! static void vss_send_op(void *dummy)
+  {
+  	int op = vss_transaction.msg->vss_hdr.operation;
+  	int rc;
+***************
+*** 242,248 ****
+  			case VSS_OP_FREEZE:
+  			case VSS_OP_THAW:
+  				schedule_work(&vss_send_op_work);
+! 				schedule_delayed_work(&vss_timeout_work,
+  						      VSS_USERSPACE_TIMEOUT);
+  				return;
+  
+--- 243,249 ----
+  			case VSS_OP_FREEZE:
+  			case VSS_OP_THAW:
+  				schedule_work(&vss_send_op_work);
+! 				schedule_delayed_work(&vss_timeout_work.work,
+  						      VSS_USERSPACE_TIMEOUT);
+  				return;
+  
+Only in hv-rhel5.x/hv: hv_timesource.c
+diff -crB hv-rhel6.x/hv/hv_util.c hv-rhel5.x/hv/hv_util.c
+*** hv-rhel6.x/hv/hv_util.c	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/hv_util.c	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 89,95 ****
+  	.util_deinit = hv_fcopy_deinit,
+  };
+  
+! static void perform_shutdown(struct work_struct *dummy)
+  {
+  	orderly_poweroff(true);
+  }
+--- 89,95 ----
+  	.util_deinit = hv_fcopy_deinit,
+  };
+  
+! static void perform_shutdown(void *dummy)
+  {
+  	orderly_poweroff(true);
+  }
+***************
+*** 97,103 ****
+  /*
+   * Perform the shutdown operation in a thread context.
+   */
+! static DECLARE_WORK(shutdown_work, perform_shutdown);
+  
+  static void shutdown_onchannelcallback(void *context)
+  {
+--- 97,103 ----
+  /*
+   * Perform the shutdown operation in a thread context.
+   */
+! static DECLARE_WORK(shutdown_work, perform_shutdown, &shutdown_work);
+  
+  static void shutdown_onchannelcallback(void *context)
+  {
+***************
+*** 183,190 ****
+  	u64	host_time;
+  };
+  
+! static void hv_set_host_time(struct work_struct *work)
+  {
+  	struct adj_time_work	*wrk;
+  
+  	wrk = container_of(work, struct adj_time_work, work);
+--- 183,191 ----
+  	u64	host_time;
+  };
+  
+! static void hv_set_host_time(void *data)
+  {
++ 	struct work_struct *work = (struct work_struct *)data;
+  	struct adj_time_work	*wrk;
+  
+  	wrk = container_of(work, struct adj_time_work, work);
+***************
+*** 214,227 ****
+  
+  	wrk->host_time = hosttime;
+  	if ((flags & ICTIMESYNCFLAG_SYNC) != 0) {
+! 		INIT_WORK(&wrk->work, hv_set_host_time);
+  		schedule_work(&wrk->work);
+  		return;
+  	}
+  
+  	if ((flags & ICTIMESYNCFLAG_SAMPLE) != 0 && scnt > 0) {
+  		scnt--;
+! 		INIT_WORK(&wrk->work, hv_set_host_time);
+  		schedule_work(&wrk->work);
+  	} else
+  		kfree(wrk);
+--- 215,228 ----
+  
+  	wrk->host_time = hosttime;
+  	if ((flags & ICTIMESYNCFLAG_SYNC) != 0) {
+! 		INIT_WORK(&wrk->work, hv_set_host_time, (void *)&wrk->work);
+  		schedule_work(&wrk->work);
+  		return;
+  	}
+  
+  	if ((flags & ICTIMESYNCFLAG_SAMPLE) != 0 && scnt > 0) {
+  		scnt--;
+! 		INIT_WORK(&wrk->work, hv_set_host_time, (void *)&wrk->work);
+  		schedule_work(&wrk->work);
+  	} else
+  		kfree(wrk);
+diff -crB hv-rhel6.x/hv/hyperv_fb.c hv-rhel5.x/hv/hyperv_fb.c
+*** hv-rhel6.x/hv/hyperv_fb.c	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/hyperv_fb.c	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 240,246 ****
+--- 240,251 ----
+  static inline int synthvid_send(struct hv_device *hdev,
+  				struct synthvid_msg *msg)
+  {
++ #ifdef CONFIG_64BIT
+  	static atomic64_t request_id = ATOMIC64_INIT(0);
++ #else
++ 	static atomic_t request_id = ATOMIC_INIT(0);
++ #endif
++ 
+  	int ret;
+  
+  	msg->pipe_hdr.type = PIPE_MSG_DATA;
+***************
+*** 248,254 ****
+--- 253,263 ----
+  
+  	ret = vmbus_sendpacket(hdev->channel, msg,
+  			       msg->vid_hdr.size + sizeof(struct pipe_msg_hdr),
++ #ifdef CONFIG_64BIT
+  			       atomic64_inc_return(&request_id),
++ #else
++ 				atomic_inc_return(&request_id),
++ #endif
+  			       VM_PKT_DATA_INBAND, 0);
+  
+  	if (ret)
+***************
+*** 378,384 ****
+  
+  		par->update = msg->feature_chg.is_dirt_needed;
+  		if (par->update)
+! 			schedule_delayed_work(&par->dwork, HVFB_UPDATE_DELAY);
+  	}
+  }
+  
+--- 387,393 ----
+  
+  		par->update = msg->feature_chg.is_dirt_needed;
+  		if (par->update)
+! 			schedule_delayed_work(&par->dwork.work, HVFB_UPDATE_DELAY);
+  	}
+  }
+  
+***************
+*** 525,532 ****
+   * It is called at HVFB_UPDATE_DELAY or longer time interval to process
+   * screen updates. It is re-scheduled if further update is necessary.
+   */
+! static void hvfb_update_work(struct work_struct *w)
+  {
+  	struct hvfb_par *par = container_of(w, struct hvfb_par, dwork.work);
+  	struct fb_info *info = par->info;
+  
+--- 534,542 ----
+   * It is called at HVFB_UPDATE_DELAY or longer time interval to process
+   * screen updates. It is re-scheduled if further update is necessary.
+   */
+! static void hvfb_update_work(void *data)
+  {
++ 	struct work_struct *w = (struct work_struct *)data;
+  	struct hvfb_par *par = container_of(w, struct hvfb_par, dwork.work);
+  	struct fb_info *info = par->info;
+  
+***************
+*** 534,540 ****
+  		synthvid_update(info);
+  
+  	if (par->update)
+! 		schedule_delayed_work(&par->dwork, HVFB_UPDATE_DELAY);
+  }
+  
+  static int hvfb_on_panic(struct notifier_block *nb,
+--- 544,550 ----
+  		synthvid_update(info);
+  
+  	if (par->update)
+! 		schedule_delayed_work(&par->dwork.work, HVFB_UPDATE_DELAY);
+  }
+  
+  static int hvfb_on_panic(struct notifier_block *nb,
+***************
+*** 721,726 ****
+--- 731,737 ----
+  		goto err2;
+  
+  
++ #ifdef NOTYET
+  	if (gen2vm) {
+  		info->aperture_base = screen_info.lfb_base;
+  		info->aperture_size = screen_info.lfb_size;
+***************
+*** 728,733 ****
+--- 739,745 ----
+  		info->aperture_base = pci_resource_start(pdev, 0);
+  		info->aperture_size = pci_resource_len(pdev, 0);
+  	}
++ #endif
+  
+  	info->fix.smem_start = par->mem.start;
+  	info->fix.smem_len = screen_fb_size;
+diff -crB hv-rhel6.x/hv/hyperv-keyboard.c hv-rhel5.x/hv/hyperv-keyboard.c
+*** hv-rhel6.x/hv/hyperv-keyboard.c	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/hyperv-keyboard.c	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 159,173 ****
+  		if (kbd_dev->started) {
+  			if (info & IS_E0)
+  				serio_interrupt(kbd_dev->hv_serio,
+! 						XTKBD_EMUL0, 0);
+  			if (info & IS_E1)
+  				serio_interrupt(kbd_dev->hv_serio,
+! 						XTKBD_EMUL1, 0);
+  			scan_code = __le16_to_cpu(ks_msg->make_code);
+  			if (info & IS_BREAK)
+  				scan_code |= XTKBD_RELEASE;
+  
+! 			serio_interrupt(kbd_dev->hv_serio, scan_code, 0);
+  		}
+  		spin_unlock_irqrestore(&kbd_dev->lock, flags);
+  
+--- 159,173 ----
+  		if (kbd_dev->started) {
+  			if (info & IS_E0)
+  				serio_interrupt(kbd_dev->hv_serio,
+! 						XTKBD_EMUL0, 0, NULL);
+  			if (info & IS_E1)
+  				serio_interrupt(kbd_dev->hv_serio,
+! 						XTKBD_EMUL1, 0, NULL);
+  			scan_code = __le16_to_cpu(ks_msg->make_code);
+  			if (info & IS_BREAK)
+  				scan_code |= XTKBD_RELEASE;
+  
+! 			serio_interrupt(kbd_dev->hv_serio, scan_code, 0, NULL);
+  		}
+  		spin_unlock_irqrestore(&kbd_dev->lock, flags);
+  
+diff -crB hv-rhel6.x/hv/hyperv_net.h hv-rhel5.x/hv/hyperv_net.h
+*** hv-rhel6.x/hv/hyperv_net.h	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/hyperv_net.h	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 129,134 ****
+--- 129,135 ----
+  	/* Bookkeeping stuff */
+  	u32 status;
+  
++ 	struct hv_device *device;
+  	bool is_data_pkt;
+  	u16 vlan_tci;
+  
+***************
+*** 148,154 ****
+  	/* Points to the send/receive buffer where the ethernet frame is */
+  	void *data;
+  	u32 page_buf_cnt;
+! 	struct hv_page_buffer *page_buf;
+  };
+  
+  struct netvsc_device_info {
+--- 149,155 ----
+  	/* Points to the send/receive buffer where the ethernet frame is */
+  	void *data;
+  	u32 page_buf_cnt;
+! 	struct hv_page_buffer page_buf[0];
+  };
+  
+  struct netvsc_device_info {
+***************
+*** 186,192 ****
+  		struct hv_netvsc_packet *packet, bool kick_q);
+  void netvsc_linkstatus_callback(struct hv_device *device_obj,
+  				struct rndis_message *resp);
+- void netvsc_xmit_completion(void *context);
+  int netvsc_recv_callback(struct hv_device *device_obj,
+  			struct hv_netvsc_packet *packet,
+  			struct ndis_tcp_ip_checksum_info *csum_info);
+--- 187,192 ----
+***************
+*** 583,610 ****
+  
+  #define NETVSC_MTU 65536
+  
+! #define NETVSC_RECEIVE_BUFFER_SIZE		(1024*1024*16)	/* 16MB */
+! #define NETVSC_RECEIVE_BUFFER_SIZE_LEGACY	(1024*1024*15)  /* 15MB */
+! #define NETVSC_SEND_BUFFER_SIZE			(1024 * 1024 * 15)   /* 15MB */
+  #define NETVSC_INVALID_INDEX			-1
+  
+  
+  #define NETVSC_RECEIVE_BUFFER_ID		0xcafe
+- #define NETVSC_SEND_BUFFER_ID			0
+  
+  #define NETVSC_PACKET_SIZE                      4096
+  
+  #define VRSS_SEND_TAB_SIZE 16
+  
+- /* The conetxt of the netvsc device */
+- struct net_device_context {
+- 	/* point back to our device context */
+- 	struct hv_device *device_ctx;
+- 	struct delayed_work dwork;
+- 	struct work_struct work;
+- 	u32 msg_enable; /* debug level */
+- };
+- 
+  /* Per netvsc channel-specific */
+  struct netvsc_device {
+  	struct hv_device *dev;
+--- 583,600 ----
+  
+  #define NETVSC_MTU 65536
+  
+! #define NETVSC_RECEIVE_BUFFER_SIZE		(1024 * 1024 * 2)	/* 16MB */
+! #define NETVSC_RECEIVE_BUFFER_SIZE_LEGACY	(1024 * 1024 * 2)  /* 15MB */
+! #define NETVSC_SEND_BUFFER_SIZE			(1024 * 1024 * 2)   /* 15MB */
+  #define NETVSC_INVALID_INDEX			-1
+  
+  
+  #define NETVSC_RECEIVE_BUFFER_ID		0xcafe
+  
+  #define NETVSC_PACKET_SIZE                      4096
+  
+  #define VRSS_SEND_TAB_SIZE 16
+  
+  /* Per netvsc channel-specific */
+  struct netvsc_device {
+  	struct hv_device *dev;
+***************
+*** 655,663 ****
+  	unsigned char *cb_buffer;
+  	/* The sub channel callback buffer */
+  	unsigned char *sub_cb_buf;
+- 
+- 	/* the net device context */
+- 	struct net_device_context *nd_ctx;
+  };
+  
+  /* NdisInitialize message */
+--- 645,650 ----
+***************
+*** 955,964 ****
+  #define NDIS_HASH_PPI_SIZE (sizeof(struct rndis_per_packet_info) + \
+  		sizeof(u32))
+  
+- /* Total size of all PPI data */
+- #define NDIS_ALL_PPI_SIZE (NDIS_VLAN_PPI_SIZE + NDIS_CSUM_PPI_SIZE + \
+- 			  NDIS_LSO_PPI_SIZE + NDIS_HASH_PPI_SIZE)
+- 
+  /* Format of Information buffer passed in a SetRequest for the OID */
+  /* OID_GEN_RNDIS_CONFIG_PARAMETER. */
+  struct rndis_config_parameter_info {
+--- 942,947 ----
+***************
+*** 1171,1178 ****
+  #define RNDIS_HEADER_SIZE	(sizeof(struct rndis_message) - \
+  				 sizeof(union rndis_message_container))
+  
+- #define RNDIS_AND_PPI_SIZE (sizeof(struct rndis_message) + NDIS_ALL_PPI_SIZE)
+- 
+  #define NDIS_PACKET_TYPE_DIRECTED	0x00000001
+  #define NDIS_PACKET_TYPE_MULTICAST	0x00000002
+  #define NDIS_PACKET_TYPE_ALL_MULTICAST	0x00000004
+--- 1154,1159 ----
+diff -crB hv-rhel6.x/hv/include/linux/atomic.h hv-rhel5.x/hv/include/linux/atomic.h
+*** hv-rhel6.x/hv/include/linux/atomic.h	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/include/linux/atomic.h	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 1,6 ****
+  #ifndef _LINUX_ATOMIC_H
+  #define _LINUX_ATOMIC_H
+- 
+  #include <asm/atomic.h>
+  
+! #endif /* _LINUX_ATOMIC_H */
+--- 1,5 ----
+  #ifndef _LINUX_ATOMIC_H
+  #define _LINUX_ATOMIC_H
+  #include <asm/atomic.h>
+  
+! #endif
+Only in hv-rhel5.x/hv/include/linux: hid-debug.h
+Only in hv-rhel5.x/hv/include/linux: hid.h
+Only in hv-rhel5.x/hv/include/linux: hidraw.h
+diff -crB hv-rhel6.x/hv/include/linux/hv_compat.h hv-rhel5.x/hv/include/linux/hv_compat.h
+*** hv-rhel6.x/hv/include/linux/hv_compat.h	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/include/linux/hv_compat.h	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 2,25 ****
+  #ifndef _HV_COMPAT_H
+  #define _HV_COMPAT_H
+  
+- #include <linux/version.h>
+- 
+- #if LINUX_VERSION_CODE <= KERNEL_VERSION(2, 6, 35)
+- 
+  #define CN_KVP_IDX	0x9
+  #define CN_KVP_VAL	0x1
+  
+  #define CN_VSS_IDX	0xA
+  #define CN_VSS_VAL	0x1
+  
+  
+  #ifdef __KERNEL__
+  
+  #include <linux/rcupdate.h>
+  #include <linux/version.h>
+  #include <linux/netdevice.h>
+  #include <linux/inetdevice.h>
+! #include <asm/pgtable_types.h>
+  #include <net/arp.h>
+  #include <scsi/scsi.h>
+  #include <scsi/scsi_cmnd.h>
+--- 2,31 ----
+  #ifndef _HV_COMPAT_H
+  #define _HV_COMPAT_H
+  
+  #define CN_KVP_IDX	0x9
+  #define CN_KVP_VAL	0x1
+  
+  #define CN_VSS_IDX	0xA
+  #define CN_VSS_VAL	0x1
+  
++ #define HV_DRV_VERSION  "4.0.7"
++ 
++ #ifndef O_CLOEXEC
++ #define O_CLOEXEC       02000000        /* set close_on_exec */
++ #endif
+  
+  #ifdef __KERNEL__
+  
+  #include <linux/rcupdate.h>
+  #include <linux/version.h>
++ #include "../uapi/linux/uuid.h"
+  #include <linux/netdevice.h>
++ #include <linux/nls.h>
++ #include <linux/input.h>
++ #include <linux/timex.h>
++ #include <linux/unaligned/le_struct.h>
+  #include <linux/inetdevice.h>
+! #include <linux/libata-compat.h> /* sg_* apis */
+  #include <net/arp.h>
+  #include <scsi/scsi.h>
+  #include <scsi/scsi_cmnd.h>
+***************
+*** 29,108 ****
+  #include <scsi/scsi_eh.h>
+  #include <scsi/scsi_host.h>
+  
+- 
+  #define CN_KVP_IDX	0x9
+  
+  #define CN_VSS_IDX	0xA
+  #define CN_VSS_VAL	0x1
+  
+- #define HV_DRV_VERSION	"4.0.7"
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1540)
+! #ifdef CONFIG_MEMORY_HOTPLUG
+! #undef CONFIG_MEMORY_HOTPLUG
+! #endif
+  #endif
+  
+! #ifndef pr_warn
+! #define pr_warn(fmt, arg...) printk(KERN_WARNING fmt, ##arg)
+  #endif
+  
+! #ifndef HV_STATUS_INSUFFICIENT_BUFFERS
+! #define HV_STATUS_INSUFFICIENT_BUFFERS	19
+  #endif
+  
+! #ifndef RNDIS_STATUS_NETWORK_CHANGE
+! #define RNDIS_STATUS_NETWORK_CHANGE 0x40010018
+  #endif
+  
+! #ifndef NETIF_F_HW_VLAN_CTAG_TX
+! #define NETIF_F_HW_VLAN_CTAG_TX 0
+  #endif
+  
+! #ifndef DID_TARGET_FAILURE
+! #define DID_TARGET_FAILURE	0x10
+  #endif
+  
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1539)
+! static inline struct page *skb_frag_page(const skb_frag_t *frag)
+  {
+! 	return frag->page;
+  }
+  
+! static inline unsigned int skb_frag_size(const skb_frag_t *frag)
+  {
+! 	return frag->size;
+! }
+! #endif
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540)
+! #define hid_err(x, y)
+! #endif
+! 
+! #define blk_queue_max_segments(a, b)
+! 
+! extern bool using_null_legacy_pic;
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1536)
+! static inline void *vzalloc(unsigned long size)
+  {
+! 	void *ptr;
+! 	ptr = vmalloc(size);
+! 	memset(ptr, 0, size);
+! 	return ptr;
+  }
+  #endif
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1538)
+  #define NETIF_F_RXCSUM 0
+  #endif
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1542)
+  static inline void
+  skb_set_hash(struct sk_buff *skb, __u32 hash, int type)
+  {
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1542)
+!         skb->rxhash = hash;
+  #endif
+  }
+  #endif
+--- 35,121 ----
+  #include <scsi/scsi_eh.h>
+  #include <scsi/scsi_host.h>
+  
+  #define CN_KVP_IDX	0x9
++ #define CN_KVP_VAL	0x1
+  
+  #define CN_VSS_IDX	0xA
+  #define CN_VSS_VAL	0x1
+  
+  
+! #define VLAN_PRIO_MASK		0xe000 /* Priority Code Point */
+! #define VLAN_PRIO_SHIFT		13
+! #define VLAN_CFI_MASK		0x1000 /* Canonical Format Indicator */
+! #define VLAN_TAG_PRESENT	VLAN_CFI_MASK
+! #define VLAN_N_VID		4096
+! 
+! 
+! #ifndef pr_fmt
+! #define pr_fmt(fmt) fmt
+  #endif
+  
+! #ifndef PFN_UP
+! #define PFN_UP(x)       (((x) + PAGE_SIZE-1) >> PAGE_SHIFT)
+  #endif
+  
+! 
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1286)
+! #ifndef CSUM_MANGLED_0
+! typedef __u16 __bitwise __sum16;
+! #define CSUM_MANGLED_0 (( __sum16)0xffff)
+! #endif
+! #else
+! #define CSUM_MANGLED_0 (( __sum16)0xffff)
+  #endif
+  
+! #ifndef UMH_WAIT_EXEC
+! #define UMH_WAIT_EXEC 1
+  #endif
+  
+! #ifndef pr_warn
+! #define pr_warn(fmt, arg...) printk(KERN_WARNING fmt, ##arg)
+  #endif
+  
+! #ifndef pr_err
+! #define pr_err(fmt, ...) \
+! 	printk(KERN_ERR pr_fmt(fmt), ##__VA_ARGS__)
+  #endif
+  
++ #define IRQ0_VECTOR FIRST_EXTERNAL_VECTOR
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1287)
+! static inline void *vzalloc(unsigned long size)
+  {
+!         return __vmalloc(size, GFP_KERNEL | __GFP_HIGHMEM | __GFP_ZERO,
+!                         PAGE_KERNEL);
+  }
+  
+! static inline struct sk_buff *__netdev_alloc_skb_ip_align(struct net_device *dev,
+!                                 unsigned int length, gfp_t gfp)
+  {
+!         struct sk_buff *skb = __netdev_alloc_skb(dev, length + NET_IP_ALIGN, gfp);
+  
+!         if (NET_IP_ALIGN && skb)
+!                 skb_reserve(skb, NET_IP_ALIGN);
+!         return skb;
+! }
+  
+! static inline struct sk_buff *netdev_alloc_skb_ip_align(struct net_device *dev,
+!                                 unsigned int length)
+  {
+!         return __netdev_alloc_skb_ip_align(dev, length, GFP_ATOMIC);
+  }
+  #endif
+! 
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1291)
+  #define NETIF_F_RXCSUM 0
+  #endif
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1287)
+  static inline void
+  skb_set_hash(struct sk_buff *skb, __u32 hash, int type)
+  {
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1287)
+! 	skb->rxhash = hash;
+  #endif
+  }
+  #endif
+***************
+*** 111,118 ****
+  static inline __u32
+  skb_get_hash(struct sk_buff *skb)
+  {
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1542)
+!         return skb->hash;
+  #else
+  	__u32 hash;
+  	if (netvsc_set_hash(&hash, skb))
+--- 124,131 ----
+  static inline __u32
+  skb_get_hash(struct sk_buff *skb)
+  {
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1291)
+! 	return skb->hash;
+  #else
+  	__u32 hash;
+  	if (netvsc_set_hash(&hash, skb))
+***************
+*** 125,131 ****
+  {
+  }
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540)
+  static inline int kstrtouint(const char *s, unsigned int base, unsigned int *res)
+  {
+  	int result;
+--- 138,149 ----
+  {
+  }
+  
+! 
+! static inline void reinit_completion(struct completion *x)
+! {
+! 	x->done = 0;
+! }
+! 
+  static inline int kstrtouint(const char *s, unsigned int base, unsigned int *res)
+  {
+  	int result;
+***************
+*** 135,185 ****
+  	return result;
+  }
+  
+  #endif
+  
+! #define PTE_SHIFT ilog2(PTRS_PER_PTE)
+  
+! static inline void reinit_completion(struct completion *x)
+  {
+! 	x->done = 0;
+  }
+  
+  
+! static inline int page_level_shift(int level)
+  {
+!         return (PAGE_SHIFT - PTE_SHIFT) + level * PTE_SHIFT;
+  }
+  
+! static inline unsigned long page_level_size(int level)
+  {
+! 	return 1UL << page_level_shift(level);
+  }
+  
+! static inline unsigned long page_level_mask(int level)
+  {
+! 	return ~(page_level_size(level) - 1);
+  }
+  
+! static inline phys_addr_t slow_virt_to_phys(void *__virt_addr)
+  {
+! 	unsigned long virt_addr = (unsigned long)__virt_addr;
+! 	phys_addr_t phys_addr;
+! 	unsigned long offset;
+! 	int level;
+! 	unsigned long psize;
+! 	unsigned long pmask;
+! 	pte_t *pte;
+  
+! 	pte = lookup_address(virt_addr, &level);
+! 	BUG_ON(!pte);
+! 	psize = page_level_size(level);
+! 	pmask = page_level_mask(level);
+! 	offset = virt_addr & ~pmask;
+! 	phys_addr = (phys_addr_t)pte_pfn(*pte) << PAGE_SHIFT;
+! 	return (phys_addr | offset);
+  }
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540)
+  /*
+   * For Hyper-V devices we use the device guid as the id.
+   * This was introduced in Linux 3.2 (/include/linux/mod_devicetable.h)
+--- 153,271 ----
+  	return result;
+  }
+  
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1286)
++ static inline bool cancel_delayed_work_sync(void *work)
++ {
++ 	return cancel_delayed_work((struct work_struct *)work);
++ }
++ 
++ static inline bool cancel_work_sync(void *work)
++ {
++ 	return cancel_delayed_work((struct work_struct *)work);
++ }
++ 
+  #endif
++ static inline int dev_set_name(struct device *dev, const char *fmt, int num)
++ {
++ 	int err;
+  
+! 	sprintf(dev->bus_id, fmt, num);
+! 	err = kobject_set_name(&dev->kobj, fmt, num);
+! 	return err;
+! }
+  
+! #define __DELAYED_WORK_INITIALIZER(n, f, d) {                           \
+! 	.work.entry  = { &(n.work).entry, &(n.work).entry },                    \
+! 	.work.func = (f),                                               \
+! 	.work.data = (d),                                               \
+! 	.work.timer = TIMER_INITIALIZER(NULL, 0, 0),                    \
+! 	}
+! 
+! #define DECLARE_DELAYED_WORK(n, f, d)                              \
+! 	struct delayed_work n = __DELAYED_WORK_INITIALIZER(n, f, d)
+! 
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1286)
+! static inline char *dev_name(struct device *dev)
+  {
+! 	return dev->bus_id;
+  }
+  
++ struct delayed_work {
++ 	struct work_struct work;
++ };
++ 
++ #define INIT_DELAYED_WORK(_work, _func)                       \
++ 	INIT_WORK(&(_work)->work, _func, &(_work)->work)
++ 
++ 
++ 
++ void netdev_err(struct net_device *net, const char *fmt, ...);
++ #endif
++ 
++ #ifndef HV_STATUS_INSUFFICIENT_BUFFERS
++ #define HV_STATUS_INSUFFICIENT_BUFFERS	19
++ #endif
++ 
++ #ifndef RNDIS_STATUS_NETWORK_CHANGE
++ #define RNDIS_STATUS_NETWORK_CHANGE 0x40010018
++ #endif
+  
+! #ifndef DID_TARGET_FAILURE
+! #define DID_TARGET_FAILURE	0x10
+! #endif
+! 
+! #ifndef O_CLOEXEC
+! #define O_CLOEXEC       02000000        /* set close_on_exec */
+! #endif
+! 
+! static inline int uuid_le_cmp(const uuid_le u1, const uuid_le u2)
+  {
+! 	return memcmp(&u1, &u2, sizeof(uuid_le));
+  }
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1291)
+! static inline struct page *skb_frag_page(const skb_frag_t *frag)
+  {
+! 	return frag->page;
+  }
+  
+! #define BUS_VIRTUAL     0x06
+! 
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1289)
+! static inline unsigned int skb_frag_size(const skb_frag_t *frag)
+  {
+! 	return frag->size;
+  }
++ #else
++ #ifdef KYS
++ #ifndef CONFIG_X86_64
++ static inline unsigned int skb_frag_size(const skb_frag_t *frag)
++ {
++ 	return frag->size;
++ }
++ #endif
++ #endif
++ #endif
++ #endif
+  
+! static inline void *sg_virt(struct scatterlist *sg)
+  {
+! 	return sg->page;
+! }
+  
+! static inline void  hv_set_buf(struct scatterlist *sg, const void *buf,
+!                                 unsigned int length)
+! {
+! 	sg->page = (struct page *)buf;
+! 	sg->length = length;
+  }
+  
+! 
+! #define blk_queue_max_segments(a, b)
+! 
+! extern bool using_null_legacy_pic;
+! 
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1289)
+  /*
+   * For Hyper-V devices we use the device guid as the id.
+   * This was introduced in Linux 3.2 (/include/linux/mod_devicetable.h)
+***************
+*** 189,206 ****
+  	unsigned long driver_data;
+  };
+  
+! #ifndef netdev_err
+! static inline void netdev_err(struct net_device *net, const char *fmt, ...)
+  {
+! 	va_list args;
+  
+- 	va_start(args, fmt);
+- 	vprintk(fmt, args);
+- 	va_end(args);
+  }
+  
+! #endif
+! #endif
+  
+  #ifndef netdev_dbg
+  #if defined(DEBUG)
+--- 275,413 ----
+  	unsigned long driver_data;
+  };
+  
+! #else
+! #ifdef KYS
+! #ifndef CONFIG_X86_64
+! struct hv_vmbus_device_id {
+!         __u8 guid[16];
+!         unsigned long driver_data;
+! };
+! #endif
+! #endif
+! #endif
+! 
+! void rhel_5_x_power_off(void);
+! 
+! #define orderly_poweroff(x) rhel_5_x_power_off()
+! 
+! struct hid_device_id {
+! 	__u16 bus;
+! 	__u16 pad1;
+! 	__u32 vendor;
+! 	__u32 product;
+! 	unsigned long  driver_data;
+! };
+! 
+! #define HID_ANY_ID      (~0)
+! #define HID_BUS_ANY     0xffff
+! 
+! #define BTN_TRIGGER_HAPPY	0x2c0
+! #define KEY_CONTEXT_MENU	0x1b6
+! #define KEY_VIDEOPHONE		0x1a0
+! #define KEY_GAMES               0x1a1
+! #define KEY_MEDIA_REPEAT	0x1b7
+! #define KEY_WORDPROCESSOR	0x1a5
+! #define KEY_EDITOR		0x1a6
+! #define KEY_SPREADSHEET		0x1a7
+! #define KEY_GRAPHICSEDITOR	0x1a8
+! #define KEY_PRESENTATION	0x1a9
+! #define KEY_DATABASE            0x1aa
+! #define KEY_NEWS		0x1ab
+! #define KEY_VOICEMAIL		0x1ac
+! #define KEY_ADDRESSBOOK		0x1ad
+! #define KEY_LOGOFF		0x1b1
+! #define KEY_SPELLCHECK		0x1b0
+! #define KEY_IMAGES		0x1ba
+! #define KEY_MESSENGER		0x1ae
+! #define KEY_ZOOMIN		0x1a2
+! #define KEY_ZOOMOUT		0x1a3
+! #define KEY_ZOOMRESET		0x1a4
+! #define ABS_MT_POSITION_X	0x35
+! 
+! 
+! struct input_keymap_entry {
+! #define INPUT_KEYMAP_BY_INDEX   (1 << 0)
+! 	__u8  flags;
+! 	__u8  len;
+! 	__u16 index;
+! 	__u32 keycode;
+! 	__u8  scancode[32];
+! };
+! 
+! #ifdef CONFIG_MEMORY_HOTPLUG
+! #undef CONFIG_MEMORY_HOTPLUG
+! #endif
+! 
+! #undef CONFIG_HIDRAW
+! #define HIDRAW_BUFFER_SIZE 64
+! 
+! static inline void *input_get_drvdata(struct input_dev *dev)
+  {
+! 	return dev->dev;
+  
+  }
+  
+! static inline void input_set_drvdata(struct input_dev *dev, void *data)
+! {
+! 	dev->dev = data;
+! }
+! 
+! static inline int input_scancode_to_scalar(const struct input_keymap_entry *ke,
+!                              unsigned int *scancode)
+! {
+!         switch (ke->len) {
+!         case 1:
+!                 *scancode = *((u8 *)ke->scancode);
+!                 break;
+! 
+!         case 2:
+!                 *scancode = *((u16 *)ke->scancode);
+!                 break;
+! 
+!         case 4:
+!                 *scancode = *((u32 *)ke->scancode);
+!                 break;
+! 
+!         default:
+!                 return -EINVAL;
+!         }
+! 
+!         return 0;
+! }
+! 
+! /*
+!  * Synchronization events.
+!  */
+! 
+! #define SYN_REPORT		0
+! #define SYN_CONFIG		1
+! #define SYN_MT_REPORT		2
+! #define SYN_DROPPED		3
+! 
+! #define ABS_MT_TOUCH_MAJOR	0x30    /* Major axis of touching ellipse */
+! #define ABS_MT_DISTANCE		0x3b    /* Contact hover distance */
+! #define ABS_MT_TOUCH_MINOR	0x31    /* Minor axis (omit if circular) */
+! #define ABS_MT_WIDTH_MAJOR	0x32    /* Major axis of approaching ellipse */
+! #define ABS_MT_WIDTH_MINOR	0x33    /* Minor axis (omit if circular) */
+! #define ABS_MT_ORIENTATION	0x34    /* Ellipse orientation */
+! #define ABS_MT_POSITION_Y	0x36    /* Center Y ellipse position */
+! #define ABS_MT_TOOL_TYPE	0x37    /* Type of touching device */
+! #define ABS_MT_BLOB_ID		0x38    /* Group a set of packets as a blob */
+! 
+! /* Implementation details, userspace should not care about these */
+! #define ABS_MT_FIRST		ABS_MT_TOUCH_MAJOR
+! #define ABS_MT_LAST		ABS_MT_DISTANCE
+! 
+! #define ABS_MAX                 0x3f
+! #define ABS_CNT                 (ABS_MAX+1)
+! 
+! 
+! static inline void set_host_byte(struct scsi_cmnd *cmd, char status)
+! {
+! 	cmd->result = (cmd->result & 0xff00ffff) | (status << 16);
+! }
+! 
+! struct timespec ns_to_timespec(const s64 nsec);
+  
+  #ifndef netdev_dbg
+  #if defined(DEBUG)
+***************
+*** 217,224 ****
+  #endif
+  
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE == 1536) && \
+! LINUX_VERSION_CODE <= KERNEL_VERSION(2, 6, 32)
+  static inline void  netif_notify_peers(struct net_device *net)
+  {
+  	struct in_device *idev;
+--- 424,430 ----
+  #endif
+  
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1289)
+  static inline void  netif_notify_peers(struct net_device *net)
+  {
+  	struct in_device *idev;
+***************
+*** 233,240 ****
+  	}
+  	rcu_read_unlock();
+  }
+- 
+- #endif
+  #endif
+  #endif
+  #endif
+--- 439,445 ----
+  	}
+  	rcu_read_unlock();
+  }
+  #endif
++ 
+  #endif
+  #endif
+diff -crB hv-rhel6.x/hv/include/linux/rndis.h hv-rhel5.x/hv/include/linux/rndis.h
+*** hv-rhel6.x/hv/include/linux/rndis.h	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/include/linux/rndis.h	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 65,71 ****
+  #define	RNDIS_STATUS_MEDIA_SPECIFIC_INDICATION	0x40010012
+  #define RNDIS_STATUS_WW_INDICATION		RDIA_SPECIFIC_INDICATION
+  #define RNDIS_STATUS_LINK_SPEED_CHANGE		0x40010013L
+- #define RNDIS_STATUS_NETWORK_CHANGE		0x40010018
+  
+  #define RNDIS_STATUS_NOT_RESETTABLE		0x80010001
+  #define RNDIS_STATUS_SOFT_ERRORS		0x80010003
+--- 65,70 ----
+diff -crB hv-rhel6.x/hv/include/uapi/linux/uuid.h hv-rhel5.x/hv/include/uapi/linux/uuid.h
+*** hv-rhel6.x/hv/include/uapi/linux/uuid.h	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/include/uapi/linux/uuid.h	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 18,28 ****
+   * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+   */
+  
+! #ifndef _LINUX_UUID_H_
+! #define _LINUX_UUID_H_
+  
+  #include <linux/types.h>
+  #include <linux/string.h>
+  
+  typedef struct {
+  	__u8 b[16];
+--- 18,32 ----
+   * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+   */
+  
+! #ifndef _UAPI_LINUX_UUID_H_
+! #define _UAPI_LINUX_UUID_H_
+  
+  #include <linux/types.h>
++ #ifdef __KERNEL__
+  #include <linux/string.h>
++ #else
++ #include <string.h>
++ #endif
+  
+  typedef struct {
+  	__u8 b[16];
+***************
+*** 54,74 ****
+  	UUID_BE(0x00000000, 0x0000, 0x0000, 0x00, 0x00, 0x00, 0x00,	\
+  		0x00, 0x00, 0x00, 0x00)
+  
+- #ifdef __KERNEL__
+- 
+- static inline int uuid_le_cmp(const uuid_le u1, const uuid_le u2)
+- {
+- 	return memcmp(&u1, &u2, sizeof(uuid_le));
+- }
+- 
+- static inline int uuid_be_cmp(const uuid_be u1, const uuid_be u2)
+- {
+- 	return memcmp(&u1, &u2, sizeof(uuid_be));
+- }
+  
+! extern void uuid_le_gen(uuid_le *u);
+! extern void uuid_be_gen(uuid_be *u);
+! 
+! #endif /* __KERNEL__ */
+! 
+! #endif
+--- 58,62 ----
+  	UUID_BE(0x00000000, 0x0000, 0x0000, 0x00, 0x00, 0x00, 0x00,	\
+  		0x00, 0x00, 0x00, 0x00)
+  
+  
+! #endif /* _UAPI_LINUX_UUID_H_ */
+diff -crB hv-rhel6.x/hv/Makefile hv-rhel5.x/hv/Makefile
+*** hv-rhel6.x/hv/Makefile	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/Makefile	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 5,19 ****
+  obj-m	+= hv_netvsc.o
+  obj-m	+= hv_utils.o
+  obj-m	+= hid-hyperv.o
+  obj-m	+= hyperv_fb.o
+  obj-m	+= hv_balloon.o
+  obj-m	+= hyperv-keyboard.o
+  
+  hv_vmbus-y := vmbus_drv.o \
+  		 hv.o connection.o channel.o \
+! 		 channel_mgmt.o ring_buffer.o
+  hv_utils-y := hv_util.o hv_kvp.o hv_snapshot.o hv_fcopy.o
+  
+  hv_storvsc-y := storvsc_drv.o
+  hv_netvsc-y := netvsc_drv.o netvsc.o rndis_filter.o
+  hyperv_keyboard-y := hyperv-keyboard.o
+--- 5,22 ----
+  obj-m	+= hv_netvsc.o
+  obj-m	+= hv_utils.o
+  obj-m	+= hid-hyperv.o
++ obj-m	+= hid-base.o
++ 
+  obj-m	+= hyperv_fb.o
+  obj-m	+= hv_balloon.o
+  obj-m	+= hyperv-keyboard.o
+  
+  hv_vmbus-y := vmbus_drv.o \
+  		 hv.o connection.o channel.o \
+! 		 channel_mgmt.o ring_buffer.o  hv_compat.o
+  hv_utils-y := hv_util.o hv_kvp.o hv_snapshot.o hv_fcopy.o
+  
+  hv_storvsc-y := storvsc_drv.o
+  hv_netvsc-y := netvsc_drv.o netvsc.o rndis_filter.o
++ hid-base-y := hid-core.o hid-input.o hid-debug.o
+  hyperv_keyboard-y := hyperv-keyboard.o
+Only in hv-rhel5.x/hv: Module.markers
+Only in hv-rhel5.x/hv: Module.symvers
+diff -crB hv-rhel6.x/hv/netvsc.c hv-rhel5.x/hv/netvsc.c
+*** hv-rhel6.x/hv/netvsc.c	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/netvsc.c	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 149,155 ****
+  
+  	if (net_device->recv_buf) {
+  		/* Free up the receive buffer */
+! 		vfree(net_device->recv_buf);
+  		net_device->recv_buf = NULL;
+  	}
+  
+--- 149,157 ----
+  
+  	if (net_device->recv_buf) {
+  		/* Free up the receive buffer */
+! 		free_pages((unsigned long)net_device->recv_buf,
+! 			    get_order(net_device->recv_buf_size));
+! 
+  		net_device->recv_buf = NULL;
+  	}
+  
+***************
+*** 161,168 ****
+  
+  	/* Deal with the send buffer we may have setup.
+  	 * If we got a  send section size, it means we received a
+! 	 * NVSP_MSG1_TYPE_SEND_SEND_BUF_COMPLETE msg (ie sent
+! 	 * NVSP_MSG1_TYPE_SEND_SEND_BUF msg) therefore, we need
+  	 * to send a revoke msg here
+  	 */
+  	if (net_device->send_section_size) {
+--- 163,170 ----
+  
+  	/* Deal with the send buffer we may have setup.
+  	 * If we got a  send section size, it means we received a
+! 	 * SendsendBufferComplete msg (ie sent
+! 	 * NvspMessage1TypeSendReceiveBuffer msg) therefore, we need
+  	 * to send a revoke msg here
+  	 */
+  	if (net_device->send_section_size) {
+***************
+*** 172,179 ****
+  
+  		revoke_packet->hdr.msg_type =
+  			NVSP_MSG1_TYPE_REVOKE_SEND_BUF;
+! 		revoke_packet->msg.v1_msg.revoke_send_buf.id =
+! 			NETVSC_SEND_BUFFER_ID;
+  
+  		ret = vmbus_sendpacket(net_device->dev->channel,
+  				       revoke_packet,
+--- 174,180 ----
+  
+  		revoke_packet->hdr.msg_type =
+  			NVSP_MSG1_TYPE_REVOKE_SEND_BUF;
+! 		revoke_packet->msg.v1_msg.revoke_recv_buf.id = 0;
+  
+  		ret = vmbus_sendpacket(net_device->dev->channel,
+  				       revoke_packet,
+***************
+*** 205,212 ****
+  		net_device->send_buf_gpadl_handle = 0;
+  	}
+  	if (net_device->send_buf) {
+! 		/* Free up the send buffer */
+! 		vfree(net_device->send_buf);
+  		net_device->send_buf = NULL;
+  	}
+  	kfree(net_device->send_section_map);
+--- 206,214 ----
+  		net_device->send_buf_gpadl_handle = 0;
+  	}
+  	if (net_device->send_buf) {
+! 		/* Free up the receive buffer */
+! 		free_pages((unsigned long)net_device->send_buf,
+! 			    get_order(net_device->send_buf_size));
+  		net_device->send_buf = NULL;
+  	}
+  	kfree(net_device->send_section_map);
+***************
+*** 227,233 ****
+  		return -ENODEV;
+  	ndev = net_device->ndev;
+  
+! 	net_device->recv_buf = vzalloc(net_device->recv_buf_size);
+  	if (!net_device->recv_buf) {
+  		netdev_err(ndev, "unable to allocate receive "
+  			"buffer of size %d\n", net_device->recv_buf_size);
+--- 229,238 ----
+  		return -ENODEV;
+  	ndev = net_device->ndev;
+  
+! 	net_device->recv_buf = 
+! 		(void *)__get_free_pages(GFP_KERNEL | __GFP_ZERO,
+! 			get_order(net_device->recv_buf_size));
+! 
+  	if (!net_device->recv_buf) {
+  		netdev_err(ndev, "unable to allocate receive "
+  			"buffer of size %d\n", net_device->recv_buf_size);
+***************
+*** 315,321 ****
+  
+  	/* Now setup the send buffer.
+  	 */
+! 	net_device->send_buf = vzalloc(net_device->send_buf_size);
+  	if (!net_device->send_buf) {
+  		netdev_err(ndev, "unable to allocate send "
+  			   "buffer of size %d\n", net_device->send_buf_size);
+--- 320,329 ----
+  
+  	/* Now setup the send buffer.
+  	 */
+! 	net_device->send_buf = 
+! 		(void *)__get_free_pages(GFP_KERNEL|__GFP_ZERO,
+! 					get_order(net_device->send_buf_size));
+! 
+  	if (!net_device->send_buf) {
+  		netdev_err(ndev, "unable to allocate send "
+  			   "buffer of size %d\n", net_device->send_buf_size);
+***************
+*** 340,348 ****
+  	init_packet = &net_device->channel_init_pkt;
+  	memset(init_packet, 0, sizeof(struct nvsp_message));
+  	init_packet->hdr.msg_type = NVSP_MSG1_TYPE_SEND_SEND_BUF;
+! 	init_packet->msg.v1_msg.send_send_buf.gpadl_handle =
+  		net_device->send_buf_gpadl_handle;
+! 	init_packet->msg.v1_msg.send_send_buf.id = NETVSC_SEND_BUFFER_ID;
+  
+  	/* Send the gpadl notification request */
+  	ret = vmbus_sendpacket(device->channel, init_packet,
+--- 348,356 ----
+  	init_packet = &net_device->channel_init_pkt;
+  	memset(init_packet, 0, sizeof(struct nvsp_message));
+  	init_packet->hdr.msg_type = NVSP_MSG1_TYPE_SEND_SEND_BUF;
+! 	init_packet->msg.v1_msg.send_recv_buf.gpadl_handle =
+  		net_device->send_buf_gpadl_handle;
+! 	init_packet->msg.v1_msg.send_recv_buf.id = 0;
+  
+  	/* Send the gpadl notification request */
+  	ret = vmbus_sendpacket(device->channel, init_packet,
+***************
+*** 365,371 ****
+  		netdev_err(ndev, "Unable to complete send buffer "
+  			   "initialization with NetVsp - status %d\n",
+  			   init_packet->msg.v1_msg.
+! 			   send_send_buf_complete.status);
+  		ret = -EINVAL;
+  		goto cleanup;
+  	}
+--- 373,379 ----
+  		netdev_err(ndev, "Unable to complete send buffer "
+  			   "initialization with NetVsp - status %d\n",
+  			   init_packet->msg.v1_msg.
+! 			   send_recv_buf_complete.status);
+  		ret = -EINVAL;
+  		goto cleanup;
+  	}
+***************
+*** 646,657 ****
+  		if (net_device->destroy && num_outstanding_sends == 0)
+  			wake_up(&net_device->wait_drain);
+  
+! 		if (netif_tx_queue_stopped(netdev_get_tx_queue(ndev, q_idx)) &&
+  		    !net_device->start_remove &&
+  		    (hv_ringbuf_avail_percent(&channel->outbound) >
+  		     RING_AVAIL_PERCENT_HIWATER || queue_sends < 1))
+! 				netif_tx_wake_queue(netdev_get_tx_queue(
+! 						    ndev, q_idx));
+  	} else {
+  		netdev_err(ndev, "Unknown send completion packet type- "
+  			   "%d received!!\n", nvsp_packet->hdr.msg_type);
+--- 654,664 ----
+  		if (net_device->destroy && num_outstanding_sends == 0)
+  			wake_up(&net_device->wait_drain);
+  
+! 		if (netif_queue_stopped(ndev) &&
+  		    !net_device->start_remove &&
+  		    (hv_ringbuf_avail_percent(&channel->outbound) >
+  		     RING_AVAIL_PERCENT_HIWATER || queue_sends < 1))
+! 				netif_wake_queue(ndev);
+  	} else {
+  		netdev_err(ndev, "Unknown send completion packet type- "
+  			   "%d received!!\n", nvsp_packet->hdr.msg_type);
+***************
+*** 716,721 ****
+--- 723,729 ----
+  	u64 req_id;
+  	unsigned int section_index = NETVSC_INVALID_INDEX;
+  	u32 msg_size = 0;
++ 	struct sk_buff *skb;
+  	u16 q_idx = packet->q_idx;
+  	u32 vmbus_flags = VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED;
+  
+***************
+*** 741,746 ****
+--- 749,758 ----
+  			msg_size = netvsc_copy_to_send_buf(net_device,
+  							   section_index,
+  							   packet);
++ 			skb = (struct sk_buff *)
++ 			      (unsigned long)packet->send_completion_tid;
++ 			if (skb)
++ 				dev_kfree_skb_any(skb);
+  			packet->page_buf_cnt = 0;
+  		}
+  	}
+***************
+*** 787,806 ****
+  
+  		if (hv_ringbuf_avail_percent(&out_channel->outbound) <
+  			RING_AVAIL_PERCENT_LOWATER) {
+! 			netif_tx_stop_queue(netdev_get_tx_queue(
+! 					    ndev, q_idx));
+  
+  			if (atomic_read(&net_device->
+  				queue_sends[q_idx]) < 1)
+! 				netif_tx_wake_queue(netdev_get_tx_queue(
+! 						    ndev, q_idx));
+  		}
+  	} else if (ret == -EAGAIN) {
+! 		netif_tx_stop_queue(netdev_get_tx_queue(
+! 				    ndev, q_idx));
+  		if (atomic_read(&net_device->queue_sends[q_idx]) < 1) {
+! 			netif_tx_wake_queue(netdev_get_tx_queue(
+! 					    ndev, q_idx));
+  			ret = -ENOSPC;
+  		}
+  	} else {
+--- 800,815 ----
+  
+  		if (hv_ringbuf_avail_percent(&out_channel->outbound) <
+  			RING_AVAIL_PERCENT_LOWATER) {
+! 			netif_stop_queue(ndev);
+  
+  			if (atomic_read(&net_device->
+  				queue_sends[q_idx]) < 1)
+! 				netif_wake_queue(ndev);
+  		}
+  	} else if (ret == -EAGAIN) {
+! 		netif_stop_queue(ndev);
+  		if (atomic_read(&net_device->queue_sends[q_idx]) < 1) {
+! 			netif_wake_queue(ndev);
+  			ret = -ENOSPC;
+  		}
+  	} else {
+***************
+*** 808,816 ****
+  			   packet, ret);
+  	}
+  
+- 	if (ret != 0 && section_index != NETVSC_INVALID_INDEX)
+- 		netvsc_free_send_slot(net_device, section_index);
+- 
+  	return ret;
+  }
+  
+--- 817,822 ----
+***************
+*** 906,911 ****
+--- 912,918 ----
+  	}
+  
+  	count = vmxferpage_packet->range_cnt;
++ 	netvsc_packet->device = device;
+  	netvsc_packet->channel = channel;
+  
+  	/* Each range represents 1 RNDIS pkt that contains 1 ethernet frame */
+***************
+*** 1072,1080 ****
+  	 */
+  	ndev = net_device->ndev;
+  
+- 	/* Add netvsc_device context to netvsc_device */
+- 	net_device->nd_ctx = netdev_priv(ndev);
+- 
+  	/* Initialize the NetVSC channel extension */
+  	init_completion(&net_device->channel_init_wait);
+  
+--- 1079,1084 ----
+diff -crB hv-rhel6.x/hv/netvsc_drv.c hv-rhel5.x/hv/netvsc_drv.c
+*** hv-rhel6.x/hv/netvsc_drv.c	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/netvsc_drv.c	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 29,34 ****
+--- 29,35 ----
+  #include <linux/netdevice.h>
+  #include <linux/inetdevice.h>
+  #include <linux/etherdevice.h>
++ #include <linux/ethtool.h>
+  #include <linux/skbuff.h>
+  #include <linux/if_vlan.h>
+  #include <linux/in.h>
+***************
+*** 42,63 ****
+  #include "include/linux/hyperv.h"
+  #include "hyperv_net.h"
+  
+  
+  #define RING_SIZE_MIN 64
+  static int ring_size = 128;
+  module_param(ring_size, int, S_IRUGO);
+  MODULE_PARM_DESC(ring_size, "Ring buffer size (# of pages)");
+  
+! static const u32 default_msg = NETIF_MSG_DRV | NETIF_MSG_PROBE |
+! 				NETIF_MSG_LINK | NETIF_MSG_IFUP |
+! 				NETIF_MSG_IFDOWN | NETIF_MSG_RX_ERR |
+! 				NETIF_MSG_TX_ERR;
+! static int debug = -1;
+! module_param(debug, int, S_IRUGO);
+! MODULE_PARM_DESC(debug, "Debug level (0=none,...,16=all)");
+! 
+! static void do_set_multicast(struct work_struct *w)
+  {
+  	struct net_device_context *ndevctx =
+  		container_of(w, struct net_device_context, work);
+  	struct netvsc_device *nvdev;
+--- 43,71 ----
+  #include "include/linux/hyperv.h"
+  #include "hyperv_net.h"
+  
++ struct net_device_context {
++ 	/* point back to our device context */
++ 	struct hv_device *device_ctx;
++ 	struct net_device_stats stats;
++ 	struct delayed_work dwork;
++ 	struct work_struct work;
++ };
+  
+  #define RING_SIZE_MIN 64
+  static int ring_size = 128;
+  module_param(ring_size, int, S_IRUGO);
+  MODULE_PARM_DESC(ring_size, "Ring buffer size (# of pages)");
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1291)
+! static struct net_device_stats *netvsc_get_stats(struct net_device *net)
+  {
++ 	struct net_device_context *net_device_ctx = netdev_priv(net);
++ 	return &net_device_ctx->stats;
++ }
++ #endif
++ static void do_set_multicast(void *data)
++ {
++ 	struct work_struct *w = (struct work_struct *)data;
+  	struct net_device_context *ndevctx =
+  		container_of(w, struct net_device_context, work);
+  	struct netvsc_device *nvdev;
+***************
+*** 105,111 ****
+  		return ret;
+  	}
+  
+! 	netif_tx_start_all_queues(net);
+  
+  	nvdev = hv_get_drvdata(device_obj);
+  	rdev = nvdev->extension;
+--- 113,119 ----
+  		return ret;
+  	}
+  
+! 	netif_start_queue(net);;
+  
+  	nvdev = hv_get_drvdata(device_obj);
+  	rdev = nvdev->extension;
+***************
+*** 162,167 ****
+--- 170,176 ----
+  	};
+  };
+  
++ #ifdef NOTYET
+  /* Toeplitz hash function
+   * data: network byte order
+   * return: host byte order
+***************
+*** 239,251 ****
+  	return q_idx;
+  }
+  
+! void netvsc_xmit_completion(void *context)
+  {
+  	struct hv_netvsc_packet *packet = (struct hv_netvsc_packet *)context;
+  	struct sk_buff *skb = (struct sk_buff *)
+  		(unsigned long)packet->send_completion_tid;
+  
+! 	if (skb)
+  		dev_kfree_skb_any(skb);
+  }
+  
+--- 248,265 ----
+  	return q_idx;
+  }
+  
+! #endif
+! 
+! static void netvsc_xmit_completion(void *context)
+  {
+  	struct hv_netvsc_packet *packet = (struct hv_netvsc_packet *)context;
+  	struct sk_buff *skb = (struct sk_buff *)
+  		(unsigned long)packet->send_completion_tid;
++ 	u32 index = packet->send_buf_index;
+  
+! 	kfree(packet);
+! 
+! 	if (skb && (index == NETVSC_INVALID_INDEX))
+  		dev_kfree_skb_any(skb);
+  }
+  
+***************
+*** 391,400 ****
+  	struct ndis_tcp_lso_info *lso_info;
+  	int  hdr_offset;
+  	u32 net_trans_info;
+  	u32 hash;
+  	u32 skb_length = skb->len;
+- 	u32 pkt_sz;
+- 	struct hv_page_buffer page_buf[MAX_PAGE_BUFFER_COUNT];
+  	bool kick_q = true;
+  
+  
+--- 405,414 ----
+  	struct ndis_tcp_lso_info *lso_info;
+  	int  hdr_offset;
+  	u32 net_trans_info;
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1291)
+  	u32 hash;
++ #endif
+  	u32 skb_length = skb->len;
+  	bool kick_q = true;
+  
+  
+***************
+*** 406,440 ****
+  	if (num_data_pgs > MAX_PAGE_BUFFER_COUNT) {
+  		netdev_err(net, "Packet too big: %u\n", skb->len);
+  		dev_kfree_skb(skb);
+! 		net->stats.tx_dropped++;
+  		return NETDEV_TX_OK;
+  	}
+  
+! 	pkt_sz = sizeof(struct hv_netvsc_packet) + RNDIS_AND_PPI_SIZE;
+  
+! 	ret = skb_cow_head(skb, pkt_sz);
+! 	if (ret) {
+! 		netdev_err(net, "unable to alloc hv_netvsc_packet\n");
+! 		ret = -ENOMEM;
+! 		goto drop;
+  	}
+- 	/* Use the headroom for building up the packet */
+- 	packet = (struct hv_netvsc_packet *)skb->head;
+- 
+  
+! 	packet->status = 0;
+! 	packet->vlan_tci = skb->vlan_tci;
+! 	packet->page_buf = page_buf;
+  
+! 	packet->q_idx = skb_get_queue_mapping(skb);
+  
+  	packet->is_data_pkt = true;
+  	packet->total_data_buflen = skb->len;
+  
+  	packet->rndis_msg = (struct rndis_message *)((unsigned long)packet +
+! 				sizeof(struct hv_netvsc_packet));
+! 
+! 	memset(packet->rndis_msg, 0, RNDIS_AND_PPI_SIZE);
+  
+  	/* Set the completion routine */
+  	packet->send_completion = netvsc_xmit_completion;
+--- 420,454 ----
+  	if (num_data_pgs > MAX_PAGE_BUFFER_COUNT) {
+  		netdev_err(net, "Packet too big: %u\n", skb->len);
+  		dev_kfree_skb(skb);
+! 		net_device_ctx->stats.tx_dropped++;
+  		return NETDEV_TX_OK;
+  	}
+  
+! 	/* Allocate a netvsc packet based on # of frags. */
+! 	packet = kzalloc(sizeof(struct hv_netvsc_packet) +
+! 			 (num_data_pgs * sizeof(struct hv_page_buffer)) +
+! 			 sizeof(struct rndis_message) +
+! 			 NDIS_VLAN_PPI_SIZE + NDIS_CSUM_PPI_SIZE +
+! 			 NDIS_LSO_PPI_SIZE + NDIS_HASH_PPI_SIZE, GFP_ATOMIC);
+! 	if (!packet) {
+! 		/* out of memory, drop packet */
+! 		netdev_err(net, "unable to allocate hv_netvsc_packet\n");
+  
+! 		dev_kfree_skb(skb);
+! 		net_device_ctx->stats.tx_dropped++;
+! 		return NETDEV_TX_OK;
+  	}
+  
+! 	//KYSpacket->vlan_tci = skb->vlan_tci;
+  
+! 	//KYSpacket->q_idx = skb_get_queue_mapping(skb);
+  
+  	packet->is_data_pkt = true;
+  	packet->total_data_buflen = skb->len;
+  
+  	packet->rndis_msg = (struct rndis_message *)((unsigned long)packet +
+! 				sizeof(struct hv_netvsc_packet) +
+! 				(num_data_pgs * sizeof(struct hv_page_buffer)));
+  
+  	/* Set the completion routine */
+  	packet->send_completion = netvsc_xmit_completion;
+***************
+*** 454,459 ****
+--- 468,474 ----
+  
+  	rndis_msg_size = RNDIS_MESSAGE_SIZE(struct rndis_packet);
+  
++ #ifdef NOTYET
+  	hash = skb_get_hash(skb);
+  	if (hash != 0 && net->real_num_tx_queues > 1) {
+  		rndis_msg_size += NDIS_HASH_PPI_SIZE;
+***************
+*** 461,467 ****
+  				    NBL_HASH_VALUE);
+  		*(u32 *)((void *)ppi + ppi->ppi_offset) = hash;
+  	}
+! 
+  	if (isvlan) {
+  		struct ndis_pkt_8021q_info *vlan;
+  
+--- 476,482 ----
+  				    NBL_HASH_VALUE);
+  		*(u32 *)((void *)ppi + ppi->ppi_offset) = hash;
+  	}
+! #endif
+  	if (isvlan) {
+  		struct ndis_pkt_8021q_info *vlan;
+  
+***************
+*** 525,531 ****
+--- 540,550 ----
+  		uh->check = csum_tcpudp_magic(ip_hdr(skb)->saddr,
+  					      ip_hdr(skb)->daddr,
+  					      udp_len, IPPROTO_UDP,
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1291)
++ 					      csum_partial((unsigned char *)uh, udp_len, 0));
++ #else
+  					      csum_partial(uh, udp_len, 0));
++ #endif
+  		if (uh->check == 0)
+  			uh->check = CSUM_MANGLED_0;
+  
+***************
+*** 566,583 ****
+  	rndis_msg->msg_len += rndis_msg_size;
+  	packet->total_data_buflen = rndis_msg->msg_len;
+  	packet->page_buf_cnt = init_page_array(rndis_msg, rndis_msg_size,
+! 					skb, &page_buf[0]);
+  
+  	ret = netvsc_send(net_device_ctx->device_ctx, packet, kick_q);
+  
+  drop:
+  	if (ret == 0) {
+! 		net->stats.tx_bytes += skb_length;
+! 		net->stats.tx_packets++;
+  	} else {
+  		if (ret != -EAGAIN) {
+  			dev_kfree_skb_any(skb);
+! 			net->stats.tx_dropped++;
+  		}
+  	}
+  
+--- 585,603 ----
+  	rndis_msg->msg_len += rndis_msg_size;
+  	packet->total_data_buflen = rndis_msg->msg_len;
+  	packet->page_buf_cnt = init_page_array(rndis_msg, rndis_msg_size,
+! 					skb, &packet->page_buf[0]);
+  
+  	ret = netvsc_send(net_device_ctx->device_ctx, packet, kick_q);
+  
+  drop:
+  	if (ret == 0) {
+! 		net_device_ctx->stats.tx_bytes += skb_length;
+! 		net_device_ctx->stats.tx_packets++;
+  	} else {
++ 		kfree(packet);
+  		if (ret != -EAGAIN) {
+  			dev_kfree_skb_any(skb);
+! 			net_device_ctx->stats.tx_dropped++;
+  		}
+  	}
+  
+***************
+*** 620,629 ****
+  
+  	ndev_ctx = netdev_priv(net);
+  	if (!rdev->link_state) {
+! 		schedule_delayed_work(&ndev_ctx->dwork, 0);
+! 		schedule_delayed_work(&ndev_ctx->dwork, msecs_to_jiffies(20));
+  	} else {
+! 		schedule_delayed_work(&ndev_ctx->dwork, 0);
+  	}
+  }
+  
+--- 640,649 ----
+  
+  	ndev_ctx = netdev_priv(net);
+  	if (!rdev->link_state) {
+! 		schedule_delayed_work(&ndev_ctx->dwork.work, 0);
+! 		schedule_delayed_work(&ndev_ctx->dwork.work, msecs_to_jiffies(20));
+  	} else {
+! 		schedule_delayed_work(&ndev_ctx->dwork.work, 0);
+  	}
+  }
+  
+***************
+*** 637,642 ****
+--- 657,663 ----
+  {
+  	struct net_device *net;
+  	struct sk_buff *skb;
++ 	struct net_device_context *net_device_ctx;
+  
+  	net = ((struct netvsc_device *)hv_get_drvdata(device_obj))->ndev;
+  	if (!net || net->reg_state != NETREG_REGISTERED) {
+***************
+*** 644,653 ****
+  		return 0;
+  	}
+  
+  	/* Allocate a skb - TODO direct I/O to pages? */
+  	skb = netdev_alloc_skb_ip_align(net, packet->total_data_buflen);
+  	if (unlikely(!skb)) {
+! 		++net->stats.rx_dropped;
+  		packet->status = NVSP_STAT_FAIL;
+  		return 0;
+  	}
+--- 665,675 ----
+  		return 0;
+  	}
+  
++ 	net_device_ctx = netdev_priv(net);
+  	/* Allocate a skb - TODO direct I/O to pages? */
+  	skb = netdev_alloc_skb_ip_align(net, packet->total_data_buflen);
+  	if (unlikely(!skb)) {
+! 		++net_device_ctx->stats.tx_dropped;
+  		packet->status = NVSP_STAT_FAIL;
+  		return 0;
+  	}
+***************
+*** 674,684 ****
+  	if (packet->vlan_tci & VLAN_TAG_PRESENT)
+  		__vlan_hwaccel_put_tag(skb, packet->vlan_tci);
+  
+  	skb_record_rx_queue(skb, packet->channel->
+  			    offermsg.offer.sub_channel_index);
+  
+! 	net->stats.rx_packets++;
+! 	net->stats.rx_bytes += packet->total_data_buflen;
+  
+  	/*
+  	 * Pass the skb back up. Network stack will deallocate the skb when it
+--- 696,708 ----
+  	if (packet->vlan_tci & VLAN_TAG_PRESENT)
+  		__vlan_hwaccel_put_tag(skb, packet->vlan_tci);
+  
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1291)
+  	skb_record_rx_queue(skb, packet->channel->
+  			    offermsg.offer.sub_channel_index);
++ #endif
+  
+! 	net_device_ctx->stats.rx_packets++;
+! 	net_device_ctx->stats.rx_bytes += skb->len;
+  
+  	/*
+  	 * Pass the skb back up. Network stack will deallocate the skb when it
+***************
+*** 726,737 ****
+  	hv_set_drvdata(hdev, ndev);
+  	device_info.ring_size = ring_size;
+  	rndis_filter_device_add(hdev, &device_info);
+! 	netif_tx_wake_all_queues(ndev);
+  
+  	return 0;
+  }
+  
+  
+  static int netvsc_set_mac_addr(struct net_device *ndev, void *p)
+  {
+  	struct net_device_context *ndevctx = netdev_priv(ndev);
+--- 750,762 ----
+  	hv_set_drvdata(hdev, ndev);
+  	device_info.ring_size = ring_size;
+  	rndis_filter_device_add(hdev, &device_info);
+! 	netif_wake_queue(ndev);
+  
+  	return 0;
+  }
+  
+  
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1292)
+  static int netvsc_set_mac_addr(struct net_device *ndev, void *p)
+  {
+  	struct net_device_context *ndevctx = netdev_priv(ndev);
+***************
+*** 766,777 ****
+  	 */
+  }
+  #endif
+  
+! static const struct ethtool_ops ethtool_ops = {
+  	.get_drvinfo	= netvsc_get_drvinfo,
+  	.get_link	= ethtool_op_get_link,
+  };
+  
+  static const struct net_device_ops device_ops = {
+  	.ndo_open =			netvsc_open,
+  	.ndo_stop =			netvsc_close,
+--- 791,804 ----
+  	 */
+  }
+  #endif
++ #endif
+  
+! static struct ethtool_ops ethtool_ops = {
+  	.get_drvinfo	= netvsc_get_drvinfo,
+  	.get_link	= ethtool_op_get_link,
+  };
+  
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1292)
+  static const struct net_device_ops device_ops = {
+  	.ndo_open =			netvsc_open,
+  	.ndo_stop =			netvsc_close,
+***************
+*** 786,791 ****
+--- 813,819 ----
+  #endif
+  };
+  
++ #endif
+  /*
+   * Send GARP packet to network peers after migrations.
+   * After Quick Migration, the network is not immediately operational in the
+***************
+*** 794,801 ****
+   * will not be sent after quick migration, and cause network disconnection.
+   * Also, we update the carrier status here.
+   */
+! static void netvsc_link_change(struct work_struct *w)
+  {
+  	struct net_device_context *ndev_ctx;
+  	struct net_device *net;
+  	struct netvsc_device *net_device;
+--- 822,830 ----
+   * will not be sent after quick migration, and cause network disconnection.
+   * Also, we update the carrier status here.
+   */
+! static void netvsc_link_change(void *data)
+  {
++ 	struct delayed_work *w = (struct delayed_work *)data;
+  	struct net_device_context *ndev_ctx;
+  	struct net_device *net;
+  	struct netvsc_device *net_device;
+***************
+*** 806,812 ****
+  
+  	rtnl_lock();
+  
+! 	ndev_ctx = container_of(w, struct net_device_context, dwork.work);
+  	net_device = hv_get_drvdata(ndev_ctx->device_ctx);
+  	rdev = net_device->extension;
+  	net = net_device->ndev;
+--- 835,841 ----
+  
+  	rtnl_lock();
+  
+! 	ndev_ctx = container_of(w, struct net_device_context, dwork);
+  	net_device = hv_get_drvdata(ndev_ctx->device_ctx);
+  	rdev = net_device->extension;
+  	net = net_device->ndev;
+***************
+*** 841,886 ****
+  	struct netvsc_device_info device_info;
+  	struct netvsc_device *nvdev;
+  	int ret;
+- 	u32 max_needed_headroom;
+  
+! 	net = alloc_etherdev_mq(sizeof(struct net_device_context),
+! 				num_online_cpus());
+  	if (!net)
+  		return -ENOMEM;
+  
+- 	max_needed_headroom = sizeof(struct hv_netvsc_packet) +
+- 					RNDIS_AND_PPI_SIZE;
+  	netif_carrier_off(net);
+  
+  	net_device_ctx = netdev_priv(net);
+  	net_device_ctx->device_ctx = dev;
+- 	net_device_ctx->msg_enable = netif_msg_init(debug, default_msg);
+- 	if (netif_msg_probe(net_device_ctx))
+- 		netdev_dbg(net, "netvsc msg_enable: %d\n",
+- 			net_device_ctx->msg_enable);
+  	hv_set_drvdata(dev, net);
+  	INIT_DELAYED_WORK(&net_device_ctx->dwork, netvsc_link_change);
+! 	INIT_WORK(&net_device_ctx->work, do_set_multicast);
+  
+  	net->netdev_ops = &device_ops;
+  
+! #ifdef NOTYET
+  	net->hw_features = NETIF_F_RXCSUM | NETIF_F_SG | NETIF_F_IP_CSUM |
+  				NETIF_F_TSO;
+  #endif
+! 	net->features = NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_SG | NETIF_F_RXCSUM |
+  			NETIF_F_IP_CSUM | NETIF_F_TSO;
+  
+  	net->ethtool_ops = &ethtool_ops;
+  	SET_NETDEV_DEV(net, &dev->device);
+  
+- 	/*
+- 	 * Request additional head room in the skb.
+- 	 * We will use this space to build the rndis
+- 	 * header and other state we need to maintain
+- 	 */
+- 	net->needed_headroom = max_needed_headroom;
+-  
+  	/* Notify the netvsc driver of the new device */
+  	device_info.ring_size = ring_size;
+  	ret = rndis_filter_device_add(dev, &device_info);
+--- 870,911 ----
+  	struct netvsc_device_info device_info;
+  	struct netvsc_device *nvdev;
+  	int ret;
+  
+! 	net = alloc_etherdev(sizeof(struct net_device_context));
+! 
+  	if (!net)
+  		return -ENOMEM;
+  
+  	netif_carrier_off(net);
+  
+  	net_device_ctx = netdev_priv(net);
+  	net_device_ctx->device_ctx = dev;
+  	hv_set_drvdata(dev, net);
+  	INIT_DELAYED_WORK(&net_device_ctx->dwork, netvsc_link_change);
+! 	INIT_WORK(&net_device_ctx->work, do_set_multicast,
+! 		  (void *)&net_device_ctx->work);
+  
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1291)
+  	net->netdev_ops = &device_ops;
++ #else
++ 	net->open               = netvsc_open;
++ 	net->hard_start_xmit    = netvsc_start_xmit;
++ 	net->stop               = netvsc_close;
++ 	net->get_stats          = netvsc_get_stats;
++ 	net->set_multicast_list = netvsc_set_multicast_list;
++ 	net->change_mtu         = netvsc_change_mtu;
++ #endif
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1291)
+  	net->hw_features = NETIF_F_RXCSUM | NETIF_F_SG | NETIF_F_IP_CSUM |
+  				NETIF_F_TSO;
+  #endif
+! 	net->features = NETIF_F_HW_VLAN_TX | NETIF_F_SG | NETIF_F_RXCSUM |
+  			NETIF_F_IP_CSUM | NETIF_F_TSO;
+  
+  	net->ethtool_ops = &ethtool_ops;
+  	SET_NETDEV_DEV(net, &dev->device);
+  
+  	/* Notify the netvsc driver of the new device */
+  	device_info.ring_size = ring_size;
+  	ret = rndis_filter_device_add(dev, &device_info);
+***************
+*** 893,906 ****
+  	memcpy(net->dev_addr, device_info.mac_adr, ETH_ALEN);
+  
+  	nvdev = hv_get_drvdata(dev);
+- 	netif_set_real_num_tx_queues(net, nvdev->num_chn);
+  #ifdef NOTYET
+  	netif_set_real_num_rx_queues(net, nvdev->num_chn);
+- #endif
+- 
+  	dev_info(&dev->device, "real num tx,rx queues:%u, %u\n",
+  		 net->real_num_tx_queues, nvdev->num_chn);
+! 
+  
+  	ret = register_netdev(net);
+  	if (ret != 0) {
+--- 918,929 ----
+  	memcpy(net->dev_addr, device_info.mac_adr, ETH_ALEN);
+  
+  	nvdev = hv_get_drvdata(dev);
+  #ifdef NOTYET
++ 	netif_set_real_num_tx_queues(net, nvdev->num_chn);
+  	netif_set_real_num_rx_queues(net, nvdev->num_chn);
+  	dev_info(&dev->device, "real num tx,rx queues:%u, %u\n",
+  		 net->real_num_tx_queues, nvdev->num_chn);
+! #endif
+  
+  	ret = register_netdev(net);
+  	if (ret != 0) {
+***************
+*** 908,914 ****
+  		rndis_filter_device_remove(dev);
+  		free_netdev(net);
+  	} else {
+! 		schedule_delayed_work(&net_device_ctx->dwork, 0);
+  	}
+  
+  	return ret;
+--- 931,937 ----
+  		rndis_filter_device_remove(dev);
+  		free_netdev(net);
+  	} else {
+! 		schedule_delayed_work(&net_device_ctx->dwork.work, 0);
+  	}
+  
+  	return ret;
+diff -crB hv-rhel6.x/hv/overrides.mk hv-rhel5.x/hv/overrides.mk
+*** hv-rhel6.x/hv/overrides.mk	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/overrides.mk	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 1,4 ****
+! _HV_CPPFLAGS += -I$(M)/include/
+  
+  EXTRA_CFLAGS += $(_HV_CPPFLAGS)
+  CPPFLAGS := -I$(M)/include $(CPPFLAGS)
+--- 1,4 ----
+! _HV_CPPFLAGS += -I$(M)/include
+  
+  EXTRA_CFLAGS += $(_HV_CPPFLAGS)
+  CPPFLAGS := -I$(M)/include $(CPPFLAGS)
+diff -crB hv-rhel6.x/hv/README hv-rhel5.x/hv/README
+*** hv-rhel6.x/hv/README	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/README	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 1,9 ****
+  After unpacking the tar file; as root:
+  
+! 	Execute the script ./rhel6-hv-driver-install to build and install
+! 	Hyper-V drivers on a rhel6 installation. Once the script completes,
+! 	reboot the machine to bringup RHEL6 enlightened on Hyper-V.
+  
+  	To uninstall the Hyper-V drivers, execute the script
+! 	./rhel6-hv-driver-uninstall. Once the script completes, reboot the machine
+! 	to bringup RHEL6 in fully emulated mode.
+--- 1,9 ----
+  After unpacking the tar file; as root:
+  
+! 	Execute the script ./rhel5-hv-driver-install to build and install
+! 	Hyper-V drivers on a rhel5.x installation. Once the script completes,
+! 	reboot the machine to bringup RHEL5.X enlightened on Hyper-V.
+  
+  	To uninstall the Hyper-V drivers, execute the script
+! 	./rhel5-hv-driver-uninstall. Once the script completes, reboot the machine
+! 	to bringup RHEL5 in fully emulated mode.
+Only in hv-rhel5.x/hv: rhel5-hv-driver-install
+Only in hv-rhel5.x/hv: rhel5-hv-driver-uninstall
+Only in hv-rhel6.x/hv: rhel6-hv-driver-install
+Only in hv-rhel6.x/hv: rhel6-hv-driver-uninstall
+diff -crB hv-rhel6.x/hv/rndis_filter.c hv-rhel5.x/hv/rndis_filter.c
+*** hv-rhel6.x/hv/rndis_filter.c	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/rndis_filter.c	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 47,52 ****
+--- 47,54 ----
+  
+  	/* Simplify allocation by having a netvsc packet inline */
+  	struct hv_netvsc_packet	pkt;
++ 	/* Set 2 pages for rndis requests crossing page boundary */
++ 	struct hv_page_buffer buf[2];
+  
+  	struct rndis_message request_msg;
+  	/*
+***************
+*** 208,214 ****
+  {
+  	int ret;
+  	struct hv_netvsc_packet *packet;
+- 	struct hv_page_buffer page_buf[2];
+  
+  	/* Setup the packet to send it */
+  	packet = &req->pkt;
+--- 210,215 ----
+***************
+*** 216,222 ****
+  	packet->is_data_pkt = false;
+  	packet->total_data_buflen = req->request_msg.msg_len;
+  	packet->page_buf_cnt = 1;
+- 	packet->page_buf = page_buf;
+  
+  	packet->page_buf[0].pfn = virt_to_phys(&req->request_msg) >>
+  					PAGE_SHIFT;
+--- 217,222 ----
+***************
+*** 428,435 ****
+  
+  	rndis_msg = pkt->data;
+  
+! 	if (netif_msg_rx_err(net_dev->nd_ctx))
+! 		dump_rndis_message(dev, rndis_msg);
+  
+  	switch (rndis_msg->ndis_msg_type) {
+  	case RNDIS_MSG_PACKET:
+--- 428,434 ----
+  
+  	rndis_msg = pkt->data;
+  
+! 	dump_rndis_message(dev, rndis_msg);
+  
+  	switch (rndis_msg->ndis_msg_type) {
+  	case RNDIS_MSG_PACKET:
+***************
+*** 588,608 ****
+  
+  	cfg_nwadr = (wchar_t *)((ulong)cpi + cpi->parameter_name_offset);
+  	cfg_mac = (wchar_t *)((ulong)cpi + cpi->parameter_value_offset);
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
+! 	ret = utf8s_to_utf16s(NWADR_STR, NWADR_STRLEN, cfg_nwadr);
+! #else
+! 	ret = utf8s_to_utf16s(NWADR_STR, NWADR_STRLEN, UTF16_HOST_ENDIAN,
+! 			      cfg_nwadr, NWADR_STRLEN);
+! #endif
+  	if (ret < 0)
+  		goto cleanup;
+  	snprintf(macstr, 2*ETH_ALEN+1, "%pm", mac);
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
+! 	ret = utf8s_to_utf16s(macstr, 2*ETH_ALEN, cfg_mac);
+! #else
+! 	ret = utf8s_to_utf16s(macstr, 2*ETH_ALEN, UTF16_HOST_ENDIAN,
+! 			      cfg_mac, 2*ETH_ALEN);
+! #endif
+  
+  	if (ret < 0)
+  		goto cleanup;
+--- 587,597 ----
+  
+  	cfg_nwadr = (wchar_t *)((ulong)cpi + cpi->parameter_name_offset);
+  	cfg_mac = (wchar_t *)((ulong)cpi + cpi->parameter_value_offset);
+! 	ret = utf8_mbstowcs((wchar_t *)cfg_nwadr, NWADR_STR, NWADR_STRLEN);
+  	if (ret < 0)
+  		goto cleanup;
+  	snprintf(macstr, 2*ETH_ALEN+1, "%pm", mac);
+! 	ret = utf8_mbstowcs((wchar_t *)cfg_mac, macstr, 2*ETH_ALEN);
+  
+  	if (ret < 0)
+  		goto cleanup;
+diff -crB hv-rhel6.x/hv/storvsc_drv.c hv-rhel5.x/hv/storvsc_drv.c
+*** hv-rhel6.x/hv/storvsc_drv.c	2015-05-29 15:34:11.000000000 -0700
+--- hv-rhel5.x/hv/storvsc_drv.c	2015-05-29 15:34:00.000000000 -0700
+***************
+*** 347,353 ****
+--- 347,355 ----
+  /*
+   * Timeout in seconds for all devices managed by this driver.
+   */
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1291)
+  static int storvsc_timeout = 180;
++ #endif
+  
+  
+  
+***************
+*** 435,442 ****
+  	uint lun;
+  };
+  
+! static void storvsc_device_scan(struct work_struct *work)
+  {
+  	struct storvsc_scan_work *wrk;
+  	uint lun;
+  	struct scsi_device *sdev;
+--- 437,445 ----
+  	uint lun;
+  };
+  
+! static void storvsc_device_scan(void *data)
+  {
++ 	struct work_struct *work = (struct work_struct *)data;
+  	struct storvsc_scan_work *wrk;
+  	uint lun;
+  	struct scsi_device *sdev;
+***************
+*** 454,476 ****
+  	kfree(wrk);
+  }
+  
+! static void storvsc_bus_scan(struct Scsi_Host *host)
+! {
+! 	int id, order_id;
+! 
+! 	for (id = 0; id < host->max_id; ++id) {
+! 		if (host->reverse_ordering)
+! 			order_id = host->max_id - id - 1;
+! 		else
+! 			order_id = id;
+! 
+! 		scsi_scan_target(&host->shost_gendev, 0,
+! 				 order_id, SCAN_WILD_CARD, 1);
+! 	}
+! }
+! 
+! static void storvsc_host_scan(struct work_struct *work)
+  {
+  	struct storvsc_scan_work *wrk;
+  	struct Scsi_Host *host;
+  	struct scsi_device *sdev;
+--- 457,465 ----
+  	kfree(wrk);
+  }
+  
+! static void storvsc_host_scan(void *data)
+  {
++ 	struct work_struct *work = (struct work_struct *)data;
+  	struct storvsc_scan_work *wrk;
+  	struct Scsi_Host *host;
+  	struct scsi_device *sdev;
+***************
+*** 494,500 ****
+--- 483,493 ----
+  	spin_lock_irqsave(host->host_lock, flags);
+  	list_for_each_entry(sdev, &host->__devices, siblings) {
+  		spin_unlock_irqrestore(host->host_lock, flags);
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1291)
+  		scsi_test_unit_ready(sdev, 1, 1, NULL);
++ #else
++ 		scsi_test_unit_ready(sdev, 1, 1);
++ #endif
+  		spin_lock_irqsave(host->host_lock, flags);
+  		continue;
+  	}
+***************
+*** 503,515 ****
+  	/*
+  	 * Now scan the host to discover LUNs that may have been added.
+  	 */
+! 	storvsc_bus_scan(host);
+  
+  	kfree(wrk);
+  }
+  
+! static void storvsc_remove_lun(struct work_struct *work)
+  {
+  	struct storvsc_scan_work *wrk;
+  	struct scsi_device *sdev;
+  
+--- 496,509 ----
+  	/*
+  	 * Now scan the host to discover LUNs that may have been added.
+  	 */
+! 	scsi_scan_host(host);
+  
+  	kfree(wrk);
+  }
+  
+! static void storvsc_remove_lun(void *data)
+  {
++ 	struct work_struct *work = (struct work_struct *)data;
+  	struct storvsc_scan_work *wrk;
+  	struct scsi_device *sdev;
+  
+***************
+*** 668,673 ****
+--- 662,668 ----
+  		if (!page_buf)
+  			goto cleanup;
+  		sg_set_page(&bounce_sgl[i], page_buf, buf_len, 0);
++ 		bounce_sgl[i].length = buf_len;
+  	}
+  
+  	return bounce_sgl;
+***************
+*** 1081,1091 ****
+  				u8 asc, u8 ascq)
+  {
+  	struct storvsc_scan_work *wrk;
+! 	void (*process_err_fn)(struct work_struct *work);
+  	bool do_work = false;
+- 	struct hv_host_device *host_dev = shost_priv(scmnd->device->host);
+- 	int error_handling_cpu = host_dev->dev->channel->target_cpu;
+- 
+  
+  	switch (vm_srb->srb_status) {
+  	case SRB_STATUS_ERROR:
+--- 1076,1083 ----
+  				u8 asc, u8 ascq)
+  {
+  	struct storvsc_scan_work *wrk;
+! 	void (*process_err_fn)(void *work);
+  	bool do_work = false;
+  
+  	switch (vm_srb->srb_status) {
+  	case SRB_STATUS_ERROR:
+***************
+*** 1141,1148 ****
+  
+  	wrk->host = host;
+  	wrk->lun = vm_srb->lun;
+! 	INIT_WORK(&wrk->work, process_err_fn);
+! 	schedule_work_on(error_handling_cpu, &wrk->work);
+  }
+  
+  
+--- 1133,1140 ----
+  
+  	wrk->host = host;
+  	wrk->lun = vm_srb->lun;
+! 	INIT_WORK(&wrk->work, process_err_fn, &wrk->work);
+! 	schedule_work(&wrk->work);
+  }
+  
+  
+***************
+*** 1298,1304 ****
+  		if (!work)
+  			return;
+  
+! 		INIT_WORK(&work->work, storvsc_host_scan);
+  		work->host = stor_device->host;
+  		schedule_work(&work->work);
+  		break;
+--- 1290,1296 ----
+  		if (!work)
+  			return;
+  
+! 		INIT_WORK(&work->work, storvsc_host_scan, &work->work);
+  		work->host = stor_device->host;
+  		schedule_work(&work->work);
+  		break;
+***************
+*** 1489,1497 ****
+  		return -ENOMEM;
+  
+  	memp->request_pool =
+! 		kmem_cache_create(dev_name(&sdevice->sdev_dev),
+  				sizeof(struct storvsc_cmd_request), 0,
+! 				SLAB_HWCACHE_ALIGN, NULL);
+  
+  	if (!memp->request_pool)
+  		goto err0;
+--- 1481,1489 ----
+  		return -ENOMEM;
+  
+  	memp->request_pool =
+! 		kmem_cache_create(sdevice->sdev_gendev.bus_id,
+  				sizeof(struct storvsc_cmd_request), 0,
+! 				SLAB_HWCACHE_ALIGN, NULL, NULL);
+  
+  	if (!memp->request_pool)
+  		goto err0;
+***************
+*** 1535,1541 ****
+--- 1527,1535 ----
+  
+  	blk_queue_bounce_limit(sdevice->request_queue, BLK_BOUNCE_ANY);
+  
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1291)
+  	blk_queue_rq_timeout(sdevice->request_queue, (storvsc_timeout * HZ));
++ #endif
+  
+  	/*
+  	 * If the host is WIN8 or WIN8 R2, claim conformance to SPC-3
+***************
+*** 1632,1641 ****
+--- 1626,1647 ----
+   * be unbounded on Azure.  Reset the timer unconditionally to give the host a
+   * chance to perform EH.
+   */
++ #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1291)
+  static enum blk_eh_timer_return storvsc_eh_timed_out(struct scsi_cmnd *scmnd)
+  {
+  	return BLK_EH_RESET_TIMER;
+  }
++ #else
++ static enum scsi_eh_timer_return storvsc_eh_timed_out(struct scsi_cmnd *scmnd)
++ {
++ 	return EH_RESET_TIMER;
++ }
++ #endif
++ 
++ static inline void set_driver_byte(struct scsi_cmnd *cmd, char status)
++ {
++ 	cmd->result = (cmd->result & 0x00ffffff) | (status << 24);
++ }
+  
+  static bool storvsc_scsi_cmd_ok(struct scsi_cmnd *scmnd)
+  {
+***************
+*** 1645,1660 ****
+  	switch (scsi_op) {
+  	/* the host does not handle WRITE_SAME, log accident usage */
+  	case WRITE_SAME:
+! 	case WRITE_SAME_16:
+  	/*
+  	 * smartd sends this command and the host does not handle
+  	 * this. So, don't send it.
+  	 */
+  	case SET_WINDOW:
+  		scsi_build_sense_buffer(0, scmnd->sense_buffer,
+! 					ILLEGAL_REQUEST, 0, 0);
+  
+! 		scmnd->result = (DRIVER_SENSE << 24) | SAM_STAT_CHECK_CONDITION;
+  		allowed = false;
+  		break;
+  	default:
+--- 1651,1668 ----
+  	switch (scsi_op) {
+  	/* the host does not handle WRITE_SAME, log accident usage */
+  	case WRITE_SAME:
+! 	//case WRITE_SAME_16:
+  	/*
+  	 * smartd sends this command and the host does not handle
+  	 * this. So, don't send it.
+  	 */
+  	case SET_WINDOW:
+  		scsi_build_sense_buffer(0, scmnd->sense_buffer,
+! 					ILLEGAL_REQUEST, 0x20, 0);
+  
+! 		scmnd->result = SAM_STAT_CHECK_CONDITION;
+! 		set_driver_byte(scmnd, DRIVER_SENSE);
+! 		set_host_byte(scmnd, DID_ABORT);
+  		allowed = false;
+  		break;
+  	default:
+Only in hv-rhel5.x/hv: .tmp_versions
+diff -crB hv-rhel6.x/hv/tools/hv_fcopy_daemon.c hv-rhel5.x/hv/tools/hv_fcopy_daemon.c
+*** hv-rhel6.x/hv/tools/hv_fcopy_daemon.c	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/tools/hv_fcopy_daemon.c	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 43,51 ****
+  	int error = HV_E_FAIL;
+  	char *q, *p;
+  
+  	p = (char *)smsg->path_name;
+  	snprintf(target_fname, sizeof(target_fname), "%s/%s",
+! 		 (char *)smsg->path_name, (char *)smsg->file_name);
+  
+  	syslog(LOG_INFO, "Target file name: %s", target_fname);
+  	/*
+--- 43,57 ----
+  	int error = HV_E_FAIL;
+  	char *q, *p;
+  
++ 	/*
++ 	 * If possile append a path seperator to the path.
++ 	 */
++ 	if (strlen((char *)smsg->path_name) < (W_MAX_PATH - 2))
++ 		strcat((char *)smsg->path_name, "/");
++ 
+  	p = (char *)smsg->path_name;
+  	snprintf(target_fname, sizeof(target_fname), "%s/%s",
+! 		(char *)smsg->path_name, smsg->file_name);
+  
+  	syslog(LOG_INFO, "Target file name: %s", target_fname);
+  	/*
+***************
+*** 131,137 ****
+  
+  int main(int argc, char *argv[])
+  {
+! 	int fcopy_fd, len;
+  	int error;
+  	int daemonize = 1, long_index = 0, opt;
+  	int version = FCOPY_CURRENT_VERSION;
+--- 137,143 ----
+  
+  int main(int argc, char *argv[])
+  {
+! 	int fd, fcopy_fd, len;
+  	int error;
+  	int daemonize = 1, long_index = 0, opt;
+  	int version = FCOPY_CURRENT_VERSION;
+***************
+*** 165,174 ****
+  	openlog("HV_FCOPY", 0, LOG_USER);
+  	syslog(LOG_INFO, "HV_FCOPY starting; pid is:%d", getpid());
+  
+! 	fcopy_fd = open("/dev/vmbus/hv_fcopy", O_RDWR);
+  
+  	if (fcopy_fd < 0) {
+! 		syslog(LOG_ERR, "open /dev/vmbus/hv_fcopy failed; error: %d %s",
+  			errno, strerror(errno));
+  		exit(EXIT_FAILURE);
+  	}
+--- 171,180 ----
+  	openlog("HV_FCOPY", 0, LOG_USER);
+  	syslog(LOG_INFO, "HV_FCOPY starting; pid is:%d", getpid());
+  
+! 	fcopy_fd = open("/dev/hv_fcopy", O_RDWR);
+  
+  	if (fcopy_fd < 0) {
+! 		syslog(LOG_ERR, "open /dev/hv_fcopy failed; error: %d %s",
+  			errno, strerror(errno));
+  		exit(EXIT_FAILURE);
+  	}
+diff -crB hv-rhel6.x/hv/tools/hv_kvp_daemon.c hv-rhel5.x/hv/tools/hv_kvp_daemon.c
+*** hv-rhel6.x/hv/tools/hv_kvp_daemon.c	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/tools/hv_kvp_daemon.c	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 26,31 ****
+--- 26,33 ----
+  #include <sys/socket.h>
+  #include <sys/poll.h>
+  #include <sys/utsname.h>
++ #include <linux/types.h>
++ #include <linux/kdev_t.h>
+  #include <stdio.h>
+  #include <stdlib.h>
+  #include <unistd.h>
+***************
+*** 44,50 ****
+  #include <fcntl.h>
+  #include <dirent.h>
+  #include <net/if.h>
+- #include <getopt.h>
+  
+  /*
+   * KVP protocol: The user mode component first registers with the
+--- 46,51 ----
+***************
+*** 58,63 ****
+--- 59,68 ----
+   *
+   */
+  
++ #ifndef O_CLOEXEC
++ #define O_CLOEXEC       02000000        /* set close_on_exec */
++ #endif
++ 
+  
+  enum key_index {
+  	FullyQualifiedDomainName = 0,
+***************
+*** 89,96 ****
+  static char *processor_arch;
+  static char *os_build;
+  static char *os_version;
+! static char *lic_version = "Unknown version";
+! static char full_domain_name[HV_KVP_EXCHANGE_MAX_VALUE_SIZE];
+  static struct utsname uts_buf;
+  
+  /*
+--- 94,100 ----
+  static char *processor_arch;
+  static char *os_build;
+  static char *os_version;
+! static char *lic_version = "LIS 4.0";
+  static struct utsname uts_buf;
+  
+  /*
+***************
+*** 127,134 ****
+  	fl.l_pid = getpid();
+  
+  	if (fcntl(kvp_file_info[pool].fd, F_SETLKW, &fl) == -1) {
+! 		syslog(LOG_ERR, "Failed to acquire the lock pool: %d; error: %d %s", pool,
+! 				errno, strerror(errno));
+  		exit(EXIT_FAILURE);
+  	}
+  }
+--- 131,137 ----
+  	fl.l_pid = getpid();
+  
+  	if (fcntl(kvp_file_info[pool].fd, F_SETLKW, &fl) == -1) {
+! 		syslog(LOG_ERR, "Failed to acquire the lock pool: %d", pool);
+  		exit(EXIT_FAILURE);
+  	}
+  }
+***************
+*** 139,146 ****
+  	fl.l_pid = getpid();
+  
+  	if (fcntl(kvp_file_info[pool].fd, F_SETLK, &fl) == -1) {
+! 		syslog(LOG_ERR, "Failed to release the lock pool: %d; error: %d %s", pool,
+! 				errno, strerror(errno));
+  		exit(EXIT_FAILURE);
+  	}
+  }
+--- 142,149 ----
+  	fl.l_pid = getpid();
+  
+  	if (fcntl(kvp_file_info[pool].fd, F_SETLK, &fl) == -1) {
+! 		perror("fcntl");
+! 		syslog(LOG_ERR, "Failed to release the lock pool: %d", pool);
+  		exit(EXIT_FAILURE);
+  	}
+  }
+***************
+*** 148,153 ****
+--- 151,157 ----
+  static void kvp_update_file(int pool)
+  {
+  	FILE *filep;
++ 	size_t bytes_written;
+  
+  	/*
+  	 * We are going to write our in-memory registry out to
+***************
+*** 157,169 ****
+  
+  	filep = fopen(kvp_file_info[pool].fname, "we");
+  	if (!filep) {
+- 		syslog(LOG_ERR, "Failed to open file, pool: %d; error: %d %s", pool,
+- 				errno, strerror(errno));
+  		kvp_release_lock(pool);
+  		exit(EXIT_FAILURE);
+  	}
+  
+! 	fwrite(kvp_file_info[pool].records, sizeof(struct kvp_record),
+  				kvp_file_info[pool].num_records, filep);
+  
+  	if (ferror(filep) || fclose(filep)) {
+--- 161,173 ----
+  
+  	filep = fopen(kvp_file_info[pool].fname, "we");
+  	if (!filep) {
+  		kvp_release_lock(pool);
++ 		syslog(LOG_ERR, "Failed to open file, pool: %d", pool);
+  		exit(EXIT_FAILURE);
+  	}
+  
+! 	bytes_written = fwrite(kvp_file_info[pool].records,
+! 				sizeof(struct kvp_record),
+  				kvp_file_info[pool].num_records, filep);
+  
+  	if (ferror(filep) || fclose(filep)) {
+***************
+*** 188,196 ****
+  
+  	filep = fopen(kvp_file_info[pool].fname, "re");
+  	if (!filep) {
+- 		syslog(LOG_ERR, "Failed to open file, pool: %d; error: %d %s", pool,
+- 				errno, strerror(errno));
+  		kvp_release_lock(pool);
+  		exit(EXIT_FAILURE);
+  	}
+  	for (;;) {
+--- 192,199 ----
+  
+  	filep = fopen(kvp_file_info[pool].fname, "re");
+  	if (!filep) {
+  		kvp_release_lock(pool);
++ 		syslog(LOG_ERR, "Failed to open file, pool: %d", pool);
+  		exit(EXIT_FAILURE);
+  	}
+  	for (;;) {
+***************
+*** 241,248 ****
+  
+  	if (access(KVP_CONFIG_LOC, F_OK)) {
+  		if (mkdir(KVP_CONFIG_LOC, 0755 /* rwxr-xr-x */)) {
+! 			syslog(LOG_ERR, "Failed to create '%s'; error: %d %s", KVP_CONFIG_LOC,
+! 					errno, strerror(errno));
+  			exit(EXIT_FAILURE);
+  		}
+  	}
+--- 244,250 ----
+  
+  	if (access(KVP_CONFIG_LOC, F_OK)) {
+  		if (mkdir(KVP_CONFIG_LOC, 0755 /* rwxr-xr-x */)) {
+! 			syslog(LOG_ERR, " Failed to create %s", KVP_CONFIG_LOC);
+  			exit(EXIT_FAILURE);
+  		}
+  	}
+***************
+*** 309,315 ****
+  	return 0;
+  }
+  
+! static int kvp_key_delete(int pool, const __u8 *key, int key_size)
+  {
+  	int i;
+  	int j, k;
+--- 311,317 ----
+  	return 0;
+  }
+  
+! static int kvp_key_delete(int pool, const char *key, int key_size)
+  {
+  	int i;
+  	int j, k;
+***************
+*** 352,359 ****
+  	return 1;
+  }
+  
+! static int kvp_key_add_or_modify(int pool, const __u8 *key, int key_size,
+! 				 const __u8 *value, int value_size)
+  {
+  	int i;
+  	int num_records;
+--- 354,361 ----
+  	return 1;
+  }
+  
+! static int kvp_key_add_or_modify(int pool, const char *key, int key_size, const char *value,
+! 			int value_size)
+  {
+  	int i;
+  	int num_records;
+***************
+*** 406,412 ****
+  	return 0;
+  }
+  
+! static int kvp_get_value(int pool, const __u8 *key, int key_size, __u8 *value,
+  			int value_size)
+  {
+  	int i;
+--- 408,414 ----
+  	return 0;
+  }
+  
+! static int kvp_get_value(int pool, const char *key, int key_size, char *value,
+  			int value_size)
+  {
+  	int i;
+***************
+*** 438,445 ****
+  	return 1;
+  }
+  
+! static int kvp_pool_enumerate(int pool, int index, __u8 *key, int key_size,
+! 				__u8 *value, int value_size)
+  {
+  	struct kvp_record *record;
+  
+--- 440,447 ----
+  	return 1;
+  }
+  
+! static int kvp_pool_enumerate(int pool, int index, char *key, int key_size,
+! 				char *value, int value_size)
+  {
+  	struct kvp_record *record;
+  
+***************
+*** 587,592 ****
+--- 589,663 ----
+  	return;
+  }
+  
++ static char *kvp_get_mac_addr(char *guid)
++ {
++ 	DIR *dir;
++ 	struct dirent *entry;
++ 	FILE    *file, *file2;
++ 	char    *p, *q, *x;
++ 	char    *mac_addr = NULL;
++ 	char    buf[256];
++ 	char *kvp_dev_dir = "/sys/class/net/";
++ 	char dev_id[256];
++ 	char dev_id2[256];
++ 
++ 	dir = opendir(kvp_dev_dir);
++ 	if (dir == NULL)
++ 		return NULL;
++ 
++ 	snprintf(dev_id, sizeof(dev_id), "%s", kvp_dev_dir);
++ 	q = dev_id + strlen(kvp_dev_dir);
++ 
++ 	while ((entry = readdir(dir)) != NULL) {
++ 		/*
++ 		 * Set the state for the next pass.
++ 		 */
++ 		*q = '\0';
++ 		strcat(dev_id, entry->d_name);
++ 		strcpy(dev_id2, dev_id);
++ 		strcat(dev_id2, "/address");
++ 		strcat(dev_id, "/device/device_id");
++ 
++ 		file = fopen(dev_id, "r");
++ 		if (file == NULL)
++ 			continue;
++ 
++ 		p = fgets(buf, sizeof(buf), file);
++ 		if (p) {
++ 			x = strchr(p, '\n');
++ 			if (x)
++ 				*x = '\0';
++ 
++ 			if (!strcmp(p, guid)) {
++ 				/*
++ 				 * Found the guid match; return the interface
++ 				 * name. The caller will free the memory.
++ 				 */
++ 				file2 = fopen(dev_id2, "r");
++ 				if (file2 == NULL) {
++ 					fclose(file);
++ 					continue;
++ 				}
++ 
++ 				p = fgets(buf, sizeof(buf), file2);
++ 				if (p) {
++ 					x = strchr(p, '\n');
++ 					if (x)
++ 						*x = '\0';
++ 					mac_addr = strdup(p);
++ 					fclose(file2);
++ 					fclose(file);
++ 					break;
++ 				}
++ 				fclose(file2);
++ 			}
++ 		}
++ 		fclose(file);
++ 	}
++ 
++ 	closedir(dir);
++ 	return mac_addr;
++ }
+  
+  
+  /*
+***************
+*** 603,613 ****
+--- 674,689 ----
+  	struct dirent *entry;
+  	FILE    *file;
+  	char    *p, *q, *x;
++ 	char 	*mac_addr;
+  	char    *if_name = NULL;
+  	char    buf[256];
+  	char *kvp_net_dir = "/sys/class/net/";
+  	char dev_id[256];
+  
++ 	mac_addr = kvp_get_mac_addr(guid);
++ 	if (mac_addr == NULL)
++ 		return NULL;
++  
+  	dir = opendir(kvp_net_dir);
+  	if (dir == NULL)
+  		return NULL;
+***************
+*** 621,627 ****
+  		 */
+  		*q = '\0';
+  		strcat(dev_id, entry->d_name);
+! 		strcat(dev_id, "/device/device_id");
+  
+  		file = fopen(dev_id, "r");
+  		if (file == NULL)
+--- 697,703 ----
+  		 */
+  		*q = '\0';
+  		strcat(dev_id, entry->d_name);
+! 		strcat(dev_id, "/address");
+  
+  		file = fopen(dev_id, "r");
+  		if (file == NULL)
+***************
+*** 633,641 ****
+  			if (x)
+  				*x = '\0';
+  
+! 			if (!strcmp(p, guid)) {
+  				/*
+! 				 * Found the guid match; return the interface
+  				 * name. The caller will free the memory.
+  				 */
+  				if_name = strdup(entry->d_name);
+--- 709,717 ----
+  			if (x)
+  				*x = '\0';
+  
+! 			if (!strcmp(p, mac_addr)) {
+  				/*
+! 				 * Found the mac addr match; return the interface
+  				 * name. The caller will free the memory.
+  				 */
+  				if_name = strdup(entry->d_name);
+***************
+*** 647,652 ****
+--- 723,729 ----
+  	}
+  
+  	closedir(dir);
++ 	free(mac_addr);
+  	return if_name;
+  }
+  
+***************
+*** 660,666 ****
+  	char    *p, *x;
+  	char    buf[256];
+  	char addr_file[256];
+! 	unsigned int i;
+  	char *mac_addr = NULL;
+  
+  	snprintf(addr_file, sizeof(addr_file), "%s%s%s", "/sys/class/net/",
+--- 737,743 ----
+  	char    *p, *x;
+  	char    buf[256];
+  	char addr_file[256];
+! 	int i;
+  	char *mac_addr = NULL;
+  
+  	snprintf(addr_file, sizeof(addr_file), "%s%s%s", "/sys/class/net/",
+***************
+*** 699,705 ****
+  	char    buf[256];
+  	char *kvp_net_dir = "/sys/class/net/";
+  	char dev_id[256];
+! 	unsigned int i;
+  
+  	dir = opendir(kvp_net_dir);
+  	if (dir == NULL)
+--- 776,782 ----
+  	char    buf[256];
+  	char *kvp_net_dir = "/sys/class/net/";
+  	char dev_id[256];
+! 	int i;
+  
+  	dir = opendir(kvp_net_dir);
+  	if (dir == NULL)
+***************
+*** 749,755 ****
+  
+  
+  static void kvp_process_ipconfig_file(char *cmd,
+! 					char *config_buf, unsigned int len,
+  					int element_size, int offset)
+  {
+  	char buf[256];
+--- 826,832 ----
+  
+  
+  static void kvp_process_ipconfig_file(char *cmd,
+! 					char *config_buf, int len,
+  					int element_size, int offset)
+  {
+  	char buf[256];
+***************
+*** 767,773 ****
+  	if (offset == 0)
+  		memset(config_buf, 0, len);
+  	while ((p = fgets(buf, sizeof(buf), file)) != NULL) {
+! 		if (len < strlen(config_buf) + element_size + 1)
+  			break;
+  
+  		x = strchr(p, '\n');
+--- 844,850 ----
+  	if (offset == 0)
+  		memset(config_buf, 0, len);
+  	while ((p = fgets(buf, sizeof(buf), file)) != NULL) {
+! 		if ((len - strlen(config_buf)) < (element_size + 1))
+  			break;
+  
+  		x = strchr(p, '\n');
+***************
+*** 915,921 ****
+  
+  static int
+  kvp_get_ip_info(int family, char *if_name, int op,
+! 		 void  *out_buffer, unsigned int length)
+  {
+  	struct ifaddrs *ifap;
+  	struct ifaddrs *curp;
+--- 992,998 ----
+  
+  static int
+  kvp_get_ip_info(int family, char *if_name, int op,
+! 		 void  *out_buffer, int length)
+  {
+  	struct ifaddrs *ifap;
+  	struct ifaddrs *curp;
+***************
+*** 1018,1024 ****
+  					weight += hweight32(&w[i]);
+  
+  				sprintf(cidr_mask, "/%d", weight);
+! 				if (length < sn_offset + strlen(cidr_mask) + 1)
+  					goto gather_ipaddr;
+  
+  				if (sn_offset == 0)
+--- 1095,1102 ----
+  					weight += hweight32(&w[i]);
+  
+  				sprintf(cidr_mask, "/%d", weight);
+! 				if ((length - sn_offset) <
+! 					(strlen(cidr_mask) + 1))
+  					goto gather_ipaddr;
+  
+  				if (sn_offset == 0)
+***************
+*** 1282,1289 ****
+  	file = fopen(if_file, "w");
+  
+  	if (file == NULL) {
+! 		syslog(LOG_ERR, "Failed to open config file; error: %d %s",
+! 				errno, strerror(errno));
+  		return HV_E_FAIL;
+  	}
+  
+--- 1360,1366 ----
+  	file = fopen(if_file, "w");
+  
+  	if (file == NULL) {
+! 		syslog(LOG_ERR, "Failed to open config file");
+  		return HV_E_FAIL;
+  	}
+  
+***************
+*** 1298,1304 ****
+  	}
+  
+  	error = kvp_write_file(file, "HWADDR", "", mac_addr);
+- 	free(mac_addr);
+  	if (error)
+  		goto setval_error;
+  
+--- 1375,1380 ----
+***************
+*** 1352,1372 ****
+  	 */
+  
+  	snprintf(cmd, sizeof(cmd), "%s %s", "hv_set_ifconfig", if_file);
+! 	if (system(cmd)) {
+! 		syslog(LOG_ERR, "Failed to execute cmd '%s'; error: %d %s",
+! 				cmd, errno, strerror(errno));
+! 		return HV_E_FAIL;
+! 	}
+  	return 0;
+  
+  setval_error:
+  	syslog(LOG_ERR, "Failed to write config file");
+  	fclose(file);
+  	return error;
+  }
+  
+  
+! static void
+  kvp_get_domain_name(char *buffer, int length)
+  {
+  	struct addrinfo	hints, *info ;
+--- 1428,1445 ----
+  	 */
+  
+  	snprintf(cmd, sizeof(cmd), "%s %s", "hv_set_ifconfig", if_file);
+! 	system(cmd);
+  	return 0;
+  
+  setval_error:
+  	syslog(LOG_ERR, "Failed to write config file");
++ 	free(mac_addr);
+  	fclose(file);
+  	return error;
+  }
+  
+  
+! static int
+  kvp_get_domain_name(char *buffer, int length)
+  {
+  	struct addrinfo	hints, *info ;
+***************
+*** 1380,1408 ****
+  
+  	error = getaddrinfo(buffer, NULL, &hints, &info);
+  	if (error != 0) {
+! 		snprintf(buffer, length, "getaddrinfo failed: 0x%x %s",
+! 			error, gai_strerror(error));
+! 		return;
+  	}
+! 	snprintf(buffer, length, "%s", info->ai_canonname);
+  	freeaddrinfo(info);
+  }
+  
+  static int
+  netlink_send(int fd, struct cn_msg *msg)
+  {
+! 	struct nlmsghdr nlh = { .nlmsg_type = NLMSG_DONE };
+  	unsigned int size;
+  	struct msghdr message;
+  	struct iovec iov[2];
+  
+! 	size = sizeof(struct cn_msg) + msg->len;
+  
+! 	nlh.nlmsg_pid = getpid();
+! 	nlh.nlmsg_len = NLMSG_LENGTH(size);
+  
+! 	iov[0].iov_base = &nlh;
+! 	iov[0].iov_len = sizeof(nlh);
+  
+  	iov[1].iov_base = msg;
+  	iov[1].iov_len = size;
+--- 1453,1486 ----
+  
+  	error = getaddrinfo(buffer, NULL, &hints, &info);
+  	if (error != 0) {
+! 		strcpy(buffer, "getaddrinfo failed\n");
+! 		return error;
+  	}
+! 	strcpy(buffer, info->ai_canonname);
+  	freeaddrinfo(info);
++ 	return error;
+  }
+  
+  static int
+  netlink_send(int fd, struct cn_msg *msg)
+  {
+! 	struct nlmsghdr *nlh;
+  	unsigned int size;
+  	struct msghdr message;
++ 	char buffer[64];
+  	struct iovec iov[2];
+  
+! 	size = NLMSG_SPACE(sizeof(struct cn_msg) + msg->len);
+  
+! 	nlh = (struct nlmsghdr *)buffer;
+! 	nlh->nlmsg_seq = 0;
+! 	nlh->nlmsg_pid = getpid();
+! 	nlh->nlmsg_type = NLMSG_DONE;
+! 	nlh->nlmsg_len = NLMSG_LENGTH(size - sizeof(*nlh));
+! 	nlh->nlmsg_flags = 0;
+  
+! 	iov[0].iov_base = nlh;
+! 	iov[0].iov_len = sizeof(*nlh);
+  
+  	iov[1].iov_base = msg;
+  	iov[1].iov_len = size;
+***************
+*** 1416,1432 ****
+  	return sendmsg(fd, &message, 0);
+  }
+  
+! void print_usage(char *argv[])
+! {
+! 	fprintf(stderr, "Usage: %s [options]\n"
+! 		"Options are:\n"
+! 		"  -n, --no-daemon        stay in foreground, don't daemonize\n"
+! 		"  -h, --help             print this help\n", argv[0]);
+! }
+! 
+! int main(int argc, char *argv[])
+  {
+! 	int fd, len, nl_group;
+  	int error;
+  	struct cn_msg *message;
+  	struct pollfd pfd;
+--- 1494,1502 ----
+  	return sendmsg(fd, &message, 0);
+  }
+  
+! int main(void)
+  {
+! 	int fd, kvp_fd, len, nl_group;
+  	int error;
+  	struct cn_msg *message;
+  	struct pollfd pfd;
+***************
+*** 1440,1480 ****
+  	int	pool;
+  	char	*if_name;
+  	struct hv_kvp_ipaddr_value *kvp_ip_val;
+  	char *kvp_recv_buffer;
+  	size_t kvp_recv_buffer_len;
+- 	int daemonize = 1, long_index = 0, opt;
+  
+- 	static struct option long_options[] = {
+- 		{"help",	no_argument,	   0,  'h' },
+- 		{"no-daemon",	no_argument,	   0,  'n' },
+- 		{0,		0,		   0,  0   }
+- 	};
+- 
+- 	while ((opt = getopt_long(argc, argv, "hn", long_options,
+- 				  &long_index)) != -1) {
+- 		switch (opt) {
+- 		case 'n':
+- 			daemonize = 0;
+- 			break;
+- 		case 'h':
+- 		default:
+- 			print_usage(argv);
+- 			exit(EXIT_FAILURE);
+- 		}
+- 	}
+- 
+- 	if (daemonize && daemon(1, 0))
+- 		return 1;
+  
+  	openlog("KVP", 0, LOG_USER);
+  	syslog(LOG_INFO, "KVP starting; pid is:%d", getpid());
+  
+! 	kvp_recv_buffer_len = NLMSG_LENGTH(0) + sizeof(struct cn_msg) + sizeof(struct hv_kvp_msg);
+  	kvp_recv_buffer = calloc(1, kvp_recv_buffer_len);
+! 	if (!kvp_recv_buffer) {
+! 		syslog(LOG_ERR, "Failed to allocate netlink buffer");
+  		exit(EXIT_FAILURE);
+  	}
+  	/*
+  	 * Retrieve OS release information.
+  	 */
+--- 1510,1533 ----
+  	int	pool;
+  	char	*if_name;
+  	struct hv_kvp_ipaddr_value *kvp_ip_val;
++ 	char *kvp_send_buffer;
+  	char *kvp_recv_buffer;
+  	size_t kvp_recv_buffer_len;
+  
+  
++ 	daemon(1, 0);
+  	openlog("KVP", 0, LOG_USER);
+  	syslog(LOG_INFO, "KVP starting; pid is:%d", getpid());
+  
+! 
+! 	kvp_recv_buffer_len = NLMSG_HDRLEN + sizeof(struct cn_msg) + sizeof(struct hv_kvp_msg);
+! 	kvp_send_buffer = calloc(1, kvp_recv_buffer_len);
+  	kvp_recv_buffer = calloc(1, kvp_recv_buffer_len);
+! 	if (!(kvp_send_buffer && kvp_recv_buffer)) {
+! 		syslog(LOG_ERR, "Failed to allocate netlink buffers");
+  		exit(EXIT_FAILURE);
+  	}
++ 
+  	/*
+  	 * Retrieve OS release information.
+  	 */
+***************
+*** 1479,1588 ****
+  	 * Retrieve OS release information.
+  	 */
+  	kvp_get_os_info();
+- 	/*
+- 	 * Cache Fully Qualified Domain Name because getaddrinfo takes an
+- 	 * unpredictable amount of time to finish.
+- 	 */
+- 	kvp_get_domain_name(full_domain_name, sizeof(full_domain_name));
+  
+  	if (kvp_file_init()) {
+  		syslog(LOG_ERR, "Failed to initialize the pools");
+  		exit(EXIT_FAILURE);
+  	}
+  
+! 	fd = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_CONNECTOR);
+! 	if (fd < 0) {
+! 		syslog(LOG_ERR, "netlink socket creation failed; error: %d %s", errno,
+! 				strerror(errno));
+! 		exit(EXIT_FAILURE);
+! 	}
+! 	addr.nl_family = AF_NETLINK;
+! 	addr.nl_pad = 0;
+! 	addr.nl_pid = 0;
+! 	addr.nl_groups = 0;
+! 
+  
+! 	error = bind(fd, (struct sockaddr *)&addr, sizeof(addr));
+! 	if (error < 0) {
+! 		syslog(LOG_ERR, "bind failed; error: %d %s", errno, strerror(errno));
+! 		close(fd);
+! 		exit(EXIT_FAILURE);
+! 	}
+! 	nl_group = CN_KVP_IDX;
+! 
+! 	if (setsockopt(fd, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP, &nl_group, sizeof(nl_group)) < 0) {
+! 		syslog(LOG_ERR, "setsockopt failed; error: %d %s", errno, strerror(errno));
+  		close(fd);
+  		exit(EXIT_FAILURE);
+  	}
+  
+  	/*
+! 	 * Register ourselves with the kernel.
+  	 */
+! 	message = (struct cn_msg *)kvp_recv_buffer;
+! 	message->id.idx = CN_KVP_IDX;
+! 	message->id.val = CN_KVP_VAL;
+! 
+! 	hv_msg = (struct hv_kvp_msg *)message->data;
+  	hv_msg->kvp_hdr.operation = KVP_OP_REGISTER1;
+! 	message->ack = 0;
+! 	message->len = sizeof(struct hv_kvp_msg);
+! 
+! 	len = netlink_send(fd, message);
+! 	if (len < 0) {
+! 		syslog(LOG_ERR, "netlink_send failed; error: %d %s", errno, strerror(errno));
+! 		close(fd);
+! 		exit(EXIT_FAILURE);
+! 	}
+! 
+! 	pfd.fd = fd;
+  
+  	while (1) {
+! 		struct sockaddr *addr_p = (struct sockaddr *) &addr;
+! 		socklen_t addr_l = sizeof(addr);
+! 		pfd.events = POLLIN;
+! 		pfd.revents = 0;
+! 
+! 		if (poll(&pfd, 1, -1) < 0) {
+! 			syslog(LOG_ERR, "poll failed; error: %d %s", errno, strerror(errno));
+! 			if (errno == EINVAL) {
+! 				close(fd);
+! 				exit(EXIT_FAILURE);
+! 			}
+! 			else
+! 				continue;
+! 		}
+  
+! 		len = recvfrom(fd, kvp_recv_buffer, kvp_recv_buffer_len, 0,
+! 				addr_p, &addr_l);
+  
+! 		if (len < 0) {
+! 			int saved_errno = errno;
+! 			syslog(LOG_ERR, "recvfrom failed; pid:%u error:%d %s",
+! 					addr.nl_pid, errno, strerror(errno));
+  
+- 			if (saved_errno == ENOBUFS) {
+- 				syslog(LOG_ERR, "receive error: ignored");
+- 				continue;
+- 			}
+- 
+- 			close(fd);
+- 			return -1;
+- 		}
+- 
+- 		if (addr.nl_pid) {
+- 			syslog(LOG_WARNING, "Received packet from untrusted pid:%u",
+- 					addr.nl_pid);
+  			continue;
+  		}
+  
+! 		incoming_msg = (struct nlmsghdr *)kvp_recv_buffer;
+! 
+! 		if (incoming_msg->nlmsg_type != NLMSG_DONE)
+! 			continue;
+! 
+! 		incoming_cn_msg = (struct cn_msg *)NLMSG_DATA(incoming_msg);
+! 		hv_msg = (struct hv_kvp_msg *)incoming_cn_msg->data;
+  
+  		/*
+  		 * We will use the KVP header information to pass back
+--- 1532,1575 ----
+  	 * Retrieve OS release information.
+  	 */
+  	kvp_get_os_info();
+  
+  	if (kvp_file_init()) {
+  		syslog(LOG_ERR, "Failed to initialize the pools");
+  		exit(EXIT_FAILURE);
+  	}
+  
+! 	kvp_fd = open("/dev/hv_kvp", O_RDWR);
+  
+! 	if (kvp_fd < 0) {
+! 		syslog(LOG_ERR, "open /dev/hv_kvp failed; error: %d %s", errno, strerror(errno));
+  		close(fd);
+  		exit(EXIT_FAILURE);
+  	}
++ 			
++ 	syslog(LOG_INFO, "KVP LIC Version: %s", lic_version);
+  
+  	/*
+! 	 * Register with the kernel.
+  	 */
+! 	hv_msg = (struct hv_kvp_msg *)kvp_recv_buffer;
+  	hv_msg->kvp_hdr.operation = KVP_OP_REGISTER1;
+! 	write(kvp_fd, kvp_recv_buffer, sizeof(struct hv_kvp_msg));
+  
+  	while (1) {
+! 		/*
+! 		 * In this loop we process KVP messages after the
+! 		 * handshake is complete.
+! 		 */
+  
+! 		len = pread(kvp_fd, kvp_recv_buffer, kvp_recv_buffer_len, 0);
+  
+! 		if (len != sizeof(struct hv_kvp_msg)) {
+! 			syslog(LOG_ERR, "read len is: %d", len);
+  
+  			continue;
+  		}
+  
+! 		hv_msg = (struct hv_kvp_msg *)kvp_recv_buffer;
+  
+  		/*
+  		 * We will use the KVP header information to pass back
+***************
+*** 1593,1615 ****
+  		pool = hv_msg->kvp_hdr.pool;
+  		hv_msg->error = HV_S_OK;
+  
+- 		if ((in_hand_shake) && (op == KVP_OP_REGISTER1)) {
+- 			/*
+- 			 * Driver is registering with us; stash away the version
+- 			 * information.
+- 			 */
+- 			in_hand_shake = 0;
+- 			p = (char *)hv_msg->body.kvp_register.version;
+- 			lic_version = malloc(strlen(p) + 1);
+- 			if (lic_version) {
+- 				strcpy(lic_version, p);
+- 				syslog(LOG_INFO, "KVP LIC Version: %s",
+- 					lic_version);
+- 			} else {
+- 				syslog(LOG_ERR, "malloc failed");
+- 			}
+- 			continue;
+- 		}
+  
+  		switch (op) {
+  		case KVP_OP_GET_IP_INFO:
+--- 1580,1585 ----
+***************
+*** 1703,1715 ****
+  			goto kvp_done;
+  		}
+  
+- 		hv_msg = (struct hv_kvp_msg *)incoming_cn_msg->data;
+  		key_name = (char *)hv_msg->body.kvp_enum_data.data.key;
+  		key_value = (char *)hv_msg->body.kvp_enum_data.data.value;
+  
+  		switch (hv_msg->body.kvp_enum_data.index) {
+  		case FullyQualifiedDomainName:
+! 			strcpy(key_value, full_domain_name);
+  			strcpy(key_name, "FullyQualifiedDomainName");
+  			break;
+  		case IntegrationServicesVersion:
+--- 1673,1685 ----
+  			goto kvp_done;
+  		}
+  
+  		key_name = (char *)hv_msg->body.kvp_enum_data.data.key;
+  		key_value = (char *)hv_msg->body.kvp_enum_data.data.value;
+  
+  		switch (hv_msg->body.kvp_enum_data.index) {
+  		case FullyQualifiedDomainName:
+! 			kvp_get_domain_name(key_value,
+! 					HV_KVP_EXCHANGE_MAX_VALUE_SIZE);
+  			strcpy(key_name, "FullyQualifiedDomainName");
+  			break;
+  		case IntegrationServicesVersion:
+***************
+*** 1760,1784 ****
+  		 * reflect the key value that has been added to the message
+  		 */
+  kvp_done:
+  
+! 		incoming_cn_msg->id.idx = CN_KVP_IDX;
+! 		incoming_cn_msg->id.val = CN_KVP_VAL;
+! 		incoming_cn_msg->ack = 0;
+! 		incoming_cn_msg->len = sizeof(struct hv_kvp_msg);
+! 
+! 		len = netlink_send(fd, incoming_cn_msg);
+! 		if (len < 0) {
+! 			int saved_errno = errno;
+! 			syslog(LOG_ERR, "net_link send failed; error: %d %s", errno,
+! 					strerror(errno));
+! 
+! 			if (saved_errno == ENOMEM || saved_errno == ENOBUFS) {
+! 				syslog(LOG_ERR, "send error: ignored");
+! 				continue;
+! 			}
+! 
+! 			exit(EXIT_FAILURE);
+  		}
+  	}
+  
+  }
+--- 1731,1743 ----
+  		 * reflect the key value that has been added to the message
+  		 */
+  kvp_done:
++ 		len = pwrite(kvp_fd, kvp_recv_buffer, sizeof(struct hv_kvp_msg), 0);
+  
+! 		if (len != sizeof(struct hv_kvp_msg)) {
+! 			syslog(LOG_ERR, "write len is: %d", len);
+! 			goto kvp_done;
+  		}
++ 
+  	}
+  
+  }
+diff -crB hv-rhel6.x/hv/vmbus_drv.c hv-rhel5.x/hv/vmbus_drv.c
+*** hv-rhel6.x/hv/vmbus_drv.c	2015-05-29 15:22:32.000000000 -0700
+--- hv-rhel5.x/hv/vmbus_drv.c	2015-05-29 15:22:32.000000000 -0700
+***************
+*** 32,51 ****
+  #include <linux/completion.h>
+  #include "include/linux/hyperv.h"
+  #include <linux/kernel_stat.h>
+- #include <linux/clockchips.h>
+  #include <linux/cpu.h>
+  #include <linux/version.h>
+  #include "include/asm/hyperv.h"
+- #include <asm/hypervisor.h>
+  #include "include/asm/mshyperv.h"
+  #include <linux/notifier.h>
+  #include <linux/ptrace.h>
+  #include "hyperv_vmbus.h"
+  
+- #if (RHEL_RELEASE_CODE <= 1541)
+- bool using_null_legacy_pic = false;
+- EXPORT_SYMBOL(using_null_legacy_pic);
+- #endif
+  
+  #if (RHEL_RELEASE_CODE < 1540)
+  #include <asm/mshyperv.h>
+--- 32,46 ----
+  #include <linux/completion.h>
+  #include "include/linux/hyperv.h"
+  #include <linux/kernel_stat.h>
+  #include <linux/cpu.h>
++ #include <linux/clocksource.h>
+  #include <linux/version.h>
+  #include "include/asm/hyperv.h"
+  #include "include/asm/mshyperv.h"
+  #include <linux/notifier.h>
+  #include <linux/ptrace.h>
+  #include "hyperv_vmbus.h"
+  
+  
+  #if (RHEL_RELEASE_CODE < 1540)
+  #include <asm/mshyperv.h>
+***************
+*** 56,61 ****
+--- 51,60 ----
+  void *x86_hyper = &x86_hyper_ms_hyperv;
+  EXPORT_SYMBOL(x86_hyper);
+  
++ bool using_null_legacy_pic = false;
++ EXPORT_SYMBOL(using_null_legacy_pic);
++ 
++ 
+  struct ms_hyperv_info ms_hyperv = {
+  	.features = HV_X64_MSR_TIME_REF_COUNT_AVAILABLE |
+  		    HV_X64_MSR_SYNTIMER_AVAILABLE,
+***************
+*** 97,107 ****
+  
+  	regs = task_pt_regs(current);
+  
+! 	wrmsrl(HV_X64_MSR_CRASH_P0, regs->ip);
+! 	wrmsrl(HV_X64_MSR_CRASH_P1, regs->ax);
+! 	wrmsrl(HV_X64_MSR_CRASH_P2, regs->bx);
+! 	wrmsrl(HV_X64_MSR_CRASH_P3, regs->cx);
+! 	wrmsrl(HV_X64_MSR_CRASH_P4, regs->dx);
+  
+  	/*
+  	 * Let Hyper-V know there is crash data available
+--- 96,114 ----
+  
+  	regs = task_pt_regs(current);
+  
+! #ifdef CONFIG_X86_64
+! 	wrmsrl(HV_X64_MSR_CRASH_P0, regs->rip);
+! 	wrmsrl(HV_X64_MSR_CRASH_P1, regs->rax);
+! 	wrmsrl(HV_X64_MSR_CRASH_P2, regs->rbx);
+! 	wrmsrl(HV_X64_MSR_CRASH_P3, regs->rcx);
+! 	wrmsrl(HV_X64_MSR_CRASH_P4, regs->rdx);
+! #else
+! 	wrmsrl(HV_X64_MSR_CRASH_P0, regs->eip);
+! 	wrmsrl(HV_X64_MSR_CRASH_P1, regs->eax);
+! 	wrmsrl(HV_X64_MSR_CRASH_P2, regs->ebx);
+! 	wrmsrl(HV_X64_MSR_CRASH_P3, regs->ecx);
+! 	wrmsrl(HV_X64_MSR_CRASH_P4, regs->edx);
+! #endif
+  
+  	/*
+  	 * Let Hyper-V know there is crash data available
+***************
+*** 337,342 ****
+--- 344,350 ----
+   * representation of the device guid (each byte of the guid will be
+   * represented with two hex characters.
+   */
++ #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
+  static int vmbus_uevent(struct device *device, struct kobj_uevent_env *env)
+  {
+  	struct hv_device *dev = device_to_hv_device(device);
+***************
+*** 347,352 ****
+--- 355,382 ----
+  	ret = add_uevent_var(env, "MODALIAS=vmbus:%s", alias_name);
+  	return ret;
+  }
++ #else
++ int vmbus_uevent(struct device *device, char **envp, int num_envp, char *buffer, int buffer_size)
++ {
++ 	struct hv_device *dev = device_to_hv_device(device);
++ 	int i = 0;
++ 	int len = 0;
++ 	int ret;
++ 	char alias_name[VMBUS_ALIAS_LEN + 1];
++ 
++ 	print_alias_name(dev, alias_name);
++ 	ret = add_uevent_var(envp, num_envp, &i, buffer, buffer_size, &len,
++ 			     "MODALIAS=vmbus:%s", alias_name);
++ 
++ 	if (ret)
++ 		return ret;
++ 
++ 	envp[i] = NULL;
++ 
++ 	return 0;
++ }
++ #endif
++ 
+  
+  static const uuid_le null_guid;
+  
+***************
+*** 495,503 ****
+  	struct hv_message msg;
+  };
+  
+! static void vmbus_onmessage_work(struct work_struct *work)
+  {
+  	struct onmessage_work_context *ctx;
+  
+  	/* Do not process messages if we're in DISCONNECTED state */
+  	if (vmbus_connection.conn_state == DISCONNECTED)
+--- 525,534 ----
+  	struct hv_message msg;
+  };
+  
+! static void vmbus_onmessage_work(void *data)
+  {
+  	struct onmessage_work_context *ctx;
++ 	struct work_struct *work = (struct work_struct *)data;
+  
+  	/* Do not process messages if we're in DISCONNECTED state */
+  	if (vmbus_connection.conn_state == DISCONNECTED)
+***************
+*** 511,516 ****
+--- 542,548 ----
+  
+  static void hv_process_timer_expiration(struct hv_message *msg, int cpu)
+  {
++ #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
+  	struct clock_event_device *dev = hv_context.clk_evt[cpu];
+  
+  	if (dev->event_handler)
+***************
+*** 535,540 ****
+--- 567,573 ----
+  		 */
+  		wrmsrl(HV_X64_MSR_EOM, 0);
+  	}
++ #endif
+  }
+  
+  static void vmbus_on_msg_dpc(unsigned long data)
+***************
+*** 556,562 ****
+  		hdr = (struct vmbus_channel_message_header *)msg->u.payload;
+  
+  		if (hdr->msgtype >= CHANNELMSG_COUNT) {
+- 			WARN_ONCE(1, "unknown msgtype=%d\n", hdr->msgtype);
+  			goto msg_handled;
+  		}
+  
+--- 589,594 ----
+***************
+*** 565,571 ****
+  			ctx = kmalloc(sizeof(*ctx), GFP_ATOMIC);
+  			if (ctx == NULL)
+  				continue;
+! 			INIT_WORK(&ctx->work, vmbus_onmessage_work);
+  			memcpy(&ctx->msg, msg, sizeof(*msg));
+  			queue_work(vmbus_connection.work_queue, &ctx->work);
+  		} else
+--- 597,603 ----
+  			ctx = kmalloc(sizeof(*ctx), GFP_ATOMIC);
+  			if (ctx == NULL)
+  				continue;
+! 			INIT_WORK(&ctx->work, vmbus_onmessage_work, (void *)&ctx->work);
+  			memcpy(&ctx->msg, msg, sizeof(*msg));
+  			queue_work(vmbus_connection.work_queue, &ctx->work);
+  		} else
+***************
+*** 594,600 ****
+--- 626,636 ----
+  	}
+  }
+  
++ #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
+  static irqreturn_t vmbus_isr(int irq, void *dev_id)
++ #else
++ static irqreturn_t vmbus_isr(int irq, void *dev_id, struct pt_regs *regs)
++ #endif
+  {
+  	int cpu = smp_processor_id();
+  	void *page_addr;
+***************
+*** 652,699 ****
+  		return IRQ_NONE;
+  }
+  
+! #ifdef CONFIG_HOTPLUG_CPU
+! static int hyperv_cpu_disable(void)
+! {
+! 	return -ENOSYS;
+! }
+! 
+! static void hv_cpu_hotplug_quirk(bool vmbus_loaded)
+  {
+! 	static void *previous_cpu_disable;
+! 
+! 	/*
+! 	 * Offlining a CPU when running on newer hypervisors (WS2012R2, Win8,
+! 	 * ...) is not supported at this moment as channel interrupts are
+! 	 * distributed across all of them.
+! 	 */
+! 
+! 	if ((vmbus_proto_version == VERSION_WS2008) ||
+! 	    (vmbus_proto_version == VERSION_WIN7))
+! 		return;
+! 
+! 	if (vmbus_loaded) {
+! 		previous_cpu_disable = smp_ops.cpu_disable;
+! 		smp_ops.cpu_disable = hyperv_cpu_disable;
+! 		pr_notice("CPU offlining is not supported by hypervisor\n");
+! 	} else if (previous_cpu_disable)
+! 		smp_ops.cpu_disable = previous_cpu_disable;
+  }
+  #else
+! static void hv_cpu_hotplug_quirk(bool vmbus_loaded)
+  {
+  }
+  #endif
+  
+! 
+! static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc)
+! {
+! 	kstat_incr_irqs_this_cpu(irq, desc);
+! 
+! 	desc->action->handler(irq, desc->action->dev_id);
+! }
+! 
+  static cycle_t read_hv_clock(struct clocksource *arg)
+  {
+  	cycle_t current_tick;
+  	/*
+--- 688,711 ----
+  		return IRQ_NONE;
+  }
+  
+! #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
+! static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc)
+  {
+! 	kstat_incr_irqs_this_cpu(irq, desc);
+! 	desc->action->handler(irq, desc->action->dev_id);
+  }
+  #else
+! static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc, struct pt_regs *regs)
+  {
++ 	desc->action->handler(irq, desc->action->dev_id, NULL);
+  }
+  #endif
+  
+! #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
+  static cycle_t read_hv_clock(struct clocksource *arg)
++ #else
++ static cycle_t read_hv_clock(void)
++ #endif
+  {
+  	cycle_t current_tick;
+  	/*
+***************
+*** 713,719 ****
+--- 725,735 ----
+  	.mask           = CLOCKSOURCE_MASK(64),
+  	.mult           = (100 << HV_CLOCK_SHIFT),
+  	.shift          = HV_CLOCK_SHIFT,
++ #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
+  	.flags          = CLOCK_SOURCE_IS_CONTINUOUS,
++ #else
++ 	.is_continuous = 1,
++ #endif
+  };
+  
+  /*
+***************
+*** 756,764 ****
+  	 * different CPUs. Establish an appropriate interrupt flow
+  	 * handler that can support this model.
+  	 */
+  	set_irq_handler(irq, vmbus_flow_handler);
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1541)
+  	/*
+  	 * Register our interrupt handler.
+  	 */
+--- 772,782 ----
+  	 * different CPUs. Establish an appropriate interrupt flow
+  	 * handler that can support this model.
+  	 */
++ #ifdef NOTYET
+  	set_irq_handler(irq, vmbus_flow_handler);
++ #endif
+  
+! #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1542)
+  	/*
+  	 * Register our interrupt handler.
+  	 */
+***************
+*** 774,785 ****
+  	 * Initialize the per-cpu interrupt state and
+  	 * connect to the host.
+  	 */
+! 	on_each_cpu(hv_synic_init, NULL, 1);
+  	ret = vmbus_connect();
+  	if (ret)
+  		goto err_alloc;
+  
+- 	hv_cpu_hotplug_quirk(true);
+  
+  #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540)
+  	ms_hyperv.features |= HV_X64_MSR_TIME_REF_COUNT_AVAILABLE;
+--- 792,802 ----
+  	 * Initialize the per-cpu interrupt state and
+  	 * connect to the host.
+  	 */
+! 	on_each_cpu(hv_synic_init, NULL, 1, 1);
+  	ret = vmbus_connect();
+  	if (ret)
+  		goto err_alloc;
+  
+  
+  #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540)
+  	ms_hyperv.features |= HV_X64_MSR_TIME_REF_COUNT_AVAILABLE;
+***************
+*** 836,842 ****
+--- 853,861 ----
+  
+  	hv_driver->driver.name = hv_driver->name;
+  	hv_driver->driver.owner = owner;
++ #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
+  	hv_driver->driver.mod_name = mod_name;
++ #endif
+  	hv_driver->driver.bus = &hv_bus;
+  
+  	ret = driver_register(&hv_driver->driver);
+***************
+*** 897,903 ****
+  		     child_device_obj->channel->id);
+  
+  	child_device_obj->device.bus = &hv_bus;
+- 	child_device_obj->device.parent = &hv_acpi_dev->dev;
+  	child_device_obj->device.release = vmbus_device_release;
+  
+  	/*
+--- 916,921 ----
+***************
+*** 987,1001 ****
+--- 1005,1029 ----
+  }
+  
+  static const struct acpi_device_id vmbus_acpi_device_ids[] = {
++ #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
+  	{"VMBUS", 0},
+  	{"VMBus", 0},
+  	{"", 0},
++ #else
++ 	{"VMBUS"},
++ 	{"VMBus"},
++ 	{""},
++ #endif
+  };
+  MODULE_DEVICE_TABLE(acpi, vmbus_acpi_device_ids);
+  
+  static struct acpi_driver vmbus_acpi_driver = {
+  	.name = "vmbus",
++ #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
+  	.ids = vmbus_acpi_device_ids,
++ #else
++ 	.ids = "VMBus",
++ #endif
+  	.ops = {
+  		.add = vmbus_acpi_add,
+  	},
+***************
+*** 1052,1060 ****
+  	bus_unregister(&hv_bus);
+  	hv_cleanup();
+  	for_each_online_cpu(cpu)
+! 		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
+  	acpi_bus_unregister_driver(&vmbus_acpi_driver);
+- 	hv_cpu_hotplug_quirk(false);
+  	vmbus_disconnect();
+  }
+  
+--- 1080,1087 ----
+  	bus_unregister(&hv_bus);
+  	hv_cleanup();
+  	for_each_online_cpu(cpu)
+! 		smp_call_function_single(cpu, hv_synic_cleanup, NULL, true, 1);
+  	acpi_bus_unregister_driver(&vmbus_acpi_driver);
+  	vmbus_disconnect();
+  }
+  
+Only in hv-rhel5.x/hv: xorg.conf

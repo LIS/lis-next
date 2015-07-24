@@ -47,8 +47,6 @@ struct rndis_request {
 
 	/* Simplify allocation by having a netvsc packet inline */
 	struct hv_netvsc_packet	pkt;
-	/* Set 2 pages for rndis requests crossing page boundary */
-	struct hv_page_buffer buf[2];
 
 	struct rndis_message request_msg;
 	/*
@@ -210,6 +208,7 @@ static int rndis_filter_send_request(struct rndis_device *dev,
 {
 	int ret;
 	struct hv_netvsc_packet *packet;
+	struct hv_page_buffer page_buf[2];
 
 	/* Setup the packet to send it */
 	packet = &req->pkt;
@@ -217,6 +216,7 @@ static int rndis_filter_send_request(struct rndis_device *dev,
 	packet->is_data_pkt = false;
 	packet->total_data_buflen = req->request_msg.msg_len;
 	packet->page_buf_cnt = 1;
+	packet->page_buf = page_buf;
 
 	packet->page_buf[0].pfn = virt_to_phys(&req->request_msg) >>
 					PAGE_SHIFT;
@@ -428,7 +428,8 @@ int rndis_filter_receive(struct hv_device *dev,
 
 	rndis_msg = pkt->data;
 
-	dump_rndis_message(dev, rndis_msg);
+	if (netif_msg_rx_err(net_dev->nd_ctx))
+		dump_rndis_message(dev, rndis_msg);
 
 	switch (rndis_msg->ndis_msg_type) {
 	case RNDIS_MSG_PACKET:
@@ -1011,6 +1012,9 @@ int rndis_filter_device_add(struct hv_device *dev,
 	struct ndis_recv_scale_cap rsscap;
 	u32 rsscap_size = sizeof(struct ndis_recv_scale_cap);
 	u32 mtu, size;
+	u32 num_rss_qs;
+	const struct cpumask *node_cpu_mask;
+	u32 num_possible_rss_qs;
 
 	rndis_device = get_rndis_device();
 	if (!rndis_device)
@@ -1047,7 +1051,7 @@ int rndis_filter_device_add(struct hv_device *dev,
 	ret = rndis_filter_query_device(rndis_device,
 					RNDIS_OID_GEN_MAXIMUM_FRAME_SIZE,
 					&mtu, &size);
-	if (ret == 0 && size == sizeof(u32))
+	if (ret == 0 && size == sizeof(u32) && mtu < net_device->ndev->mtu)
 		net_device->ndev->mtu = mtu;
 
 	/* Get the mac address */
@@ -1097,8 +1101,16 @@ int rndis_filter_device_add(struct hv_device *dev,
 	if (ret || rsscap.num_recv_que < 2)
 		goto out;
 
-	net_device->num_chn = (num_online_cpus() < rsscap.num_recv_que) ?
-			       num_online_cpus() : rsscap.num_recv_que;
+	num_rss_qs = min(device_info->max_num_vrss_chns, rsscap.num_recv_que);
+
+	/*
+	 * Limit the VRSS channels to the number of CPUs in the NUMA node
+	 * the primary channel is currently bound to.
+	 */
+	node_cpu_mask = cpumask_of_node(cpu_to_node(dev->channel->target_cpu));
+	num_possible_rss_qs = cpumask_weight(node_cpu_mask);
+	net_device->num_chn = min(num_possible_rss_qs, num_rss_qs);
+
 	if (net_device->num_chn == 1)
 		goto out;
 

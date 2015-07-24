@@ -105,7 +105,7 @@ static int hv_copy_data(struct hv_do_fcopy *cpmsg)
 {
 	ssize_t bytes_written;
 
-	bytes_written = pwrite(target_fd, cpmsg->data, cpmsg->size,
+	bytes_written = pwrite64(target_fd, cpmsg->data, cpmsg->size,
 				cpmsg->offset);
 
 	if (bytes_written != cpmsg->size)
