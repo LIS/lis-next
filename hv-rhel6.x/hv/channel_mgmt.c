@@ -32,6 +32,9 @@
 
 #include "hyperv_vmbus.h"
 
+static void init_vp_index(struct vmbus_channel *channel,
+						  const uuid_le *type_guid);
+
 /**
  * vmbus_prep_negotiate_resp() - Create default response for Hyper-V Negotiate message
  * @icmsghdrp: Pointer to msg header structure
@@ -252,17 +255,6 @@ static void vmbus_process_offer(struct vmbus_channel *newchannel)
 
 	spin_unlock_irqrestore(&vmbus_connection.channel_lock, flags);
 
-	if (enq) {
-		if (newchannel->target_cpu != get_cpu()) {
-			put_cpu();
-			smp_call_function_single(newchannel->target_cpu,
-						 percpu_channel_enq,
-						 newchannel, true);
-		} else {
-			percpu_channel_enq(newchannel);
-			put_cpu();
-		}
-	}
 	if (!fnew) {
 		/*
 		 * Check to see if this is a sub-channel.
@@ -275,7 +267,8 @@ static void vmbus_process_offer(struct vmbus_channel *newchannel)
 			spin_lock_irqsave(&channel->lock, flags);
 			list_add_tail(&newchannel->sc_list, &channel->sc_list);
 			spin_unlock_irqrestore(&channel->lock, flags);
-
+			
+			init_vp_index(newchannel, &newchannel->offermsg.offer.if_type);
 			if (newchannel->target_cpu != get_cpu()) {
 				put_cpu();
 				smp_call_function_single(newchannel->target_cpu,
@@ -296,6 +289,20 @@ static void vmbus_process_offer(struct vmbus_channel *newchannel)
 
 		goto err_free_chan;
 	}
+
+	init_vp_index(newchannel, &newchannel->offermsg.offer.if_type);
+	if (enq) {
+		if (newchannel->target_cpu != get_cpu()) {
+			put_cpu();
+			smp_call_function_single(newchannel->target_cpu,
+						 percpu_channel_enq,
+						 newchannel, true);
+		} else {
+			percpu_channel_enq(newchannel);
+			put_cpu();
+		}
+	}
+	
 
 	/*
 	 * This state is used to indicate a successful open
@@ -505,8 +512,6 @@ static void vmbus_onoffer(struct vmbus_channel_message_header *hdr)
 		newchannel->sig_event->connectionid.u.id =
 				offer->connection_id;
 	}
-
-	init_vp_index(newchannel, &offer->offer.if_type);
 
 	memcpy(&newchannel->offermsg, offer,
 	       sizeof(struct vmbus_channel_offer_channel));
