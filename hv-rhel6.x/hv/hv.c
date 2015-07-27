@@ -295,7 +295,12 @@ int hv_init(void)
         */
        if (ms_hyperv.features & HV_X64_MSR_TIME_REF_COUNT_AVAILABLE) {
                hyperv_cs_tsc.read = read_hv_clock_msr;
+	 #if  (RHEL_RELEASE_CODE < 1539)
+                clocksource_register(&hyperv_cs_tsc);
+        #else
                clocksource_register_hz(&hyperv_cs_tsc, NSEC_PER_SEC/100);
+        #endif
+
        }
 #endif
 
