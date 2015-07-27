@@ -152,6 +152,7 @@ static cycle_t read_hv_clock_msr(struct clocksource *arg)
 }
 #endif
 
+#ifdef CONFIG_X86_64
 static cycle_t read_hv_clock_tsc(struct clocksource *arg)
 {
        cycle_t current_tick;
@@ -174,7 +175,6 @@ static cycle_t read_hv_clock_tsc(struct clocksource *arg)
                        asm("mulq %3"
                                : "=d" (current_tick), "=a" (tmp)
                                : "a" (cur_tsc), "r" (scale));
-
                        current_tick += offset;
                        if (tsc_pg->tsc_sequence == sequence)
                                return current_tick;
@@ -190,13 +190,21 @@ static cycle_t read_hv_clock_tsc(struct clocksource *arg)
        rdmsrl(HV_X64_MSR_TIME_REF_COUNT, current_tick);
        return current_tick;
 }
+#endif
 
+#define HV_CLOCK_SHIFT  22
 static struct clocksource hyperv_cs_tsc = {
                .name           = "hyperv_clocksource_tsc_page",
                .rating         = 425,
+#ifdef CONFIG_X86_64
                .read           = read_hv_clock_tsc,
+#endif
                .mask           = CLOCKSOURCE_MASK(64),
                .flags          = CLOCK_SOURCE_IS_CONTINUOUS,
+        #if  (RHEL_RELEASE_CODE < 1539)
+	       .mult           = (100 << HV_CLOCK_SHIFT),
+	       .shift          = HV_CLOCK_SHIFT,
+	#endif
 };
 
 /*
@@ -274,7 +282,12 @@ int hv_init(void)
                tsc_msr.guest_physical_address = vmalloc_to_pfn(va_tsc);
 
                wrmsrl(HV_X64_MSR_REFERENCE_TSC, tsc_msr.as_uint64);
+        #if  (RHEL_RELEASE_CODE < 1539)
+                clocksource_register(&hyperv_cs_tsc);
+        #else
                clocksource_register_hz(&hyperv_cs_tsc, NSEC_PER_SEC/100);
+        #endif
+
        }
 #else
        /*
