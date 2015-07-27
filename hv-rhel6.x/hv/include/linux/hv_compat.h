@@ -35,7 +35,7 @@
 #define CN_VSS_IDX	0xA
 #define CN_VSS_VAL	0x1
 
-#define HV_DRV_VERSION	"4.0.7"
+#define HV_DRV_VERSION	"4.0.11"
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1540)
 #ifdef CONFIG_MEMORY_HOTPLUG
@@ -111,7 +111,7 @@ bool netvsc_set_hash(u32 *hash, struct sk_buff *skb);
 static inline __u32
 skb_get_hash(struct sk_buff *skb)
 {
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1542)
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1543)
         return skb->hash;
 #else
 	__u32 hash;
