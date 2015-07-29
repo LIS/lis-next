@@ -635,6 +635,9 @@ struct onmessage_work_context {
 static void vmbus_onmessage_work(struct work_struct *work)
 {
 	struct onmessage_work_context *ctx;
+	/* Do not process messages if we're in DISCONNECTED state */
+	if (vmbus_connection.conn_state == DISCONNECTED)
+		return;
 
 	ctx = container_of(work, struct onmessage_work_context,
 			   work);
@@ -1152,6 +1155,7 @@ cleanup:
 
 static void __exit vmbus_exit(void)
 {
+	vmbus_connection.conn_state = DISCONNECTED;
 #if (RHEL_RELEASE_CODE >=1800 ) /* KYS; we may have to tweak this */
 	hv_remove_vmbus_irq();
 #endif
@@ -1160,6 +1164,7 @@ static void __exit vmbus_exit(void)
 	hv_cleanup();
 	acpi_bus_unregister_driver(&vmbus_acpi_driver);
 	hv_cpu_hotplug_quirk(false);
+	vmbus_disconnect();
 }
 
 
