@@ -440,9 +440,16 @@ int vmbus_post_msg(void *buffer, size_t buflen)
 		ret = hv_post_message(conn_id, 1, buffer, buflen);
 
 		switch (ret) {
+		case HV_STATUS_INVALID_CONNECTION_ID:
+			/*
+			 * We could get this if we send messages too
+			 * frequently.
+			 */
+			ret = -EAGAIN;
+			break;
+		case HV_STATUS_INSUFFICIENT_MEMORY:
 		case HV_STATUS_INSUFFICIENT_BUFFERS:
 			ret = -ENOMEM;
-		case -ENOMEM:
 			break;
 		case HV_STATUS_SUCCESS:
 			return ret;
@@ -453,7 +460,6 @@ int vmbus_post_msg(void *buffer, size_t buflen)
 
 		retries++;
 		msleep(msec);
-
 		if (msec < 2048)
 			msec *= 2;
 	}
