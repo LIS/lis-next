@@ -555,7 +555,7 @@ static int vmbus_probe(struct device *child_device)
  */
 static int vmbus_remove(struct device *child_device)
 {
-	struct hv_driver *drv = drv_to_hv_drv(child_device->driver);
+	struct hv_driver *drv;
 	struct hv_device *dev = device_to_hv_device(child_device);
 	u32 relid = dev->channel->offermsg.child_relid;
 
