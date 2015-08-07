@@ -1171,6 +1171,7 @@ static void __exit vmbus_exit(void)
 	int cpu;
 	vmbus_connection.conn_state = DISCONNECTED;
 //	hv_synic_clockevents_cleanup();  will comment this for time being till clockevents_unbind showed up in distro code
+	vmbus_disconnect();
 #if (RHEL_RELEASE_CODE >=1800 ) /* KYS; we may have to tweak this */
 	hv_remove_vmbus_irq();
 #endif
@@ -1181,7 +1182,6 @@ static void __exit vmbus_exit(void)
 		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
 	acpi_bus_unregister_driver(&vmbus_acpi_driver);
 	hv_cpu_hotplug_quirk(false);
-	vmbus_disconnect();
 }
 
 
