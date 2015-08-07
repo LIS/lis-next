@@ -269,7 +269,7 @@ static struct vmbus_channel *pcpu_relid2channel(u32 relid)
  * relid2channel - Get the channel object given its
  * child relative id (ie channel id)
  */
-struct vmbus_channel *relid2channel(u32 relid)
+struct vmbus_channel *relid2channel(u32 relid, bool rescind)
 {
 	struct vmbus_channel *channel;
 	struct vmbus_channel *found_channel  = NULL;
@@ -281,6 +281,8 @@ struct vmbus_channel *relid2channel(u32 relid)
 	list_for_each_entry(channel, &vmbus_connection.chn_list, listentry) {
 		if (channel->offermsg.child_relid == relid) {
 			found_channel = channel;
+			if (rescind)
+				found_channel->rescind = true;
 			break;
 		} else if (!list_empty(&channel->sc_list)) {
 			/*
@@ -291,6 +293,8 @@ struct vmbus_channel *relid2channel(u32 relid)
 							sc_list);
 				if (cur_sc->offermsg.child_relid == relid) {
 					found_channel = cur_sc;
+					if (rescind)
+						found_channel->rescind = true;
 					break;
 				}
 			}
