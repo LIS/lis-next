@@ -32,6 +32,8 @@
 
 #include "hyperv_vmbus.h"
 
+static void init_vp_index(struct vmbus_channel *channel,
+			  const uuid_le *type_guid);
 
 /**
  * vmbus_prep_negotiate_resp() - Create default response for Hyper-V Negotiate message
@@ -268,7 +270,9 @@ static void vmbus_process_offer(struct vmbus_channel *newchannel)
 		} else
 			goto err_free_chan;
 	}
-		if (newchannel->target_cpu != get_cpu()) {
+	init_vp_index(newchannel, &newchannel->offermsg.offer.if_type);
+
+	if (newchannel->target_cpu != get_cpu()) {
 		put_cpu();
 		smp_call_function_single(newchannel->target_cpu,
 					 percpu_channel_enq,
@@ -517,8 +521,6 @@ static void vmbus_onoffer(struct vmbus_channel_message_header *hdr)
 		newchannel->sig_event->connectionid.u.id =
 				offer->connection_id;
 	}
-
-	init_vp_index(newchannel, &offer->offer.if_type);
 
 	memcpy(&newchannel->offermsg, offer,
 	       sizeof(struct vmbus_channel_offer_channel));
