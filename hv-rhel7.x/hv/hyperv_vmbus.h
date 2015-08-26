@@ -1,4 +1,5 @@
 /*
+ *
  * Copyright (c) 2011, Microsoft Corporation.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -598,8 +599,6 @@ extern void hv_synic_init(void *irqarg);
 
 extern void hv_synic_cleanup(void *arg);
 
-extern void hv_synic_clockevents_cleanup(void);
-
 /*
  * Host version information.
  */
@@ -661,7 +660,6 @@ struct vmbus_connection {
 	enum vmbus_connect_state conn_state;
 
 	atomic_t next_gpadl_handle;
-	struct completion  unload_event;
 
 	/*
 	 * Represents channel interrupts. Each bit position represents a
@@ -701,24 +699,6 @@ struct vmbus_msginfo {
 
 extern struct vmbus_connection vmbus_connection;
 
-enum vmbus_message_handler_type {
-	/* The related handler can sleep. */
-	VMHT_BLOCKING = 0,
-
-	/* The related handler must NOT sleep. */
-	VMHT_NON_BLOCKING = 1,
-};
-
-struct vmbus_channel_message_table_entry {
-	enum vmbus_channel_message_type message_type;
-	enum vmbus_message_handler_type handler_type;
-	void (*message_handler)(struct vmbus_channel_message_header *msg);
-};
-
-extern struct vmbus_channel_message_table_entry
-	channel_message_table[CHANNELMSG_COUNT];
-
-
 /* General vmbus interface */
 
 struct hv_device *vmbus_device_create(const uuid_le *type,
@@ -739,7 +719,6 @@ void vmbus_free_channels(void);
 /* Connection interface */
 
 int vmbus_connect(void);
-void vmbus_disconnect(void);
 
 int vmbus_post_msg(void *buffer, size_t buflen);
 
@@ -750,8 +729,6 @@ void vmbus_on_event(unsigned long data);
 int hv_fcopy_init(struct hv_util_service *);
 void hv_fcopy_deinit(void);
 void hv_fcopy_onchannelcallback(void *);
-
-void vmbus_initiate_unload(void);
 
 
 #endif /* _HYPERV_VMBUS_H */

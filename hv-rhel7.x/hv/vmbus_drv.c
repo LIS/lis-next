@@ -35,13 +35,9 @@
 #include "include/linux/hyperv.h"
 #include <linux/kernel_stat.h>
 #include <linux/clockchips.h>
-#include <linux/cpu.h>
 #include "include/asm/hyperv.h"
 #include <asm/hypervisor.h>
-#include <linux/kdebug.h>
 #include "hyperv_vmbus.h"
-#include <linux/kexec.h>
-#include <asm/reboot.h>
 
 static struct acpi_device  *hv_acpi_dev;
 
@@ -50,18 +46,12 @@ static struct completion probe_event;
 static int irq;
 
 
-static void hyperv_report_panic(struct pt_regs *regs)
+int hyperv_panic_event(struct notifier_block *nb,
+                        unsigned long event, void *ptr)
 {
-	static bool panic_reported;
-	
-	/*
-         * We prefer to report panic on 'die' chain as we have proper
-         * registers to report, but if we miss it (e.g. on BUG()) we need
-         * to report it on 'panic'.
-         */
-        if (panic_reported)
-                return;
-        panic_reported = true;
+        struct pt_regs *regs;
+
+        regs = task_pt_regs(current);
 
         wrmsrl(HV_X64_MSR_CRASH_P0, regs->ip);
         wrmsrl(HV_X64_MSR_CRASH_P1, regs->ax);
@@ -73,32 +63,8 @@ static void hyperv_report_panic(struct pt_regs *regs)
          * Let Hyper-V know there is crash data available
          */
         wrmsrl(HV_X64_MSR_CRASH_CTL, HV_CRASH_CTL_CRASH_NOTIFY);
-}
-
-static int hyperv_panic_event(struct notifier_block *nb, unsigned long val,
-                              void *args)
-{
-        struct pt_regs *regs;
-
-        regs = current_pt_regs();
-
-        hyperv_report_panic(regs);
         return NOTIFY_DONE;
 }
-
-static int hyperv_die_event(struct notifier_block *nb, unsigned long val,
-                            void *args)
-{
-        struct die_args *die = (struct die_args *)args;
-        struct pt_regs *regs = die->regs;
-
-        hyperv_report_panic(regs);
-        return NOTIFY_DONE;
-}
-
-static struct notifier_block hyperv_die_block = {
-        .notifier_call = hyperv_die_event,
-};
 
 static struct notifier_block hyperv_panic_block = {
         .notifier_call = hyperv_panic_event,
@@ -588,28 +554,15 @@ static int vmbus_probe(struct device *child_device)
  */
 static int vmbus_remove(struct device *child_device)
 {
-	struct hv_driver *drv;
+	struct hv_driver *drv = drv_to_hv_drv(child_device->driver);
 	struct hv_device *dev = device_to_hv_device(child_device);
-	u32 relid = dev->channel->offermsg.child_relid;
 
-	if (child_device->driver) {
- 		drv = drv_to_hv_drv(child_device->driver);
- 		if (drv->remove)
- 			drv->remove(dev);
-	
-	else {
-			hv_process_channel_removal(dev->channel, relid);
- 			pr_err("remove not set for driver %s\n",
- 				dev_name(child_device));
-		}
-	} else {
-		/*
-		 * We don't have a driver for this device; deal with the
-		 * rescind message by removing the channel.
-		 */
-		hv_process_channel_removal(dev->channel, relid);
- 	}
-	
+	if (drv->remove)
+		drv->remove(dev);
+	else
+		pr_err("remove not set for driver %s\n",
+			dev_name(child_device));
+
 	return 0;
 }
 
@@ -668,9 +621,6 @@ struct onmessage_work_context {
 static void vmbus_onmessage_work(struct work_struct *work)
 {
 	struct onmessage_work_context *ctx;
-	/* Do not process messages if we're in DISCONNECTED state */
-	if (vmbus_connection.conn_state == DISCONNECTED)
-		return;
 
 	ctx = container_of(work, struct onmessage_work_context,
 			   work);
@@ -712,33 +662,20 @@ static void vmbus_on_msg_dpc(unsigned long data)
 	void *page_addr = hv_context.synic_message_page[cpu];
 	struct hv_message *msg = (struct hv_message *)page_addr +
 				  VMBUS_MESSAGE_SINT;
-	struct vmbus_channel_message_header *hdr;
-	struct vmbus_channel_message_table_entry *entry;
 	struct onmessage_work_context *ctx;
 
 	while (1) {
-		if (msg->header.message_type == HVMSG_NONE) 
+		if (msg->header.message_type == HVMSG_NONE) {
 			/* no msg */
 			break;
-		hdr = (struct vmbus_channel_message_header *)msg->u.payload;
-
-		if (hdr->msgtype >= CHANNELMSG_COUNT) {
-			WARN_ONCE(1, "unknown msgtype=%d\n", hdr->msgtype);
-			goto msg_handled;
-		}
-
-		entry = &channel_message_table[hdr->msgtype];
-		if (entry->handler_type	== VMHT_BLOCKING) {
+		} else {
 			ctx = kmalloc(sizeof(*ctx), GFP_ATOMIC);
 			if (ctx == NULL)
 				continue;
 			INIT_WORK(&ctx->work, vmbus_onmessage_work);
 			memcpy(&ctx->msg, msg, sizeof(*msg));
 			queue_work(vmbus_connection.work_queue, &ctx->work);
-		} else
-			entry->message_handler(hdr);
-
-msg_handled:	
+		}
 
 		msg->header.message_type = HVMSG_NONE;
 
@@ -833,40 +770,6 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id)
 #endif
 }
 
-#ifdef CONFIG_HOTPLUG_CPU
-static int hyperv_cpu_disable(void)
-{
-	return -ENOSYS;
-}
-
-static void hv_cpu_hotplug_quirk(bool vmbus_loaded)
-{
-	static void *previous_cpu_disable;
-
-	/*
-	 * Offlining a CPU when running on newer hypervisors (WS2012R2, Win8,
-	 * ...) is not supported at this moment as channel interrupts are
-	 * distributed across all of them.
-	 */
-
-	if ((vmbus_proto_version == VERSION_WS2008) ||
-	    (vmbus_proto_version == VERSION_WIN7))
-		return;
-
-	if (vmbus_loaded) {
-		previous_cpu_disable = smp_ops.cpu_disable;
-		smp_ops.cpu_disable = hyperv_cpu_disable;
-		pr_notice("CPU offlining is not supported by hypervisor\n");
-	} else if (previous_cpu_disable)
-		smp_ops.cpu_disable = previous_cpu_disable;
-}
-#else
-static void hv_cpu_hotplug_quirk(bool vmbus_loaded)
-{
-}
-#endif
-
-
 /*
  * vmbus interrupt flow handler:
  * vmbus interrupts can concurrently occur on multiple CPUs and
@@ -946,12 +849,10 @@ static int vmbus_bus_init(int irq)
          * Only register if the crash MSRs are available
          */
         if (ms_hyperv.features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
-		register_die_notifier(&hyperv_die_block);
                 atomic_notifier_chain_register(&panic_notifier_list,
                                                &hyperv_panic_block);
         }
-	
-	hv_cpu_hotplug_quirk(true);
+
 	vmbus_request_offers();
 		
 	return 0;
@@ -1052,9 +953,11 @@ int vmbus_device_register(struct hv_device *child_device_obj)
 {
 	int ret = 0;
 
+	static atomic_t device_num = ATOMIC_INIT(0);
 
-	dev_set_name(&child_device_obj->device, "vmbus_%d",
-		     child_device_obj->channel->id);
+	dev_set_name(&child_device_obj->device, "vmbus_0_%d",
+		     atomic_inc_return(&device_num));
+
 	child_device_obj->device.bus = &hv_bus;
 	child_device_obj->device.parent = &hv_acpi_dev->dev;
 	child_device_obj->device.release = vmbus_device_release;
@@ -1202,29 +1105,13 @@ cleanup:
 
 static void __exit vmbus_exit(void)
 {
-	int cpu;
-	vmbus_connection.conn_state = DISCONNECTED;
-//	hv_synic_clockevents_cleanup();  will comment this for time being till clockevents_unbind showed up in distro code
-	vmbus_disconnect();
 #if (RHEL_RELEASE_CODE >=1800 ) /* KYS; we may have to tweak this */
 	hv_remove_vmbus_irq();
 #endif
-	tasklet_kill(&msg_dpc);
 	vmbus_free_channels();
-	 if (ms_hyperv.misc_features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
-                unregister_die_notifier(&hyperv_die_block);
-                atomic_notifier_chain_unregister(&panic_notifier_list,
-                                                 &hyperv_panic_block);
-        }
 	bus_unregister(&hv_bus);
-	hv_cleanup();	
-	for_each_online_cpu(cpu) {
-		tasklet_kill(hv_context.event_dpc[cpu]);
-		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
-	}
-	hv_synic_free();
+	hv_cleanup();
 	acpi_bus_unregister_driver(&vmbus_acpi_driver);
-	hv_cpu_hotplug_quirk(false);
 }
 
 
