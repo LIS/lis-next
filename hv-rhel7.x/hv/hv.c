@@ -416,7 +416,12 @@ static void hv_init_clockevent_device(struct clock_event_device *dev, int cpu)
 	dev->features = CLOCK_EVT_FEAT_ONESHOT;
 	dev->cpumask = cpumask_of(cpu);
 	dev->rating = 1000;
-	dev->owner = THIS_MODULE;
+
+	/*
+	 * Avoid settint dev->owner = THIS_MODULE deliberately as doing so will
+	 * result in clockevents_config_and_register() taking additional
+	 * references to the hv_vmbus module making it impossible to unload.
+	 */
 
 	dev->set_mode = hv_ce_setmode;
 	dev->set_next_event = hv_ce_set_next_event;
@@ -576,6 +581,20 @@ void hv_synic_init(void *arg)
 }
 
 /*
+ * hv_synic_clockevents_cleanup - Cleanup clockevent devices
+ *  will comment this for time being till clockevents_unbind showed up in distro code
+*void hv_synic_clockevents_cleanup(void)
+*{
+*	int cpu;
+*
+*	if (!(ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE))
+*		return;
+*
+*	for_each_online_cpu(cpu)
+*		clockevents_unbind_device(hv_context.clk_evt[cpu], cpu);
+*}
+*/
+/*
  * hv_synic_cleanup - Cleanup routine for hv_synic_init().
  */
 void hv_synic_cleanup(void *arg)
@@ -583,10 +602,16 @@ void hv_synic_cleanup(void *arg)
 	union hv_synic_sint shared_sint;
 	union hv_synic_simp simp;
 	union hv_synic_siefp siefp;
+	union hv_synic_scontrol sctrl;
 	int cpu = smp_processor_id();
 
 	if (!hv_context.synic_initialized)
 		return;
+
+	/* Turn off clockevent device */
+	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
+		hv_ce_setmode(CLOCK_EVT_MODE_SHUTDOWN,
+			      hv_context.clk_evt[cpu]);
 
 	rdmsrl(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT, shared_sint.as_uint64);
 
@@ -608,6 +633,9 @@ void hv_synic_cleanup(void *arg)
 
 	wrmsrl(HV_X64_MSR_SIEFP, siefp.as_uint64);
 
-	free_page((unsigned long)hv_context.synic_message_page[cpu]);
-	free_page((unsigned long)hv_context.synic_event_page[cpu]);
+	/* Disable the global synic bit */
+	rdmsrl(HV_X64_MSR_SCONTROL, sctrl.as_uint64);
+	sctrl.enable = 0;
+	wrmsrl(HV_X64_MSR_SCONTROL, sctrl.as_uint64);
+
 }
