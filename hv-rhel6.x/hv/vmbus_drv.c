@@ -1014,6 +1014,7 @@ static struct acpi_driver vmbus_acpi_driver = {
 	.ids = vmbus_acpi_device_ids,
 	.ops = {
 		.add = vmbus_acpi_add,
+		.remove = vmbus_acpi_remove,
 	},
 };
 
