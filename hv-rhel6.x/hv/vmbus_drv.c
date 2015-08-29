@@ -969,6 +969,15 @@ static acpi_status vmbus_walk_resources(struct acpi_resource *res, void *ctx)
 	return AE_OK;
 }
 
+static int vmbus_acpi_remove(struct acpi_device *device)
+{
+	int ret = 0;
+
+	if (hyperv_mmio.start && hyperv_mmio.end)
+		ret = release_resource(&hyperv_mmio);
+	return ret;
+}
+
 static int vmbus_acpi_add(struct acpi_device *device)
 {
 	acpi_status result;
@@ -1014,6 +1023,7 @@ static struct acpi_driver vmbus_acpi_driver = {
 	.ids = vmbus_acpi_device_ids,
 	.ops = {
 		.add = vmbus_acpi_add,
+		.remove = vmbus_acpi_remove,
 	},
 };
 
@@ -1065,6 +1075,10 @@ static void __exit vmbus_exit(void)
 	hv_synic_clockevents_cleanup();
 	free_irq(irq, hv_acpi_dev);
 	vmbus_free_channels();
+	if (ms_hyperv.features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
+		atomic_notifier_chain_unregister(&panic_notifier_list,
+						 &hyperv_panic_block);
+	}
 	bus_unregister(&hv_bus);
 	hv_cleanup();
 	for_each_online_cpu(cpu)
