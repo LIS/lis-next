@@ -758,6 +758,17 @@ struct vmbus_channel {
 	 */
 	struct list_head sc_list;
 	/*
+	 * Current number of sub-channels.
+	 */
+	int num_sc;
+	/*
+	 * Number of a sub-channel (position within sc_list) which is supposed
+	 * to be used as the next outgoing channel.
+	 */
+	int next_oc;
+	
+
+	/*
 	 * The primary channel this sub-channel belongs to.
 	 * This will be NULL for the primary channel.
 	 */
@@ -772,8 +783,6 @@ struct vmbus_channel {
 	 */
 	struct list_head percpu_list;
 
-	int num_sc;
-	int next_oc;
 };
 
 static inline void set_channel_read_state(struct vmbus_channel *c, bool state)
