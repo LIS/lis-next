@@ -687,5 +687,4 @@ void hv_synic_cleanup(void *arg)
 	sctrl.enable = 0;
 	wrmsrl(HV_X64_MSR_SCONTROL, sctrl.as_uint64);
 
-	hv_synic_free_cpu(cpu);
 }
