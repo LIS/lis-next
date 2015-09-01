@@ -654,6 +654,7 @@ struct vmbus_connection {
 	enum vmbus_connect_state conn_state;
 
 	atomic_t next_gpadl_handle;
+	struct completion  unload_event;
 
 	/*
 	 * Represents channel interrupts. Each bit position represents a
@@ -743,6 +744,6 @@ void vmbus_on_event(unsigned long data);
 int hv_fcopy_init(struct hv_util_service *);
 void hv_fcopy_deinit(void);
 void hv_fcopy_onchannelcallback(void *);
-
+void vmbus_initiate_unload(void);
 
 #endif /* _HYPERV_VMBUS_H */
