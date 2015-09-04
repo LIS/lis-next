@@ -438,6 +438,13 @@ int hv_synic_alloc(void)
 	size_t ced_size = sizeof(struct clock_event_device);
 	int cpu;
 
+	hv_context.hv_numa_map = kzalloc(sizeof(struct cpumask) * nr_node_ids,
+					 GFP_ATOMIC);
+	if (hv_context.hv_numa_map == NULL) {
+		pr_err("Unable to allocate NUMA map\n");
+		goto err;
+	}
+
 	for_each_online_cpu(cpu) {
 		hv_context.event_dpc[cpu] = kmalloc(size, GFP_ATOMIC);
 		if (hv_context.event_dpc[cpu] == NULL) {
@@ -499,6 +506,7 @@ void hv_synic_free(void)
 {
 	int cpu;
 
+	kfree(hv_context.hv_numa_map);
 	for_each_online_cpu(cpu)
 		hv_synic_free_cpu(cpu);
 }
