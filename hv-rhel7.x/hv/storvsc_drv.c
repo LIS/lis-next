@@ -1590,7 +1590,8 @@ static int storvsc_device_configure(struct scsi_device *sdevice)
 
 	/*
 	 * If the host is WIN8 or WIN8 R2, claim conformance to SPC-3
-	 * if the device is a MSFT virtual device.
+	 * if the device is a MSFT virtual device.  If the host is
+	 * WIN10 or newer, allow write_same.
 	 */
 	if (!strncmp(sdevice->vendor, "Msft", 4)) {
 		switch (vmstor_proto_version) {
@@ -1599,6 +1600,9 @@ static int storvsc_device_configure(struct scsi_device *sdevice)
 			sdevice->scsi_level = SCSI_SPC_3;
 			break;
 		}
+
+		if (vmstor_proto_version >= VMSTOR_PROTO_VERSION_WIN10)
+			sdevice->no_write_same = 0;
 	}
 
 	return 0;
