@@ -1035,6 +1035,7 @@ int rndis_filter_device_add(struct hv_device *dev,
 
 	/* Initialize the rndis device */
 	net_device = hv_get_drvdata(dev);
+	net_device->max_chn = 1;
 	net_device->num_chn = 1;
 
 	net_device->extension = rndis_device;
@@ -1104,8 +1105,10 @@ int rndis_filter_device_add(struct hv_device *dev,
 
 	num_rss_qs = min(device_info->max_num_vrss_chns, rsscap.num_recv_que);
 
+	net_device->max_chn = rsscap.num_recv_que;
+
 	/*
-	 * Limit the VRSS channels to the number of CPUs in the NUMA node
+	 * We will limit the VRSS channels to the number of CPUs in the NUMA node
 	 * the primary channel is currently bound to.
 	 */
 	node_cpu_mask = cpumask_of_node(cpu_to_node(dev->channel->target_cpu));
@@ -1154,8 +1157,10 @@ int rndis_filter_device_add(struct hv_device *dev,
 	ret = rndis_filter_set_rss_param(rndis_device, net_device->num_chn);
 
 out:
-	if (ret)
+	if (ret) {
+		net_device->max_chn = 1;
 		net_device->num_chn = 1;
+	}
 	return 0; /* return 0 because primary channel can be used alone */
 
 err_dev_remv:
