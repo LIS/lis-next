@@ -412,6 +412,13 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	packet = (struct hv_netvsc_packet *)skb->head;
 
 	packet->status = 0;
+
+	/* TODO: This will likely evaluate to false, since RH7 and
+	 * below kernels will set next pointer to NULL before calling
+	 * into here. Should find another way to set this flag.
+	 */
+	packet->xmit_more = (skb->next != NULL);
+
 	packet->vlan_tci = skb->vlan_tci;
 	packet->page_buf = page_buf;
 
