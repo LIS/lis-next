@@ -388,7 +388,6 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	u32 net_trans_info;
 	u32 hash;
 	u32 skb_length;
-	u32 head_room;
 	u32 pkt_sz;
 	struct hv_page_buffer page_buf[MAX_PAGE_BUFFER_COUNT];
 
@@ -401,7 +400,6 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 
 check_size:
 	skb_length = skb->len;
-	head_room = skb_headroom(skb);
 	num_data_pgs = netvsc_get_slots(skb) + 2;
 	if (num_data_pgs > MAX_PAGE_BUFFER_COUNT && linear) {
 		net_alert_ratelimited("packet too big: %u pages (%u bytes)\n",
@@ -420,7 +418,6 @@ check_size:
 
 	pkt_sz = sizeof(struct hv_netvsc_packet) + RNDIS_AND_PPI_SIZE;
 
-	/* Use the headroom for building up the packet */
 	ret = skb_cow_head(skb, pkt_sz);
 	if (ret) {
 		netdev_err(net, "unable to alloc hv_netvsc_packet\n");
