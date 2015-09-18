@@ -394,9 +394,8 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	num_data_pgs = netvsc_get_slots(skb) + 2;
 	if (num_data_pgs > MAX_PAGE_BUFFER_COUNT) {
 		netdev_err(net, "Packet too big: %u\n", skb->len);
-		dev_kfree_skb(skb);
-		net->stats.tx_dropped++;
-		return NETDEV_TX_OK;
+		ret = -EFAULT;
+		goto drop;
 	}
 
 	pkt_sz = sizeof(struct hv_netvsc_packet) + RNDIS_AND_PPI_SIZE;
