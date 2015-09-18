@@ -711,15 +711,18 @@ static u32 netvsc_copy_to_send_buf(struct netvsc_device *net_device,
 	u32 msg_size = 0;
 	u32 padding = 0;
 	u32 remain = packet->total_data_buflen % net_device->pkt_align;
+	u32 page_count = packet->cp_partial ? packet->rmsg_pgcnt :
+		packet->page_buf_cnt;
 
 	/* Add padding */
-	if (packet->is_data_pkt && packet->xmit_more && remain) {
+	if (packet->is_data_pkt && packet->xmit_more && remain &&
+	    !packet->cp_partial) {
 		padding = net_device->pkt_align - remain;
 		packet->rndis_msg->msg_len += padding;
 		packet->total_data_buflen += padding;
 	}
 
-	for (i = 0; i < packet->page_buf_cnt; i++) {
+	for (i = 0; i < page_count; i++) {
 		char *src = phys_to_virt(packet->page_buf[i].pfn << PAGE_SHIFT);
 		u32 offset = packet->page_buf[i].offset;
 		u32 len = packet->page_buf[i].len;
@@ -747,6 +750,7 @@ static inline int netvsc_send_pkt(
 	struct net_device *ndev = net_device->ndev;
 	u64 req_id;
 	int ret;
+	struct hv_page_buffer *pgbuf;
 
 	nvmsg.hdr.msg_type = NVSP_MSG1_TYPE_SEND_RNDIS_PKT;
 	if (packet->is_data_pkt) {
@@ -774,8 +778,10 @@ static inline int netvsc_send_pkt(
 		return -ENODEV;
 
 	if (packet->page_buf_cnt) {
+		pgbuf = packet->cp_partial ? packet->page_buf +
+			packet->rmsg_pgcnt : packet->page_buf;
 		ret = vmbus_sendpacket_pagebuffer_ctl(out_channel,
-						  packet->page_buf,
+						  pgbuf,
 						  packet->page_buf_cnt,
 						  &nvmsg,
 						  sizeof(struct nvsp_message),
@@ -830,10 +836,10 @@ int netvsc_send(struct hv_device *device,
 	u16 q_idx = packet->q_idx;
 	u32 pktlen = packet->total_data_buflen, msd_len = 0;
 	unsigned int section_index = NETVSC_INVALID_INDEX;
-	struct sk_buff *skb = NULL;
 	unsigned long flag;
 	struct multi_send_data *msdp;
 	struct hv_netvsc_packet *msd_send = NULL, *cur_send = NULL;
+	bool try_batch;
 
 	net_device = get_outbound_net_device(device);
 	if (!net_device)
@@ -847,6 +853,7 @@ int netvsc_send(struct hv_device *device,
 	}
 	packet->channel = out_channel;
 	packet->send_buf_index = NETVSC_INVALID_INDEX;
+	packet->cp_partial = false;
 
 	msdp = &net_device->msd[q_idx];
 
@@ -855,11 +862,17 @@ int netvsc_send(struct hv_device *device,
 	if (msdp->pkt)
 		msd_len = msdp->pkt->total_data_buflen;
 
-	if (packet->is_data_pkt && msd_len > 0 &&
-	    msdp->count < net_device->max_pkt &&
-	    msd_len + pktlen + net_device->pkt_align <
+	try_batch = packet->is_data_pkt && msd_len > 0 && msdp->count <
+		    net_device->max_pkt;
+
+	if (try_batch && msd_len + pktlen + net_device->pkt_align <
 	    net_device->send_section_size) {
 		section_index = msdp->pkt->send_buf_index;
+
+	} else if (try_batch && msd_len + packet->rmsg_size <
+		   net_device->send_section_size) {
+		section_index = msdp->pkt->send_buf_index;
+		packet->cp_partial = true;
 
 	} else if (packet->is_data_pkt && pktlen + net_device->pkt_align <
 		   net_device->send_section_size) {
@@ -876,17 +889,21 @@ int netvsc_send(struct hv_device *device,
 		netvsc_copy_to_send_buf(net_device,
 					section_index, msd_len,
 					packet);
-		skb = (struct sk_buff *)
-		       (unsigned long)packet->send_completion_tid;
 
-		packet->page_buf_cnt = 0;
 		packet->send_buf_index = section_index;
-		packet->total_data_buflen += msd_len;
+
+		if (packet->cp_partial) {
+			packet->page_buf_cnt -= packet->rmsg_pgcnt;
+			packet->total_data_buflen = msd_len + packet->rmsg_size;
+		} else {
+			packet->page_buf_cnt = 0;
+			packet->total_data_buflen += msd_len;
+		}
 
 		if (msdp->pkt)
 			netvsc_xmit_completion(msdp->pkt);
 
-		if (packet->xmit_more) {
+		if (packet->xmit_more && !packet->cp_partial) {
 			msdp->pkt = packet;
 			msdp->count++;
 		} else {
