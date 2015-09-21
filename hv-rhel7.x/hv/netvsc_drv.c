@@ -240,10 +240,11 @@ bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 	int data_len;
 
 #ifdef NOTYET
-	/* Divergence from upstream commit:
+	/* Divergence from upstream commits:
 	 * 06635a35d13d42b95422bba6633f175245cc644e
+	 * cd79a2382aa5dcefa6e21a7c59bb1bb19e53b74d
 	 */
-	if (!skb_flow_dissect_flow_keys(skb, &flow) ||
+	if (!skb_flow_dissect_flow_keys(skb, &flow, 0) ||
 	    !(flow.basic.n_proto == htons(ETH_P_IP) ||
 	      flow.basic.n_proto == htons(ETH_P_IPV6)))
 #endif
