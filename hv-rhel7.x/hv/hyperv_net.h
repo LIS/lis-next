@@ -603,15 +603,6 @@ struct nvsp_message {
 
 #define VRSS_SEND_TAB_SIZE 16
 
-/* The context of the netvsc device */
-struct net_device_context {
-	/* point back to our device context */
-	struct hv_device *device_ctx;
-	struct delayed_work dwork;
-	struct work_struct work;
-	u32 msg_enable; /* debug level */
-};
-
 #define RNDIS_MAX_PKT_DEFAULT 8
 #define RNDIS_PKT_ALIGN_DEFAULT 8
 
@@ -619,6 +610,24 @@ struct multi_send_data {
 	spinlock_t lock; /* protect struct multi_send_data */
 	struct hv_netvsc_packet *pkt; /* netvsc pkt pending */
 	u32 count; /* counter of batched packets */
+};
+
+struct netvsc_stats {
+	u64 packets;
+	u64 bytes;
+	struct u64_stats_sync s_sync;
+};
+
+/* The context of the netvsc device */
+struct net_device_context {
+	/* point back to our device context */
+	struct hv_device *device_ctx;
+	struct delayed_work dwork;
+	struct work_struct work;
+	u32 msg_enable; /* debug level */
+
+	struct netvsc_stats __percpu *tx_stats;
+	struct netvsc_stats __percpu *rx_stats;
 };
 
 /* Per netvsc device */
