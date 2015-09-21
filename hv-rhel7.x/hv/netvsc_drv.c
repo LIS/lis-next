@@ -758,7 +758,7 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 	if (nvdev->nvsp_version >= NVSP_PROTOCOL_VERSION_2)
 		limit = NETVSC_MTU - ETH_HLEN;
 
-	if (mtu < 68 || mtu > limit)
+	if (mtu < NETVSC_MTU_MIN || mtu > limit)
 		return -EINVAL;
 
 	nvdev->start_remove = true;
