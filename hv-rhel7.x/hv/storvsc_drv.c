@@ -400,7 +400,11 @@ MODULE_PARM_DESC(vcpus_per_sub_channel, "Ratio of VCPUs to subchannels");
  */
 static int storvsc_timeout = 180;
 
-
+#ifdef NOTYET
+// Divergence from upstream commit:
+// f3cfabce7a2e92564d380de3aad4b43901fb7ae6
+static int msft_blist_flags = BLIST_TRY_VPD_PAGES;
+#endif
 
 static void storvsc_on_channel_callback(void *context);
 
@@ -1593,6 +1597,18 @@ static int storvsc_device_configure(struct scsi_device *sdevice)
 	blk_queue_bounce_limit(sdevice->request_queue, BLK_BOUNCE_ANY);
 
 	blk_queue_rq_timeout(sdevice->request_queue, (storvsc_timeout * HZ));
+
+#ifdef NOTYET
+	// Divergence from upstream commit:
+	// f3cfabce7a2e92564d380de3aad4b43901fb7ae6
+	/*
+	 * Add blist flags to permit the reading of the VPD pages even when
+	 * the target may claim SPC-2 compliance. MSFT targets currently
+	 * claim SPC-2 compliance while they implement post SPC-2 features.
+	 * With this patch we can correctly handle WRITE_SAME_16 issues.
+	 */
+	sdevice->sdev_bflags |= msft_blist_flags;
+#endif
 
 	/*
 	 * If the host is WIN8 or WIN8 R2, claim conformance to SPC-3
