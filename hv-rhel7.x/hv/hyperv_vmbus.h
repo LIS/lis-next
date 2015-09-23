@@ -140,7 +140,7 @@ struct hv_port_info {
 		struct {
 			u32 target_sint;
 			u32 target_vp;
-			u16 base_flag_bumber;
+			u16 base_flag_number;
 			u16 flag_count;
 			u32 rsvdz;
 		} event_port_info;
@@ -558,6 +558,11 @@ struct hv_context {
 	 * Support PV clockevent device.
 	 */
 	struct clock_event_device *clk_evt[NR_CPUS];
+	/*
+         * To manage allocations in a NUMA node.
+         * Array indexed by numa node ID.
+         */
+        struct cpumask *hv_numa_map;
 };
 
 extern struct hv_context hv_context;
