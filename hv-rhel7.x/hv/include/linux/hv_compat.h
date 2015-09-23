@@ -286,6 +286,29 @@ static inline bool u64_stats_fetch_retry_irq(const struct u64_stats_sync *syncp,
 #endif
 }
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1792)
+static inline void u64_stats_init(struct u64_stats_sync *syncp)
+{
+#if BITS_PER_LONG == 32 && defined(CONFIG_SMP)
+	seqcount_init(&syncp->seq);
+#endif
+}
+
+#define netdev_alloc_pcpu_stats(type)				\
+({								\
+	typeof(type) __percpu *pcpu_stats = alloc_percpu(type); \
+	if (pcpu_stats)	{					\
+		int __cpu;					\
+		for_each_possible_cpu(__cpu) {			\
+			typeof(type) *stat;			\
+			stat = per_cpu_ptr(pcpu_stats, __cpu);	\
+			u64_stats_init(&stat->syncp);		\
+		}						\
+	}							\
+	pcpu_stats;						\
+})
+#endif
+
 #endif
 #endif
 #endif
