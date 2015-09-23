@@ -11,6 +11,7 @@
 0xce25f345	vmbus_sendpacket_multipagebuffer	/root/lis-next/hv-rhel7.x/hv/hv_vmbus	EXPORT_SYMBOL_GPL
 0x580e5101	vmbus_get_outgoing_channel	/root/lis-next/hv-rhel7.x/hv/hv_vmbus	EXPORT_SYMBOL_GPL
 0x0e72f656	vmbus_establish_gpadl	/root/lis-next/hv-rhel7.x/hv/hv_vmbus	EXPORT_SYMBOL_GPL
+0xaa61eae9	vmbus_allocate_mmio	/root/lis-next/hv-rhel7.x/hv/hv_vmbus	EXPORT_SYMBOL_GPL
 0x26119511	vmbus_teardown_gpadl	/root/lis-next/hv-rhel7.x/hv/hv_vmbus	EXPORT_SYMBOL_GPL
 0xdd9d7cae	vmbus_driver_unregister	/root/lis-next/hv-rhel7.x/hv/hv_vmbus	EXPORT_SYMBOL_GPL
 0x40f25292	vmbus_sendpacket_mpb_desc	/root/lis-next/hv-rhel7.x/hv/hv_vmbus	EXPORT_SYMBOL_GPL
