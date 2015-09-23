@@ -429,7 +429,7 @@ not_ip:
 static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 {
 	struct net_device_context *net_device_ctx = netdev_priv(net);
-	struct hv_netvsc_packet *packet;
+	struct hv_netvsc_packet *packet = NULL;
 	int ret;
 	unsigned int num_data_pgs;
 	struct rndis_message *rndis_msg;
