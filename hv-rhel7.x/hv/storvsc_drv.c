@@ -1240,6 +1240,12 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request)
 	if (scmnd->result && do_logging(STORVSC_LOGGING_ERROR)) {
 		if (scsi_normalize_sense(scmnd->sense_buffer,
 				SCSI_SENSE_BUFFERSIZE, &sense_hdr))
+#ifdef NOTYET
+			// Divergence from upstream commit:
+			// d811b848ebb78a1135658aa20a80e31994df47f7
+			scsi_print_sense_hdr(scmnd->device, "storvsc",
+					     &sense_hdr);
+#endif
 			scsi_print_sense_hdr("storvsc", &sense_hdr);
 	}
 
