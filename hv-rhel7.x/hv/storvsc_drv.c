@@ -32,6 +32,10 @@
 #include <linux/module.h>
 #include <linux/device.h>
 #include "include/linux/hyperv.h"
+/*
+ * Divergence from upstream commit: ead3700d893654d440edcb66fb3767a0c0db54cf
+ * storvsc: use cmd_size to allocate per-command data
+ */
 #include <linux/mempool.h>
 #include <asm/bug.h>
 #include <linux/blkdev.h>
