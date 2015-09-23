@@ -513,21 +513,6 @@ done:
 	kfree(wrk);
 }
 
-static void storvsc_bus_scan(struct Scsi_Host *host)
-{
-	int id, order_id;
-
-	for (id = 0; id < host->max_id; ++id) {
-		if (host->reverse_ordering)
-			order_id = host->max_id - id - 1;
-		else
-			order_id = id;
-
-		scsi_scan_target(&host->shost_gendev, 0,
-				 order_id, SCAN_WILD_CARD, 1);
-	}
-}
-
 static void storvsc_host_scan(struct work_struct *work)
 {
 	struct storvsc_scan_work *wrk;
@@ -555,7 +540,7 @@ static void storvsc_host_scan(struct work_struct *work)
 	/*
 	 * Now scan the host to discover LUNs that may have been added.
 	 */
-	storvsc_bus_scan(host);
+	scsi_scan_host(host);
 
 	kfree(wrk);
 }
