@@ -772,7 +772,7 @@ int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
 	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
 
 	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
-
+	
 	/*
          * Signalling the host is conditional on many factors:
          * 1. The ring state changed from being empty to non-empty.
