@@ -767,13 +767,13 @@ static unsigned int copy_from_bounce_buffer(struct scatterlist *orig_sgl,
 				}
 
 				/* if we need to use another bounce buffer */
-				if (destlen || (i < orig_sgl_count)) {
+				if (destlen || i != orig_sgl_count - 1) {
 					cur_src_sgl = sg_next(cur_src_sgl);
 					bounce_addr = (unsigned long)
 							kmap_atomic(
 							sg_page(cur_src_sgl));
 				}
-			} else if (destlen == 0 && (i == (orig_sgl_count - 1))) {
+			} else if (destlen == 0 && i == orig_sgl_count - 1) {
 				/* unmap the last bounce that is < PAGE_SIZE */
 				kunmap_atomic((void *)bounce_addr);
 			}
@@ -1848,8 +1848,7 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 			}
 
 			cmd_request->bounce_sgl_count =
-				ALIGN(length, PAGE_SIZE) >>
-					PAGE_SHIFT;
+				ALIGN(length, PAGE_SIZE) >> PAGE_SHIFT;
 
 			if (vm_srb->data_in == WRITE_TYPE)
 				copy_to_bounce_buffer(sgl,
@@ -2016,7 +2015,7 @@ static int storvsc_probe(struct hv_device *device,
 	host_dev->dev = device;
 
 
-	stor_device = kzalloc(sizeof(struct storvsc_device), GFP_KERNEL);
+	stor_device = kmalloc(sizeof(struct storvsc_device), GFP_KERNEL);
 	if (!stor_device) {
 		ret = -ENOMEM;
 		goto err_out0;
