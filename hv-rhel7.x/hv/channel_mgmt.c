@@ -455,9 +455,9 @@ static void init_vp_index(struct vmbus_channel *channel, const uuid_le *type_gui
            cpumask_weight(cpumask_of_node(primary->numa_node))) {
 
 		/* 
-		*We have cycled through all the CPUs in the node;
-	        * reset the alloced map.
-	        */
+		 * We have cycled through all the CPUs in the node;
+	         * reset the alloced map.
+	         */
 		cpumask_clear(alloced_mask);
 
         }
@@ -883,7 +883,7 @@ cleanup:
 
 /*
  * Retrieve the (sub) channel on which to send an outgoing request.
- *When a primary channel has multiple sub-channels, we try to
+ * When a primary channel has multiple sub-channels, we try to
  * distribute the load equally amongst all available channels. 
 */
 struct vmbus_channel *vmbus_get_outgoing_channel(struct vmbus_channel *primary)
@@ -916,8 +916,8 @@ struct vmbus_channel *vmbus_get_outgoing_channel(struct vmbus_channel *primary)
 			return cur_channel;
 		if (i == next_channel)
 			return cur_channel;
-		i++;
 
+		i++;
 	}
 
 	return outgoing_channel;

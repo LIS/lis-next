@@ -945,7 +945,7 @@ int netvsc_send(struct hv_device *device,
 	if (cur_send)
 		ret = netvsc_send_pkt(cur_send, net_device);
 
-	if (ret !=0 && section_index != NETVSC_INVALID_INDEX)
+	if (ret != 0 && section_index != NETVSC_INVALID_INDEX)
 		netvsc_free_send_slot(net_device, section_index);
 
 	return ret;

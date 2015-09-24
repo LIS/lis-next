@@ -267,6 +267,12 @@ bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 	return true;
 }
 
+#ifdef NOTYET
+// Divergence from upstream commit:
+// 5b54dac856cb5bd6f33f4159012773e4a33704f7
+static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb,
+			void *accel_priv, select_queue_fallback_t fallback)
+#endif
 static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 {
 	struct net_device_context *net_device_ctx = netdev_priv(ndev);
@@ -521,6 +527,11 @@ check_size:
 
 	rndis_msg_size = RNDIS_MESSAGE_SIZE(struct rndis_packet);
 
+#ifdef NOTYET
+	// Divergence from upstream commit:
+	// 307f099520b66504cf6c5638f3f404c48b9fb45b
+	hash = skb_get_hash_raw(skb);
+#endif
 	hash = skb_get_hash(skb);
 	if (hash != 0 && net->real_num_tx_queues > 1) {
 		rndis_msg_size += NDIS_HASH_PPI_SIZE;

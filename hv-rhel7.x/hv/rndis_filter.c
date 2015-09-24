@@ -1119,7 +1119,7 @@ int rndis_filter_device_add(struct hv_device *dev,
 	net_device->max_chn = rsscap.num_recv_que;
 
 	/*
-	 * We will limit the VRSS channels to the number of CPUs in the NUMA node
+	 * We will limit the VRSS channels to the number CPUs in the NUMA node
 	 * the primary channel is currently bound to.
 	 */
 	node_cpu_mask = cpumask_of_node(cpu_to_node(dev->channel->target_cpu));

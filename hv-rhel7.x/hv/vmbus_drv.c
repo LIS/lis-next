@@ -598,7 +598,6 @@ static int vmbus_remove(struct device *child_device)
  		drv = drv_to_hv_drv(child_device->driver);
  		if (drv->remove)
  			drv->remove(dev);
-	
 	else {
 			hv_process_channel_removal(dev->channel, relid);
  			pr_err("remove not set for driver %s\n",

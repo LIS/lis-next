@@ -1,4 +1,5 @@
 /*
+ *
  * Copyright (c) 2011, Microsoft Corporation.
  *
  * This program is free software; you can redistribute it and/or modify it
@@ -666,8 +667,8 @@ struct vmbus_connection {
 	enum vmbus_connect_state conn_state;
 
 	atomic_t next_gpadl_handle;
-	struct completion  unload_event;
 
+	struct completion  unload_event;
 	/*
 	 * Represents channel interrupts. Each bit position represents a
 	 * channel.  When a channel sends an interrupt via VMBUS, it finds its
