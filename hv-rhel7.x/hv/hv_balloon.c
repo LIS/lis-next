@@ -1039,7 +1039,7 @@ static void post_status(struct hv_dynmem_device *dm)
 	 * asking us to balloon them out.
 	 */
 	status.num_avail = val.freeram;
-	status.num_committed = (val.totalram - val.freeram) +
+	status.num_committed = vm_memory_committed() +
 		dm->num_pages_ballooned +
 		(dm->num_pages_added > dm->num_pages_onlined ?
 		 dm->num_pages_added - dm->num_pages_onlined : 0) +
@@ -1271,8 +1271,7 @@ static int dm_thread_func(void *dm_dev)
 		 * The host expects us to post information on the memory
 		 * pressure every second.
 		 */
-		//KYSreinit_completion(&dm_device.config_event);
-		dm_device.config_event.done = 0;
+		reinit_completion(&dm_device.config_event);
 		post_status(dm);
 	}
 
@@ -1447,6 +1446,9 @@ static int balloon_probe(struct hv_device *dev,
 
 	do_hot_add = hot_add;
 
+	/*
+	 * This is missing from upstream.
+	 */
 	last_post_time = jiffies;
 
 	/*

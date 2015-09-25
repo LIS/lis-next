@@ -448,6 +448,10 @@ static ssize_t channel_vp_mapping_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(channel_vp_mapping);
 
+/*
+ * Divergence from upstream.
+ * Vendor and device attributes needed for RDMA.
+ */
 static ssize_t vendor_show(struct device *dev,
 			  struct device_attribute *dev_attr,
 			  char *buf)

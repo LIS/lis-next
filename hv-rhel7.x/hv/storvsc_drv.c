@@ -170,6 +170,10 @@ static int sense_buffer_size = PRE_WIN8_STORVSC_SENSE_BUFFER_SIZE;
 */
 static int vmstor_proto_version;
 
+/*
+ * Divergence from upstream:
+ * This logging should be added to upstream.
+ */
 #define STORVSC_LOGGING_NONE   0
 #define STORVSC_LOGGING_ERROR  1
 #define STORVSC_LOGGING_WARN   2
@@ -1133,6 +1137,11 @@ static void storvsc_handle_error(struct vmscsi_request *vm_srb,
 	struct storvsc_scan_work *wrk;
 	void (*process_err_fn)(struct work_struct *work);
 	bool do_work = false;
+
+	/*
+	 * Divergence from upstream:
+	 * Addresses an error handling bug on older kernels.
+	 */
 	struct hv_host_device *host_dev = shost_priv(scmnd->device->host);
 	int error_handling_cpu = host_dev->dev->channel->target_cpu;
 
@@ -1578,6 +1587,8 @@ static int storvsc_device_configure(struct scsi_device *sdevice)
 
 	blk_queue_rq_timeout(sdevice->request_queue, (storvsc_timeout * HZ));
 
+	sdevice->no_write_same = 1;
+
 #ifdef NOTYET
 	// Divergence from upstream commit:
 	// f3cfabce7a2e92564d380de3aad4b43901fb7ae6
@@ -1708,6 +1719,10 @@ static bool storvsc_scsi_cmd_ok(struct scsi_cmnd *scmnd)
 	 * this. So, don't send it.
 	 */
 	case SET_WINDOW:
+		/*
+		 * This returned result is an expected divergence from
+		 * upstream code.
+		 */
                 scsi_build_sense_buffer(0, scmnd->sense_buffer, ILLEGAL_REQUEST,
                     0x20, 0);
                 scmnd->result = SAM_STAT_CHECK_CONDITION;
@@ -2015,7 +2030,7 @@ static int storvsc_probe(struct hv_device *device,
 	host_dev->dev = device;
 
 
-	stor_device = kmalloc(sizeof(struct storvsc_device), GFP_KERNEL);
+	stor_device = kzalloc(sizeof(struct storvsc_device), GFP_KERNEL);
 	if (!stor_device) {
 		ret = -ENOMEM;
 		goto err_out0;
