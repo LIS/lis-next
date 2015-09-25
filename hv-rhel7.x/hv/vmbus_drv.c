@@ -838,6 +838,38 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id)
 #endif
 }
 
+#ifdef CONFIG_HOTPLUG_CPU
+static int hyperv_cpu_disable(void)
+{
+	return -ENOSYS;
+}
+
+static void hv_cpu_hotplug_quirk(bool vmbus_loaded)
+{
+	static void *previous_cpu_disable;
+
+	/*
+	 * Offlining a CPU when running on newer hypervisors (WS2012R2, Win8,
+	 * ...) is not supported at this moment as channel interrupts are
+	 * distributed across all of them.
+	 */
+
+	if ((vmbus_proto_version == VERSION_WS2008) ||
+	    (vmbus_proto_version == VERSION_WIN7))
+		return;
+
+	if (vmbus_loaded) {
+		previous_cpu_disable = smp_ops.cpu_disable;
+		smp_ops.cpu_disable = hyperv_cpu_disable;
+		pr_notice("CPU offlining is not supported by hypervisor\n");
+	} else if (previous_cpu_disable)
+		smp_ops.cpu_disable = previous_cpu_disable;
+}
+#else
+static void hv_cpu_hotplug_quirk(bool vmbus_loaded)
+{
+}
+#endif
 
 
 /*
@@ -922,10 +954,8 @@ static int vmbus_bus_init(int irq)
                 atomic_notifier_chain_register(&panic_notifier_list,
                                                &hyperv_panic_block);
         }
-
-	if (vmbus_proto_version > VERSION_WIN7)
-		cpu_hotplug_disable();
-
+	
+	hv_cpu_hotplug_quirk(true);
 	vmbus_request_offers();
 		
 	return 0;
@@ -1354,8 +1384,7 @@ static void __exit vmbus_exit(void)
 	}
 	hv_synic_free();
 	acpi_bus_unregister_driver(&vmbus_acpi_driver);
-	if (vmbus_proto_version > VERSION_WIN7)
-		cpu_hotplug_enable();
+	hv_cpu_hotplug_quirk(false);
 }
 
 
