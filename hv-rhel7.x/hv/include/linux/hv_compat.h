@@ -146,10 +146,12 @@ static inline int kstrtouint(const char *s, unsigned int base, unsigned int *res
 
 #define PTE_SHIFT ilog2(PTRS_PER_PTE)
 
+#if defined (RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1793)
 static inline void reinit_completion(struct completion *x)
 {
 	x->done = 0;
 }
+#endif
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1792)
 static inline int page_level_shift(int level)
