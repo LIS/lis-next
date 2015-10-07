@@ -517,6 +517,12 @@ done:
 	kfree(wrk);
 }
 
+/*
+ * Divergence from upstream commit: 2a09ed3d97ff8b5b377f86da9b9afd9ebd97b362
+ * storvsc_host_scan() is supposed call scsi_scan_host() instead of
+ * storvsc_bus_scan(). On RH7, this results in kernel oops and soft
+ * lockups in the call path when hot-adding disks. Keeping original.
+ */
 static void storvsc_bus_scan(struct Scsi_Host *host)
 {
 	int id, order_id;
