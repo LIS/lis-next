@@ -204,6 +204,8 @@ void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid)
 		spin_lock_irqsave(&vmbus_connection.channel_lock, flags);
 		list_del(&channel->listentry);
 		spin_unlock_irqrestore(&vmbus_connection.channel_lock, flags);
+
+		primary_channel = channel;
 	} else {
 		primary_channel = channel->primary_channel;
 		spin_lock_irqsave(&primary_channel->lock, flags);
@@ -211,16 +213,29 @@ void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid)
 		primary_channel->num_sc--;
 		spin_unlock_irqrestore(&primary_channel->lock, flags);
 	}
+
+	/*
+	 * We need to free the bit for init_vp_index() to work in the case
+	 * of sub-channel, when we reload drivers like hv_netvsc.
+	 */
+	cpumask_clear_cpu(channel->target_cpu,
+			  &primary_channel->alloced_cpus_in_node);
+
 	free_channel(channel);
 }
 
 void vmbus_free_channels(void)
 {
-	struct vmbus_channel *channel;
+	struct vmbus_channel *channel, *tmp;
 
-	list_for_each_entry(channel, &vmbus_connection.chn_list, listentry) {
+	list_for_each_entry_safe(channel, tmp, &vmbus_connection.chn_list,
+		listentry) {
+		/* if we don't set rescind to true, vmbus_close_internal()
+		 * won't invoke hv_process_channel_removal().
+		 */
+		channel->rescind = true;
+
 		vmbus_device_unregister(channel->device_obj);
-		free_channel(channel);
 	}
 }
 
@@ -344,6 +359,7 @@ enum {
 	IDE = 0,
 	SCSI,
 	NIC,
+	ND_NIC,
 	MAX_PERF_CHN,
 };
 
@@ -439,9 +455,9 @@ static void init_vp_index(struct vmbus_channel *channel, const uuid_le *type_gui
            cpumask_weight(cpumask_of_node(primary->numa_node))) {
 
 		/* 
-		*We have cycled through all the CPUs in the node;
-	        * reset the alloced map.
-	        */
+		 * We have cycled through all the CPUs in the node;
+	         * reset the alloced map.
+	         */
 		cpumask_clear(alloced_mask);
 
         }
@@ -450,23 +466,30 @@ static void init_vp_index(struct vmbus_channel *channel, const uuid_le *type_gui
                    cpumask_of_node(primary->numa_node));
 
 	cur_cpu = -1;
-        while (true) {
-                cur_cpu = cpumask_next(cur_cpu, &available_mask);
-                if (cur_cpu >= nr_cpu_ids) {
-                        cur_cpu = -1;
-                        cpumask_copy(&available_mask,
-                                     cpumask_of_node(primary->numa_node));
-                        continue;
-                }
+	while (true) {
+		cur_cpu = cpumask_next(cur_cpu, &available_mask);
+		if (cur_cpu >= nr_cpu_ids) {
+			cur_cpu = -1;
+			cpumask_copy(&available_mask,
+				     cpumask_of_node(primary->numa_node));
+			continue;
+		}
 
-                if (!cpumask_test_cpu(cur_cpu,
-                                &primary->alloced_cpus_in_node)) {
-                        cpumask_set_cpu(cur_cpu,
-                                        &primary->alloced_cpus_in_node);
-                        cpumask_set_cpu(cur_cpu, alloced_mask);
-                        break;
-                }
-        }
+		/*
+		 * NOTE: in the case of sub-channel, we clear the sub-channel
+		 * related bit(s) in primary->alloced_cpus_in_node in
+		 * hv_process_channel_removal(), so when we reload drivers
+		 * like hv_netvsc in SMP guest, here we're able to re-allocate
+		 * bit from primary->alloced_cpus_in_node.
+		 */
+		if (!cpumask_test_cpu(cur_cpu,
+				&primary->alloced_cpus_in_node)) {
+			cpumask_set_cpu(cur_cpu,
+					&primary->alloced_cpus_in_node);
+			cpumask_set_cpu(cur_cpu, alloced_mask);
+			break;
+		}
+	}
 
 	channel->target_cpu = cur_cpu;
 	channel->target_vp = hv_context.vp_index[cur_cpu];
@@ -860,7 +883,7 @@ cleanup:
 
 /*
  * Retrieve the (sub) channel on which to send an outgoing request.
- *When a primary channel has multiple sub-channels, we try to
+ * When a primary channel has multiple sub-channels, we try to
  * distribute the load equally amongst all available channels. 
 */
 struct vmbus_channel *vmbus_get_outgoing_channel(struct vmbus_channel *primary)
@@ -893,8 +916,8 @@ struct vmbus_channel *vmbus_get_outgoing_channel(struct vmbus_channel *primary)
 			return cur_channel;
 		if (i == next_channel)
 			return cur_channel;
-		i++;
 
+		i++;
 	}
 
 	return outgoing_channel;

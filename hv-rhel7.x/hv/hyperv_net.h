@@ -130,6 +130,9 @@ struct hv_netvsc_packet {
 	u32 status;
 
 	bool is_data_pkt;
+	bool xmit_more; /* from skb */
+	bool cp_partial; /* partial copy into send buffer */
+
 	u16 vlan_tci;
 
 	u16 q_idx;
@@ -144,6 +147,9 @@ struct hv_netvsc_packet {
 	/* This points to the memory after page_buf */
 	struct rndis_message *rndis_msg;
 
+	u32 rmsg_size; /* RNDIS header and PPI size */
+	u32 rmsg_pgcnt; /* page count of RNDIS header and PPI */
+
 	u32 total_data_buflen;
 	/* Points to the send/receive buffer where the ethernet frame is */
 	void *data;
@@ -156,6 +162,7 @@ struct netvsc_device_info {
 	bool link_state;	/* 0 - link up, 1 - link down */
 	int  ring_size;
 	u32 max_num_vrss_chns;
+	u32 num_chn;
 };
 
 enum rndis_device_state {
@@ -535,6 +542,29 @@ union nvsp_2_message_uber {
 	struct nvsp_2_free_rxbuf free_rxbuf;
 } __packed;
 
+struct nvsp_4_send_vf_association {
+	/* 1: allocated, serial number is valid. 0: not allocated */
+	u32 allocated;
+
+	/* Serial number of the VF to team with */
+	u32 serial;
+} __packed;
+
+enum nvsp_vm_datapath {
+	NVSP_DATAPATH_SYNTHETIC = 0,
+	NVSP_DATAPATH_VF,
+	NVSP_DATAPATH_MAX
+};
+
+struct nvsp_4_sw_datapath {
+	u32 active_datapath; /* active data path in VM */
+} __packed;
+
+union nvsp_4_message_uber {
+	struct nvsp_4_send_vf_association vf_assoc;
+	struct nvsp_4_sw_datapath active_dp;
+} __packed;
+
 enum nvsp_subchannel_operation {
 	NVSP_SUBCHANNEL_NONE = 0,
 	NVSP_SUBCHANNEL_ALLOCATE,
@@ -572,6 +602,7 @@ union nvsp_all_messages {
 	union nvsp_message_init_uber init_msg;
 	union nvsp_1_message_uber v1_msg;
 	union nvsp_2_message_uber v2_msg;
+	union nvsp_4_message_uber v4_msg;
 	union nvsp_5_message_uber v5_msg;
 } __packed;
 
@@ -583,6 +614,7 @@ struct nvsp_message {
 
 
 #define NETVSC_MTU 65536
+#define NETVSC_MTU_MIN 68
 
 #define NETVSC_RECEIVE_BUFFER_SIZE		(1024*1024*16)	/* 16MB */
 #define NETVSC_RECEIVE_BUFFER_SIZE_LEGACY	(1024*1024*15)  /* 15MB */
@@ -597,6 +629,21 @@ struct nvsp_message {
 
 #define VRSS_SEND_TAB_SIZE 16
 
+#define RNDIS_MAX_PKT_DEFAULT 8
+#define RNDIS_PKT_ALIGN_DEFAULT 8
+
+struct multi_send_data {
+	spinlock_t lock; /* protect struct multi_send_data */
+	struct hv_netvsc_packet *pkt; /* netvsc pkt pending */
+	u32 count; /* counter of batched packets */
+};
+
+struct netvsc_stats {
+	u64 packets;
+	u64 bytes;
+	struct u64_stats_sync syncp;
+};
+
 /* The context of the netvsc device */
 struct net_device_context {
 	/* point back to our device context */
@@ -604,9 +651,12 @@ struct net_device_context {
 	struct delayed_work dwork;
 	struct work_struct work;
 	u32 msg_enable; /* debug level */
+
+	struct netvsc_stats __percpu *tx_stats;
+	struct netvsc_stats __percpu *rx_stats;
 };
 
-/* Per netvsc channel-specific */
+/* Per netvsc device */
 struct netvsc_device {
 	struct hv_device *dev;
 
@@ -644,7 +694,10 @@ struct netvsc_device {
 
 	struct vmbus_channel *chn_table[NR_CPUS];
 	u32 send_table[VRSS_SEND_TAB_SIZE];
+	u32 max_chn;
 	u32 num_chn;
+	spinlock_t sc_lock; /* Protects num_sc_offered variable */
+	u32 num_sc_offered;
 	atomic_t queue_sends[NR_CPUS];
 
 	/* Holds rndis device info */
@@ -657,8 +710,17 @@ struct netvsc_device {
 	/* The sub channel callback buffer */
 	unsigned char *sub_cb_buf;
 
+	struct multi_send_data msd[NR_CPUS];
+	u32 max_pkt; /* max number of pkt in one send, e.g. 8 */
+	u32 pkt_align; /* alignment bytes, e.g. 8 */
+
 	/* The net device context */
 	struct net_device_context *nd_ctx;
+
+	/* 1: allocated, serial number is valid. 0: not allocated */
+	u32 vf_alloc;
+	/* Serial number of the VF to team with */
+	u32 vf_serial;
 };
 
 /* NdisInitialize message */
