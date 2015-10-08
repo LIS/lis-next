@@ -226,12 +226,14 @@ cleanup:
 
 	return ret;
 }
-	void vmbus_disconnect(void)
+
+void vmbus_disconnect(void)
 {
 	/*
 	 * First send the unload request to the host.
 	 */
 	vmbus_initiate_unload();
+
 	if (vmbus_connection.work_queue) {
 		drain_workqueue(vmbus_connection.work_queue);
 		destroy_workqueue(vmbus_connection.work_queue);
@@ -246,7 +248,6 @@ cleanup:
 	free_pages((unsigned long)vmbus_connection.monitor_pages[1], 0);
 	vmbus_connection.monitor_pages[0] = NULL;
 	vmbus_connection.monitor_pages[1] = NULL;
-
 }
 
 /*

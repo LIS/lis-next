@@ -499,7 +499,7 @@ int hv_ringbuffer_peek(struct hv_ring_buffer_info *Inring_info,
 
 /*
  *
- * v_ringbuffer_read()
+ * hv_ringbuffer_read()
  *
  * Read and advance the read index
  *
