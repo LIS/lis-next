@@ -23,6 +23,7 @@
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
 #include <linux/init.h>
+#include <linux/version.h>
 #include <linux/module.h>
 #include <linux/device.h>
 #include <linux/interrupt.h>
@@ -34,10 +35,9 @@
 #include <linux/kernel_stat.h>
 #include <linux/clockchips.h>
 #include <linux/cpu.h>
-#include <linux/version.h>
 #include "include/asm/hyperv.h"
 #include <asm/hypervisor.h>
-#include "include/asm/mshyperv.h"
+#include <linux/screen_info.h>
 #include <linux/notifier.h>
 #include <linux/ptrace.h>
 #include "hyperv_vmbus.h"
@@ -91,7 +91,7 @@ struct hv_device_info {
 
 
 int hyperv_panic_event(struct notifier_block *nb,
-			unsigned long event, void *ptr)
+                        unsigned long event, void *ptr)
 {
 	struct pt_regs *regs;
 
@@ -111,14 +111,11 @@ int hyperv_panic_event(struct notifier_block *nb,
 }
 
 static struct notifier_block hyperv_panic_block = {
-	.notifier_call = hyperv_panic_event,
+        .notifier_call = hyperv_panic_event,
 };
 
-struct resource hyperv_mmio = {
-	.name  = "hyperv mmio",
-	.flags = IORESOURCE_MEM,
-};
-EXPORT_SYMBOL_GPL(hyperv_mmio);
+
+struct resource *hyperv_mmio;
 
 static int vmbus_exists(void)
 {
@@ -126,6 +123,14 @@ static int vmbus_exists(void)
 		return -ENODEV;
 
 	return 0;
+}
+
+#define VMBUS_ALIAS_LEN ((sizeof((struct hv_vmbus_device_id *)0)->guid) * 2)
+static void print_alias_name(struct hv_device *hv_dev, char *alias_name)
+{
+	int i;
+	for (i = 0; i < VMBUS_ALIAS_LEN; i += 2)
+		sprintf(&alias_name[i], "%02x", hv_dev->dev_type.b[i/2]);
 }
 
 static void get_channel_info(struct hv_device *device,
@@ -172,15 +177,6 @@ static void get_channel_info(struct hv_device *device,
 	info->outbound.bytes_avail_towrite =
 		debug_info.outbound.bytes_avail_towrite;
 }
-
-#define VMBUS_ALIAS_LEN ((sizeof((struct hv_vmbus_device_id *)0)->guid) * 2)
-static void print_alias_name(struct hv_device *hv_dev, char *alias_name)
-{
-	int i;
-	for (i = 0; i < VMBUS_ALIAS_LEN; i += 2)
-		sprintf(&alias_name[i], "%02x", hv_dev->dev_type.b[i/2]);
-}
-
 
 /*
  * vmbus_show_device_attr - Show the device attribute in sysfs.
@@ -293,10 +289,50 @@ static ssize_t vmbus_show_device_attr(struct device *dev,
 	kfree(device_info);
 	return ret;
 }
+static ssize_t channel_vp_mapping_show(struct device *dev,
+				       struct device_attribute *dev_attr,
+				       char *buf)
+{
+	struct hv_device *hv_dev = device_to_hv_device(dev);
+	struct vmbus_channel *channel = hv_dev->channel, *cur_sc;
+	unsigned long flags;
+	int buf_size = PAGE_SIZE, n_written, tot_written;
+	struct list_head *cur;
 
+	if (!channel)
+		return -ENODEV;
+
+	tot_written = snprintf(buf, buf_size, "%u:%u\n",
+		channel->offermsg.child_relid, channel->target_cpu);
+
+	spin_lock_irqsave(&channel->lock, flags);
+
+	list_for_each(cur, &channel->sc_list) {
+		if (tot_written >= buf_size - 1)
+			break;
+
+		cur_sc = list_entry(cur, struct vmbus_channel, sc_list);
+		n_written = scnprintf(buf + tot_written,
+				     buf_size - tot_written,
+				     "%u:%u\n",
+				     cur_sc->offermsg.child_relid,
+				     cur_sc->target_cpu);
+		tot_written += n_written;
+	}
+
+	spin_unlock_irqrestore(&channel->lock, flags);
+
+	return tot_written;
+}
+/* static DEVICE_ATTR_RO(channel_vp_mapping); */
+
+/*
+ * Divergence from upstream.
+ * Vendor and device attributes needed for RDMA.
+ */
 static ssize_t vendor_show(struct device *dev,
-			   struct device_attribute *dev_attr,
-			   char *buf)
+			  struct device_attribute *dev_attr,
+			  char *buf)
 {
 	struct hv_device *hv_dev = device_to_hv_device(dev);
 	return sprintf(buf, "0x%x\n", hv_dev->vendor_id);
@@ -304,8 +340,8 @@ static ssize_t vendor_show(struct device *dev,
 /* static DEVICE_ATTR_RO(vendor); */
 
 static ssize_t device_show(struct device *dev,
-			   struct device_attribute *dev_attr,
-			   char *buf)
+			  struct device_attribute *dev_attr,
+			  char *buf)
 {
 	struct hv_device *hv_dev = device_to_hv_device(dev);
 	return sprintf(buf, "0x%x\n", hv_dev->device_id);
@@ -342,6 +378,7 @@ static struct device_attribute vmbus_device_attrs[] = {
 	__ATTR(in_write_bytes_avail, S_IRUGO, vmbus_show_device_attr, NULL),
 	__ATTR(vendor, S_IRUGO, vendor_show, NULL),
 	__ATTR(device, S_IRUGO, device_show, NULL),
+	__ATTR(channel_vp_mapping, S_IRUGO, channel_vp_mapping_show, NULL),
 	__ATTR_NULL
 };
 
@@ -444,13 +481,13 @@ static int vmbus_remove(struct device *child_device)
 	u32 relid = dev->channel->offermsg.child_relid;
 
 	if (child_device->driver) {
-		drv = drv_to_hv_drv(child_device->driver);
-		if (drv->remove)
-			drv->remove(dev);
-		else {
+ 		drv = drv_to_hv_drv(child_device->driver);
+ 		if (drv->remove)
+ 			drv->remove(dev);
+	else {
 			hv_process_channel_removal(dev->channel, relid);
-			pr_err("remove not set for driver %s\n",
-				dev_name(child_device));
+ 			pr_err("remove not set for driver %s\n",
+ 				dev_name(child_device));
 		}
 	} else {
 		/*
@@ -520,7 +557,6 @@ struct onmessage_work_context {
 static void vmbus_onmessage_work(struct work_struct *work)
 {
 	struct onmessage_work_context *ctx;
-
 	/* Do not process messages if we're in DISCONNECTED state */
 	if (vmbus_connection.conn_state == DISCONNECTED)
 		return;
@@ -567,14 +603,12 @@ static void vmbus_on_msg_dpc(unsigned long data)
 				  VMBUS_MESSAGE_SINT;
 	struct vmbus_channel_message_header *hdr;
 	struct vmbus_channel_message_table_entry *entry;
-
 	struct onmessage_work_context *ctx;
 
 	while (1) {
 		if (msg->header.message_type == HVMSG_NONE)
 			/* no msg */
 			break;
-
 		hdr = (struct vmbus_channel_message_header *)msg->u.payload;
 
 		if (hdr->msgtype >= CHANNELMSG_COUNT) {
@@ -583,7 +617,7 @@ static void vmbus_on_msg_dpc(unsigned long data)
 		}
 
 		entry = &channel_message_table[hdr->msgtype];
-		if (entry->handler_type == VMHT_BLOCKING) {
+		if (entry->handler_type	== VMHT_BLOCKING) {
 			ctx = kmalloc(sizeof(*ctx), GFP_ATOMIC);
 			if (ctx == NULL)
 				continue;
@@ -759,10 +793,9 @@ static int vmbus_bus_init(int irq)
 
 	if (ret != 0) {
 		pr_err("Unable to request IRQ %d\n",
-                           irq);
+			irq);
 		goto err_unregister;
 	}
-
 
 	/*
 	 * Vmbus interrupts can be handled concurrently on
@@ -830,8 +863,8 @@ err_cleanup:
 }
 
 /**
- * __vmbus_child_driver_register - Register a vmbus's driver
- * @drv: Pointer to driver structure you want to register
+ * __vmbus_child_driver_register() - Register a vmbus's driver
+ * @hv_driver: Pointer to driver structure you want to register
  * @owner: owner module of the drv
  * @mod_name: module name string
  *
@@ -863,7 +896,8 @@ EXPORT_SYMBOL_GPL(__vmbus_driver_register);
 
 /**
  * vmbus_driver_unregister() - Unregister a vmbus's driver
- * @drv: Pointer to driver structure you want to un-register
+ * @hv_driver: Pointer to driver structure you want to
+ *             un-register
  *
  * Un-register the given driver that was previous registered with a call to
  * vmbus_driver_register()
@@ -909,9 +943,9 @@ int vmbus_device_register(struct hv_device *child_device_obj)
 {
 	int ret = 0;
 
+
 	dev_set_name(&child_device_obj->device, "vmbus_%d",
 		     child_device_obj->channel->id);
-
 	child_device_obj->device.bus = &hv_bus;
 	child_device_obj->device.parent = &hv_acpi_dev->dev;
 	child_device_obj->device.release = vmbus_device_release;
@@ -949,39 +983,184 @@ void vmbus_device_unregister(struct hv_device *device_obj)
 
 
 /*
- * VMBUS is an acpi enumerated device. Get the the information we
+ * VMBUS is an acpi enumerated device. Get the information we
  * need from DSDT.
  */
-
+#define VTPM_BASE_ADDRESS 0xfed40000
 static acpi_status vmbus_walk_resources(struct acpi_resource *res, void *ctx)
 {
+	resource_size_t start = 0;
+	resource_size_t end = 0;
+	struct resource *new_res;
+	struct resource **old_res = &hyperv_mmio;
+	struct resource **prev_res = NULL;
+
 	switch (res->type) {
 	case ACPI_RESOURCE_TYPE_IRQ:
 		irq = res->data.irq.interrupts[0];
+		return AE_OK;
+
+	/*
+	 * "Address" descriptors are for bus windows. Ignore
+	 * "memory" descriptors, which are for registers on
+	 * devices.
+	 */
+	case ACPI_RESOURCE_TYPE_ADDRESS32:
+		start = res->data.address32.minimum;
+		end = res->data.address32.maximum;
 		break;
 
 	case ACPI_RESOURCE_TYPE_ADDRESS64:
-		hyperv_mmio.start = res->data.address64.minimum;
-		hyperv_mmio.end = res->data.address64.maximum;
+		start = res->data.address64.minimum;
+		end = res->data.address64.maximum;
 		break;
+
+	default:
+		/* Unused resource type */
+		return AE_OK;
+
 	}
+	/*
+	 * Ignore ranges that are below 1MB, as they're not
+	 * necessary or useful here.
+	 */
+	if (end < 0x100000)
+		return AE_OK;
+
+	new_res = kzalloc(sizeof(*new_res), GFP_ATOMIC);
+	if (!new_res)
+		return AE_NO_MEMORY;
+
+	/* If this range overlaps the virtual TPM, truncate it. */
+	if (end > VTPM_BASE_ADDRESS && start < VTPM_BASE_ADDRESS)
+		end = VTPM_BASE_ADDRESS;
+
+	new_res->name = "hyperv mmio";
+	new_res->flags = IORESOURCE_MEM;
+	new_res->start = start;
+	new_res->end = end;
+
+	do {
+		if (!*old_res) {
+			*old_res = new_res;
+			break;
+		}
+
+		if ((*old_res)->end < new_res->start) {
+			new_res->sibling = *old_res;
+			if (prev_res)
+				(*prev_res)->sibling = new_res;
+			*old_res = new_res;
+			break;
+		}
+
+		prev_res = old_res;
+		old_res = &(*old_res)->sibling;
+
+	} while (1);
 
 	return AE_OK;
 }
 
 static int vmbus_acpi_remove(struct acpi_device *device)
 {
-	int ret = 0;
+	struct resource *cur_res;
+	struct resource *next_res;
 
-	if (hyperv_mmio.start && hyperv_mmio.end)
-		ret = release_resource(&hyperv_mmio);
-	return ret;
+	if (hyperv_mmio) {
+		for (cur_res = hyperv_mmio; cur_res; cur_res = next_res) {
+			next_res = cur_res->sibling;
+			kfree(cur_res);
+		}
+	}
+
+	return 0;
 }
+
+/**
+ * vmbus_allocate_mmio() - Pick a memory-mapped I/O range.
+ * @new:		If successful, supplied a pointer to the
+ *			allocated MMIO space.
+ * @device_obj:		Identifies the caller
+ * @min:		Minimum guest physical address of the
+ *			allocation
+ * @max:		Maximum guest physical address
+ * @size:		Size of the range to be allocated
+ * @align:		Alignment of the range to be allocated
+ * @fb_overlap_ok:	Whether this allocation can be allowed
+ *			to overlap the video frame buffer.
+ *
+ * This function walks the resources granted to VMBus by the
+ * _CRS object in the ACPI namespace underneath the parent
+ * "bridge" whether that's a root PCI bus in the Generation 1
+ * case or a Module Device in the Generation 2 case.  It then
+ * attempts to allocate from the global MMIO pool in a way that
+ * matches the constraints supplied in these parameters and by
+ * that _CRS.
+ *
+ * Return: 0 on success, -errno on failure
+ */
+int vmbus_allocate_mmio(struct resource **new, struct hv_device *device_obj,
+			resource_size_t min, resource_size_t max,
+			resource_size_t size, resource_size_t align,
+			bool fb_overlap_ok)
+{
+	struct resource *iter;
+	resource_size_t range_min, range_max, start, local_min, local_max;
+	const char *dev_n = dev_name(&device_obj->device);
+	u32 fb_end = screen_info.lfb_base + (screen_info.lfb_size << 1);
+	int i;
+
+	for (iter = hyperv_mmio; iter; iter = iter->sibling) {
+		if ((iter->start >= max) || (iter->end <= min))
+			continue;
+
+		range_min = iter->start;
+		range_max = iter->end;
+
+		/* If this range overlaps the frame buffer, split it into
+		   two tries. */
+		for (i = 0; i < 2; i++) {
+			local_min = range_min;
+			local_max = range_max;
+			if (fb_overlap_ok || (range_min >= fb_end) ||
+			    (range_max <= screen_info.lfb_base)) {
+				i++;
+			} else {
+				if ((range_min <= screen_info.lfb_base) &&
+				    (range_max >= screen_info.lfb_base)) {
+					/*
+					 * The frame buffer is in this window,
+					 * so trim this into the part that
+					 * preceeds the frame buffer.
+					 */
+					local_max = screen_info.lfb_base - 1;
+					range_min = fb_end;
+				} else {
+					range_min = fb_end;
+					continue;
+				}
+			}
+
+			start = (local_min + align - 1) & ~(align - 1);
+			for (; start + size - 1 <= local_max; start += align) {
+				*new = request_mem_region_exclusive(start, size,
+								    dev_n);
+				if (*new)
+					return 0;
+			}
+		}
+	}
+
+	return -ENXIO;
+}
+EXPORT_SYMBOL_GPL(vmbus_allocate_mmio);
 
 static int vmbus_acpi_add(struct acpi_device *device)
 {
 	acpi_status result;
 	int ret_val = -ENODEV;
+	struct acpi_device *ancestor;
 
 	hv_acpi_dev = device;
 
@@ -991,23 +1170,24 @@ static int vmbus_acpi_add(struct acpi_device *device)
 	if (ACPI_FAILURE(result))
 		goto acpi_walk_err;
 	/*
-	 * The parent of the vmbus acpi device (Gen2 firmware) is the VMOD that
-	 * has the mmio ranges. Get that.
+	 * Some ancestor of the vmbus acpi device (Gen1 or Gen2
+	 * firmware) is the VMOD that has the mmio ranges. Get that.
 	 */
-	if (device->parent) {
-		result = acpi_walk_resources(device->parent->handle,
-					METHOD_NAME__CRS,
-					vmbus_walk_resources, NULL);
+	for (ancestor = device->parent; ancestor; ancestor = ancestor->parent) {
+		result = acpi_walk_resources(ancestor->handle, METHOD_NAME__CRS,
+					     vmbus_walk_resources, NULL);
 
 		if (ACPI_FAILURE(result))
-			goto acpi_walk_err;
-		if (hyperv_mmio.start && hyperv_mmio.end)
-			request_resource(&iomem_resource, &hyperv_mmio);
+			continue;
+		if (hyperv_mmio)
+			break;
 	}
 	ret_val = 0;
 
 acpi_walk_err:
 	complete(&probe_event);
+	if (ret_val)
+		vmbus_acpi_remove(device);
 	return ret_val;
 }
 
@@ -1070,7 +1250,6 @@ cleanup:
 static void __exit vmbus_exit(void)
 {
 	int cpu;
-
 	vmbus_connection.conn_state = DISCONNECTED;
 	hv_synic_clockevents_cleanup();
 	vmbus_disconnect();

@@ -557,6 +557,7 @@ struct vmbus_channel_gpadl_torndown {
 	u32 gpadl;
 } __packed;
 
+
 struct vmbus_channel_relid_released {
 	struct vmbus_channel_message_header header;
 	u32 child_relid;
@@ -658,7 +659,6 @@ struct hv_input_signal_event_buffer {
 struct vmbus_channel {
 	/* Unique channel id */
 	int id;
-
 	struct list_head listentry;
 
 	struct hv_device *device_obj;
@@ -723,7 +723,7 @@ struct vmbus_channel {
 	/* The corresponding CPUID in the guest */
 	u32 target_cpu;
 	/*
-	* State to manage the CPU affiliation of channels.
+	 * State to manage the CPU affiliation of channels.
 	 */
 	struct cpumask alloced_cpus_in_node;
 	int numa_node;
@@ -759,6 +759,7 @@ struct vmbus_channel {
 	 * All Sub-channels of a primary channel are linked here.
 	 */
 	struct list_head sc_list;
+
 	/*
 	 * Current number of sub-channels.
 	 */
@@ -768,8 +769,6 @@ struct vmbus_channel {
 	 * to be used as the next outgoing channel.
 	 */
 	int next_oc;
-	
-
 	/*
 	 * The primary channel this sub-channel belongs to.
 	 * This will be NULL for the primary channel.
@@ -889,12 +888,12 @@ extern int vmbus_sendpacket(struct vmbus_channel *channel,
 				  u32 flags);
 
 extern int vmbus_sendpacket_ctl(struct vmbus_channel *channel,
-				  void *buffer,
-				  u32 bufferLen,
-				  u64 requestid,
-				  enum vmbus_packet_type type,
-				  u32 flags,
-				  bool kick_q);
+                                  void *buffer,
+                                  u32 bufferLen,
+                                  u64 requestid,
+                                  enum vmbus_packet_type type,
+                                  u32 flags,
+                                  bool kick_q);
 
 extern int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
 					    struct hv_page_buffer pagebuffers[],
@@ -904,13 +903,13 @@ extern int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
 					    u64 requestid);
 
 extern int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
-					   struct hv_page_buffer pagebuffers[],
-					   u32 pagecount,
-					   void *buffer,
-					   u32 bufferlen,
-					   u64 requestid,
-					   u32 flags,
-					   bool kick_q);
+                                           struct hv_page_buffer pagebuffers[],
+                                           u32 pagecount,
+                                           void *buffer,
+                                           u32 bufferlen,
+                                           u64 requestid,
+                                           u32 flags,
+                                           bool kick_q);
 
 extern int vmbus_sendpacket_multipagebuffer(struct vmbus_channel *channel,
 					struct hv_multipage_buffer *mpb,
@@ -1019,6 +1018,11 @@ int __must_check __vmbus_driver_register(struct hv_driver *hv_driver,
 					 struct module *owner,
 					 const char *mod_name);
 void vmbus_driver_unregister(struct hv_driver *hv_driver);
+
+int vmbus_allocate_mmio(struct resource **new, struct hv_device *device_obj,
+			resource_size_t min, resource_size_t max,
+			resource_size_t size, resource_size_t align,
+			bool fb_overlap_ok);
 
 /**
  * VMBUS_DEVICE - macro used to describe a specific hyperv vmbus device
@@ -1163,7 +1167,6 @@ void vmbus_driver_unregister(struct hv_driver *hv_driver);
 			0xE3, 0x4B, 0xD1, 0x34, 0xE4, 0xDE, 0xC8, 0x41, \
 			0x9A, 0xE7, 0x6B, 0x17, 0x49, 0x77, 0xC1, 0x92 \
 		}
-
 /*
  * NetworkDirect. This is the guest RDMA service.
  * {8c2eaf3d-32a7-4b09-ab99-bd1f1c86b501}
@@ -1274,16 +1277,7 @@ extern bool vmbus_prep_negotiate_resp(struct icmsg_hdr *,
 					struct icmsg_negotiate *, u8 *, int,
 					int);
 
-int hv_kvp_init(struct hv_util_service *);
-void hv_kvp_deinit(void);
-void hv_kvp_onchannelcallback(void *);
-
-int hv_vss_init(struct hv_util_service *);
-void hv_vss_deinit(void);
-void hv_vss_onchannelcallback(void *);
 void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid);
-
-extern struct resource hyperv_mmio;
 
 /*
  * Negotiated version with the Host.

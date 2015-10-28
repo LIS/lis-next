@@ -381,7 +381,7 @@ static void mousevsc_on_channel_callback(void *context)
 static int mousevsc_connect_to_vsp(struct hv_device *device)
 {
 	int ret = 0;
-	int t;
+	unsigned long t;
 	struct mousevsc_dev *input_dev = hv_get_drvdata(device);
 	struct mousevsc_prt_msg *request;
 	struct mousevsc_prt_msg *response;
@@ -463,12 +463,22 @@ static void mousevsc_hid_stop(struct hid_device *hid)
 {
 }
 
+//static int mousevsc_hid_raw_request(struct hid_device *hid,
+//				    unsigned char report_num,
+//				    __u8 *buf, size_t len,
+//				    unsigned char rtype,
+//				    int reqtype)
+//{
+//	return 0;
+//}
+
 static struct hid_ll_driver mousevsc_ll_driver = {
 	.parse = mousevsc_hid_parse,
 	.open = mousevsc_hid_open,
 	.close = mousevsc_hid_close,
 	.start = mousevsc_hid_start,
 	.stop = mousevsc_hid_stop,
+	//.raw_request = mousevsc_hid_raw_request,
 };
 
 static struct hid_driver mousevsc_hid_driver;

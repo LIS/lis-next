@@ -51,21 +51,21 @@ static int irq;
 int hyperv_panic_event(struct notifier_block *nb,
                         unsigned long event, void *ptr)
 {
-        struct pt_regs *regs;
+	struct pt_regs *regs;
 
-        regs = task_pt_regs(current);
+	regs = task_pt_regs(current);
 
-        wrmsrl(HV_X64_MSR_CRASH_P0, regs->ip);
-        wrmsrl(HV_X64_MSR_CRASH_P1, regs->ax);
-        wrmsrl(HV_X64_MSR_CRASH_P2, regs->bx);
-        wrmsrl(HV_X64_MSR_CRASH_P3, regs->cx);
-        wrmsrl(HV_X64_MSR_CRASH_P4, regs->dx);
+	wrmsrl(HV_X64_MSR_CRASH_P0, regs->ip);
+	wrmsrl(HV_X64_MSR_CRASH_P1, regs->ax);
+	wrmsrl(HV_X64_MSR_CRASH_P2, regs->bx);
+	wrmsrl(HV_X64_MSR_CRASH_P3, regs->cx);
+	wrmsrl(HV_X64_MSR_CRASH_P4, regs->dx);
 
-        /*
-         * Let Hyper-V know there is crash data available
-         */
-        wrmsrl(HV_X64_MSR_CRASH_CTL, HV_CRASH_CTL_CRASH_NOTIFY);
-        return NOTIFY_DONE;
+	/*
+	 * Let Hyper-V know there is crash data available
+	 */
+	wrmsrl(HV_X64_MSR_CRASH_CTL, HV_CRASH_CTL_CRASH_NOTIFY);
+	return NOTIFY_DONE;
 }
 
 static struct notifier_block hyperv_panic_block = {
@@ -613,8 +613,8 @@ static int vmbus_remove(struct device *child_device)
 		 * rescind message by removing the channel.
 		 */
 		hv_process_channel_removal(dev->channel, relid);
- 	}
-	
+	}
+
 	return 0;
 }
 
@@ -654,7 +654,7 @@ static void vmbus_device_release(struct device *device)
 
 /* The one and only one */
 static struct bus_type  hv_bus = {
-	.name =		"vmbus",
+	.name =			"vmbus",
 	.match =		vmbus_match,
 	.shutdown =		vmbus_shutdown,
 	.remove =		vmbus_remove,
@@ -722,7 +722,7 @@ static void vmbus_on_msg_dpc(unsigned long data)
 	struct onmessage_work_context *ctx;
 
 	while (1) {
-		if (msg->header.message_type == HVMSG_NONE) 
+		if (msg->header.message_type == HVMSG_NONE)
 			/* no msg */
 			break;
 		hdr = (struct vmbus_channel_message_header *)msg->u.payload;
@@ -743,8 +743,7 @@ static void vmbus_on_msg_dpc(unsigned long data)
 		} else
 			entry->message_handler(hdr);
 
-msg_handled:	
-
+msg_handled:
 		msg->header.message_type = HVMSG_NONE;
 
 		/*
@@ -957,7 +956,7 @@ static int vmbus_bus_init(int irq)
 	
 	hv_cpu_hotplug_quirk(true);
 	vmbus_request_offers();
-		
+
 	return 0;
 
 err_alloc:
@@ -1377,7 +1376,7 @@ static void __exit vmbus_exit(void)
 						 &hyperv_panic_block);
 	}
 	bus_unregister(&hv_bus);
-	hv_cleanup();	
+	hv_cleanup();
 	for_each_online_cpu(cpu) {
 		tasklet_kill(hv_context.event_dpc[cpu]);
 		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);

@@ -131,6 +131,7 @@ fw_error:
 
 EXPORT_SYMBOL_GPL(vmbus_prep_negotiate_resp);
 
+
 /*
  * alloc_channel - Allocate and initialize a vmbus channel object
  */
@@ -176,7 +177,6 @@ static void percpu_channel_deq(void *arg)
 	list_del(&channel->percpu_list);
 }
 
-
 void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid)
 {
 	struct vmbus_channel_relid_released msg;
@@ -204,6 +204,8 @@ void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid)
 		spin_lock_irqsave(&vmbus_connection.channel_lock, flags);
 		list_del(&channel->listentry);
 		spin_unlock_irqrestore(&vmbus_connection.channel_lock, flags);
+
+		primary_channel = channel;
 	} else {
 		primary_channel = channel->primary_channel;
 		spin_lock_irqsave(&primary_channel->lock, flags);
@@ -211,6 +213,14 @@ void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid)
 		primary_channel->num_sc--;
 		spin_unlock_irqrestore(&primary_channel->lock, flags);
 	}
+
+	/*
+	 * We need to free the bit for init_vp_index() to work in the case
+	 * of sub-channel, when we reload drivers like hv_netvsc.
+	 */
+	cpumask_clear_cpu(channel->target_cpu,
+			  &primary_channel->alloced_cpus_in_node);
+
 	free_channel(channel);
 }
 
@@ -228,6 +238,7 @@ void vmbus_free_channels(void)
 		vmbus_device_unregister(channel->device_obj);
 	}
 }
+
 
 /*
  * vmbus_process_offer - Process the offer by creating a channel/device
@@ -274,7 +285,6 @@ static void vmbus_process_offer(struct vmbus_channel *newchannel)
 		} else
 			goto err_free_chan;
 	}
-
 	init_vp_index(newchannel, &newchannel->offermsg.offer.if_type);
 
 	if (newchannel->target_cpu != get_cpu()) {
@@ -285,14 +295,21 @@ static void vmbus_process_offer(struct vmbus_channel *newchannel)
 	} else {
 		percpu_channel_enq(newchannel);
 		put_cpu();
-	}	
 
+	}
+	
 	/*
 	 * This state is used to indicate a successful open
 	 * so that when we do close the channel normally, we
 	 * can cleanup properly
 	 */
 	newchannel->state = CHANNEL_OPEN_STATE;
+
+	if (!fnew) {
+		if (channel->sc_creation_callback != NULL)
+			channel->sc_creation_callback(newchannel);
+		return;
+	}
 
 	/*
 	 * Start the process of binding this offer to the driver
@@ -311,13 +328,13 @@ static void vmbus_process_offer(struct vmbus_channel *newchannel)
 	 * binding which eventually invokes the device driver's AddDevice()
 	 * method.
 	 */
+
 	if (vmbus_device_register(newchannel->device_obj) != 0) {
-			pr_err("unable to add child device object (relid %d)\n",
-         		newchannel->offermsg.child_relid);
+		pr_err("unable to add child device object (relid %d)\n",
+			newchannel->offermsg.child_relid);
 		kfree(newchannel->device_obj);
 		goto err_deq_chan;
 	}
-
 	return;
 
 err_deq_chan:
@@ -342,6 +359,7 @@ enum {
 	IDE = 0,
 	SCSI,
 	NIC,
+	ND_NIC,
 	MAX_PERF_CHN,
 };
 
@@ -370,7 +388,7 @@ static int next_numa_node_id;
 
 /*
  * Starting with Win8, we can statically distribute the incoming
- *channel interrupt load by binding a channel to VCPU.
+ * channel interrupt load by binding a channel to VCPU.
  * We do this in a hierarchical fashion:
  * First distribute the primary channels across available NUMA nodes
  * and then distribute the subchannels amongst the CPUs in the NUMA
@@ -378,7 +396,6 @@ static int next_numa_node_id;
  *
  * For pre-win8 hosts or non-performance critical channels we assign the
  * first CPU in the first NUMA node.
-
  */
 static void init_vp_index(struct vmbus_channel *channel, const uuid_le *type_guid)
 {
@@ -410,15 +427,16 @@ static void init_vp_index(struct vmbus_channel *channel, const uuid_le *type_gui
 		channel->target_vp = hv_context.vp_index[0];
 		return;
 	}
+
 	/*
         * We distribute primary channels evenly across all the available
         * NUMA nodes and within the assigned NUMA node we will assign the
         * first available CPU to the primary channel.
         * The sub-channels will be assigned to the CPUs available in the
         * NUMA node evenly.
-         */
+        */
 
-	if (!primary) {
+        if (!primary) {
                while (true) {
                        next_node = next_numa_node_id++;
                        if (next_node == nr_node_ids)
@@ -429,42 +447,49 @@ static void init_vp_index(struct vmbus_channel *channel, const uuid_le *type_gui
                }
                channel->numa_node = next_node;
                primary = channel;
-       }
-	
+        }
+
 	alloced_mask = &hv_context.hv_numa_map[primary->numa_node];
 
 	if (cpumask_weight(alloced_mask) ==
            cpumask_weight(cpumask_of_node(primary->numa_node))) {
 
-		/*
-                * We have cycled through all the CPUs in the node;
-                * reset the alloced map.
-                */
+		/* 
+		 * We have cycled through all the CPUs in the node;
+	         * reset the alloced map.
+	         */
 		cpumask_clear(alloced_mask);
+
         }
 
 	cpumask_xor(&available_mask, alloced_mask,
                    cpumask_of_node(primary->numa_node));
 
-	 cur_cpu = -1;
-        while (true) {
-                cur_cpu = cpumask_next(cur_cpu, &available_mask);
-                if (cur_cpu >= nr_cpu_ids) {
-                        cur_cpu = -1;
-                        cpumask_copy(&available_mask,
-                                     cpumask_of_node(primary->numa_node));
-                        continue;
-                }
+	cur_cpu = -1;
+	while (true) {
+		cur_cpu = cpumask_next(cur_cpu, &available_mask);
+		if (cur_cpu >= nr_cpu_ids) {
+			cur_cpu = -1;
+			cpumask_copy(&available_mask,
+				     cpumask_of_node(primary->numa_node));
+			continue;
+		}
 
-                if (!cpumask_test_cpu(cur_cpu,
-                                &primary->alloced_cpus_in_node)) {
-                        cpumask_set_cpu(cur_cpu,
-                                        &primary->alloced_cpus_in_node);
-                        cpumask_set_cpu(cur_cpu, alloced_mask);
-                        break;
-                }
-        }
-
+		/*
+		 * NOTE: in the case of sub-channel, we clear the sub-channel
+		 * related bit(s) in primary->alloced_cpus_in_node in
+		 * hv_process_channel_removal(), so when we reload drivers
+		 * like hv_netvsc in SMP guest, here we're able to re-allocate
+		 * bit from primary->alloced_cpus_in_node.
+		 */
+		if (!cpumask_test_cpu(cur_cpu,
+				&primary->alloced_cpus_in_node)) {
+			cpumask_set_cpu(cur_cpu,
+					&primary->alloced_cpus_in_node);
+			cpumask_set_cpu(cur_cpu, alloced_mask);
+			break;
+		}
+	}
 
 	channel->target_cpu = cur_cpu;
 	channel->target_vp = hv_context.vp_index[cur_cpu];
@@ -485,7 +510,7 @@ static void vmbus_unload_response(struct vmbus_channel_message_header *hdr)
 void vmbus_initiate_unload(void)
 {
 	struct vmbus_channel_message_header hdr;
-
+	
 	/* Pre-Win2012R2 hosts don't support reconnect */
 	if (vmbus_proto_version < VERSION_WIN8_1)
 		return;
@@ -547,7 +572,6 @@ static void vmbus_onoffer(struct vmbus_channel_message_header *hdr)
 	       sizeof(struct vmbus_channel_offer_channel));
 	newchannel->monitor_grp = (u8)offer->monitorid / 32;
 	newchannel->monitor_bit = (u8)offer->monitorid % 32;
-
 	vmbus_process_offer(newchannel);
 }
 
@@ -565,11 +589,11 @@ static void vmbus_onoffer_rescind(struct vmbus_channel_message_header *hdr)
 
 	rescind = (struct vmbus_channel_rescind_offer *)hdr;
 	channel = relid2channel(rescind->child_relid);
-
 	if (channel == NULL) {
 		hv_process_channel_removal(NULL, rescind->child_relid);
 		return;
 	}
+	
 	spin_lock_irqsave(&channel->lock, flags);
 	channel->rescind = true;
 	spin_unlock_irqrestore(&channel->lock, flags);
@@ -587,7 +611,8 @@ static void vmbus_onoffer_rescind(struct vmbus_channel_message_header *hdr)
 	} else {
 		hv_process_channel_removal(channel,
 			channel->offermsg.child_relid);
-	}
+	}	
+		
 }
 
 /*
@@ -837,7 +862,6 @@ int vmbus_request_offers(void)
 	if (!msginfo)
 		return -ENOMEM;
 
-
 	msg = (struct vmbus_channel_message_header *)msginfo->msg;
 
 	msg->msgtype = CHANNELMSG_REQUESTOFFERS;
@@ -890,7 +914,6 @@ struct vmbus_channel *vmbus_get_outgoing_channel(struct vmbus_channel *primary)
 
 		if (cur_channel->target_vp == cur_cpu)
 			return cur_channel;
-
 		if (i == next_channel)
 			return cur_channel;
 

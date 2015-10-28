@@ -263,7 +263,7 @@ static void vmbus_process_offer(struct vmbus_channel *newchannel)
 		}
 	}
 
-	if (fnew) 
+	if (fnew)
 		list_add_tail(&newchannel->listentry,
 			      &vmbus_connection.chn_list);
 
@@ -884,8 +884,8 @@ cleanup:
 /*
  * Retrieve the (sub) channel on which to send an outgoing request.
  * When a primary channel has multiple sub-channels, we try to
- * distribute the load equally amongst all available channels. 
-*/
+ * distribute the load equally amongst all available channels.
+ */
 struct vmbus_channel *vmbus_get_outgoing_channel(struct vmbus_channel *primary)
 {
 	struct list_head *cur, *tmp;
