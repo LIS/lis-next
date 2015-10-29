@@ -19,8 +19,8 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <linux/nls.h>
 #include <linux/workqueue.h>
+#include <linux/nls.h>
 #include "include/linux/hyperv.h"
 #include <linux/sched.h>
 
@@ -59,7 +59,7 @@ static void fcopy_send_data(struct work_struct *dummy);
 static void fcopy_timeout_func(struct work_struct *dummy);
 static DECLARE_DELAYED_WORK(fcopy_timeout_work, fcopy_timeout_func);
 static DECLARE_WORK(fcopy_send_work, fcopy_send_data);
-static const char fcopy_devname[] = "vmbus/hv_fcopy";
+static char fcopy_devname[] = "vmbus/hv_fcopy";
 static u8 *recv_buffer;
 static struct hvutil_transport *hvt;
 /*

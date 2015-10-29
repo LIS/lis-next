@@ -84,7 +84,7 @@ static void kvp_register(int);
 static DECLARE_DELAYED_WORK(kvp_timeout_work, kvp_timeout_func);
 static DECLARE_WORK(kvp_sendkey_work, kvp_send_key);
 
-static const char kvp_devname[] = "vmbus/hv_kvp";
+static char kvp_devname[] = "vmbus/hv_kvp";
 static u8 *recv_buffer;
 static struct hvutil_transport *hvt;
 /*

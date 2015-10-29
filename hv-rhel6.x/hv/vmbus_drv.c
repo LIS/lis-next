@@ -38,6 +38,7 @@
 #include "include/asm/hyperv.h"
 #include <asm/hypervisor.h>
 #include <linux/screen_info.h>
+#include "include/asm/mshyperv.h"
 #include <linux/notifier.h>
 #include <linux/ptrace.h>
 #include "hyperv_vmbus.h"
@@ -1062,7 +1063,7 @@ static acpi_status vmbus_walk_resources(struct acpi_resource *res, void *ctx)
 	return AE_OK;
 }
 
-static int vmbus_acpi_remove(struct acpi_device *device)
+static int vmbus_acpi_remove(struct acpi_device *device, int type)
 {
 	struct resource *cur_res;
 	struct resource *next_res;
@@ -1187,7 +1188,7 @@ static int vmbus_acpi_add(struct acpi_device *device)
 acpi_walk_err:
 	complete(&probe_event);
 	if (ret_val)
-		vmbus_acpi_remove(device);
+		vmbus_acpi_remove(device, 0);
 	return ret_val;
 }
 

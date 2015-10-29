@@ -212,7 +212,7 @@ out_unlock:
 	return ret;
 }
 
-struct hvutil_transport *hvutil_transport_init(const char *name,
+struct hvutil_transport *hvutil_transport_init(char *name,
 					       u32 cn_idx, u32 cn_val,
 					       int (*on_msg)(void *, int),
 					       void (*on_reset)(void))

@@ -735,8 +735,6 @@ static int hvfb_getmem(struct hv_device *hdev, struct fb_info *info)
 
 	return 0;
 
-err3:
-	iounmap(fb_virt);
 err2:
 	release_mem_region(par->mem->start, screen_fb_size);
 	par->mem = NULL;

@@ -462,13 +462,13 @@ check_size:
 	skb_length = skb->len;
 	num_data_pgs = netvsc_get_slots(skb) + 2;
 	if (num_data_pgs > MAX_PAGE_BUFFER_COUNT && linear) {
-		netdev_err("packet too big: %u pages (%u bytes)\n",
+		netdev_err(net, "packet too big: %u pages (%u bytes)\n",
 				      num_data_pgs, skb->len);
 		ret = -EFAULT;
 		goto drop;
 	} else if (num_data_pgs > MAX_PAGE_BUFFER_COUNT) {
 		if (skb_linearize(skb)) {
-			netdev_err("failed to linearize skb\n");
+			netdev_err(net, "failed to linearize skb\n");
 			ret = -ENOMEM;
 			goto drop;
 		}

@@ -64,7 +64,7 @@ static void vss_respond_to_host(int error);
  */
 static int dm_reg_value;
 
-static const char vss_devname[] = "vmbus/hv_vss";
+static char vss_devname[] = "vmbus/hv_vss";
 static __u8 *recv_buffer;
 static struct hvutil_transport *hvt;
 
