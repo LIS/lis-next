@@ -1785,8 +1785,9 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 	u32 payload_sz;
 	u32 length;
 
-
+#if (LINUX_VERSION_CODE <= KERNEL_VERSION(2,6,32))
 	scmnd->scsi_done = done;
+#endif
 
 	if (vmstor_proto_version <= VMSTOR_PROTO_VERSION_WIN8) {
 		/*
