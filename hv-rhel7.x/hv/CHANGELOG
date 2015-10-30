@@ -1,1 +1,4 @@
-July 18th, 2013: Got rid of the ifdef typo in kvp daemon.c. Fixed up a typo in hv_kvp.c for the SET case
+Tracking Linux-Next Commit
+Commit-ID: ca1c4b745779e20711322b3338f3a942a3c1224a 
+
+Drivers: hv: vmbus: fix init_vp_index() for reloading hv_netvsc
