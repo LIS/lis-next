@@ -25,17 +25,16 @@
 #include <linux/mm.h>
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
+#include "include/linux/hyperv.h"
 #include <linux/version.h>
 #include <linux/interrupt.h>
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
 #include <linux/clockchips.h>
 #endif
-#include "include/linux/hyperv.h"
 #include "include/uapi/linux/hyperv.h"
 #include "include/asm/hyperv.h"
 #include "include/asm/mshyperv.h"
 #include "hyperv_vmbus.h"
-
 
 /* The one and only */
 struct hv_context hv_context = {
@@ -129,7 +128,7 @@ static u64 do_hypercall(u64 control, void *input, void *output)
 	u32 output_address_hi = output_address >> 32;
 	u32 output_address_lo = output_address & 0xFFFFFFFF;
 
-if (!hypercall_page)
+	if (!hypercall_page)
 		return (u64)ULLONG_MAX;
 
 	__asm__ __volatile__ ("call *%8" : "=d"(hv_status_hi),
@@ -179,6 +178,7 @@ static cycle_t read_hv_clock_tsc(struct clocksource *arg)
                        asm("mulq %3"
                                : "=d" (current_tick), "=a" (tmp)
                                : "a" (cur_tsc), "r" (scale));
+
                        current_tick += offset;
                        if (tsc_pg->tsc_sequence == sequence)
                                return current_tick;
@@ -205,11 +205,12 @@ static struct clocksource hyperv_cs_tsc = {
 #endif
                .mask           = CLOCKSOURCE_MASK(64),
                .flags          = CLOCK_SOURCE_IS_CONTINUOUS,
-        #if  (RHEL_RELEASE_CODE < 1539)
+#if (RHEL_RELEASE_CODE < 1539)
 	       .mult           = (100 << HV_CLOCK_SHIFT),
 	       .shift          = HV_CLOCK_SHIFT,
-	#endif
+#endif
 };
+
 
 /*
  * hv_init - Main initialization routine.
@@ -222,7 +223,7 @@ int hv_init(void)
 	union hv_x64_msr_hypercall_contents hypercall_msr;
 	union hv_x64_msr_hypercall_contents tsc_msr;
 	void *virtaddr = NULL;
-	 void *va_tsc = NULL;
+	void *va_tsc = NULL;
 
 	memset(hv_context.synic_event_page, 0, sizeof(void *) * NR_CPUS);
 	memset(hv_context.synic_message_page, 0,
@@ -232,8 +233,6 @@ int hv_init(void)
 	memset(hv_context.vp_index, 0,
 	       sizeof(int) * NR_CPUS);
 	memset(hv_context.event_dpc, 0,
-	       sizeof(void *) * NR_CPUS);
-	memset(hv_context.clk_evt, 0,
 	       sizeof(void *) * NR_CPUS);
 	memset(hv_context.clk_evt, 0,
 	       sizeof(void *) * NR_CPUS);
@@ -341,7 +340,6 @@ void hv_cleanup(void)
 		vfree(hv_context.hypercall_page);
 		hv_context.hypercall_page = NULL;
 	}
-
 #ifdef CONFIG_X86_64
        /*
         * Cleanup the TSC page based CS.
@@ -454,6 +452,7 @@ static void hv_init_clockevent_device(struct clock_event_device *dev, int cpu)
 	dev->features = CLOCK_EVT_FEAT_ONESHOT;
 	dev->cpumask = cpumask_of(cpu);
 	dev->rating = 1000;
+
 	/*
 	 * Avoid settint dev->owner = THIS_MODULE deliberately as doing so will
 	 * result in clockevents_config_and_register() taking additional
@@ -548,7 +547,7 @@ static void hv_synic_free_cpu(int cpu)
 void hv_synic_free(void)
 {
 	int cpu;
-	
+
 	kfree(hv_context.hv_numa_map);
 	for_each_online_cpu(cpu)
 		hv_synic_free_cpu(cpu);
@@ -600,6 +599,7 @@ void hv_synic_init(void *arg)
 
 	/* Setup the shared SINT. */
 	rdmsrl(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT, shared_sint.as_uint64);
+
 	shared_sint.as_uint64 = 0;
 	shared_sint.vector = HYPERVISOR_CALLBACK_VECTOR;
 	shared_sint.masked = false;
@@ -625,10 +625,10 @@ void hv_synic_init(void *arg)
 
 	INIT_LIST_HEAD(&hv_context.percpu_list[cpu]);
 
+#ifdef NOTYET
 	/*
 	 * Register the per-cpu clockevent source.
 	 */
-#ifdef NOTYET
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
 	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
 		clockevents_register_device(hv_context.clk_evt[cpu]);
@@ -642,6 +642,7 @@ void hv_synic_init(void *arg)
  */
 void hv_synic_clockevents_cleanup(void)
 {
+// Will comment this for time being till clockevents_unbind showed up in distro code
 #ifdef NOTYET
 	int cpu;
 

@@ -235,6 +235,85 @@ static inline void  netif_notify_peers(struct net_device *net)
 }
 
 #endif
+
+/* 
+ * The following snippets are from include/linux/u64_stats_sync.h
+ *
+ *  * In case irq handlers can update u64 counters, readers can use following helpers
+ *   * - SMP 32bit arches use seqcount protection, irq safe.
+ *    * - UP 32bit must disable irqs.
+ *     * - 64bit have no problem atomically reading u64 values, irq safe.
+ *      */
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1792)
+struct u64_stats_sync {
+#if BITS_PER_LONG==32 && defined(CONFIG_SMP)
+	seqcount_t	seq;
+#endif
+};
+
+static inline void u64_stats_update_begin(struct u64_stats_sync *syncp)
+{
+#if BITS_PER_LONG==32 && defined(CONFIG_SMP)
+	write_seqcount_begin(&syncp->seq);
+#endif
+}
+
+static inline void u64_stats_update_end(struct u64_stats_sync *syncp)
+{
+#if BITS_PER_LONG==32 && defined(CONFIG_SMP)
+	write_seqcount_end(&syncp->seq);
+#endif
+}
+#endif
+
+static inline unsigned int u64_stats_fetch_begin_irq(const struct u64_stats_sync *syncp)
+{
+#if BITS_PER_LONG==32 && defined(CONFIG_SMP)
+	return read_seqcount_begin(&syncp->seq);
+#else
+#if BITS_PER_LONG==32
+	local_irq_disable();
+#endif
+	return 0;
+#endif
+}
+
+static inline bool u64_stats_fetch_retry_irq(const struct u64_stats_sync *syncp,
+					 unsigned int start)
+{
+#if BITS_PER_LONG==32 && defined(CONFIG_SMP)
+	return read_seqcount_retry(&syncp->seq, start);
+#else
+#if BITS_PER_LONG==32
+	local_irq_enable();
+#endif
+	return false;
+#endif
+}
+
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1792)
+static inline void u64_stats_init(struct u64_stats_sync *syncp)
+{
+#if BITS_PER_LONG == 32 && defined(CONFIG_SMP)
+	seqcount_init(&syncp->seq);
+#endif
+}
+
+#define netdev_alloc_pcpu_stats(type)				\
+({								\
+	typeof(type) __percpu *pcpu_stats = alloc_percpu(type); \
+	if (pcpu_stats)	{					\
+		int __cpu;					\
+		for_each_possible_cpu(__cpu) {			\
+			typeof(type) *stat;			\
+			stat = per_cpu_ptr(pcpu_stats, __cpu);	\
+			u64_stats_init(&stat->syncp);		\
+		}						\
+	}							\
+	pcpu_stats;						\
+})
+#endif
+
 #endif
 #endif
 #endif

@@ -56,7 +56,7 @@ static __u32 vmbus_get_next_version(__u32 current_version)
 
 	case (VERSION_WIN8_1):
 		return VERSION_WIN8;
-	
+
 	case (VERSION_WIN10):
 		return VERSION_WIN8_1;
 
@@ -218,7 +218,6 @@ int vmbus_connect(void)
 
 cleanup:
 	pr_err("Unable to connect to host\n");
-
 	vmbus_connection.conn_state = DISCONNECTED;
 	vmbus_disconnect();
 
@@ -229,7 +228,6 @@ cleanup:
 
 void vmbus_disconnect(void)
 {
-
 	/*
 	 * First send the unload request to the host.
 	 */
@@ -328,7 +326,7 @@ static void process_chn_event(u32 relid)
 
 	if (!channel)
 		return;
-
+	
 	/*
 	 * A channel once created is persistent even when there
 	 * is no driver handling the device. An unloading driver
@@ -362,7 +360,9 @@ static void process_chn_event(u32 relid)
 			else
 				bytes_to_read = 0;
 		} while (read_state && (bytes_to_read != 0));
+
 	}
+
 }
 
 /*
@@ -429,7 +429,7 @@ int vmbus_post_msg(void *buffer, size_t buflen)
 	union hv_connection_id conn_id;
 	int ret = 0;
 	int retries = 0;
-	int msec = 1;
+	u32 msec = 1;
 
 	conn_id.asu32 = 0;
 	conn_id.u.id = VMBUS_MESSAGE_CONNECTION_ID;
@@ -462,7 +462,6 @@ int vmbus_post_msg(void *buffer, size_t buflen)
 		}
 
 		retries++;
-
 		msleep(msec);
 		if (msec < 2048)
 			msec *= 2;

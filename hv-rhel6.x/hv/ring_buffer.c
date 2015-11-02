@@ -522,7 +522,6 @@ int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info, void *buffer,
 				&bytes_avail_toread,
 				&bytes_avail_towrite);
 
-
 	/* Make sure there is something to read */
 	if (bytes_avail_toread < buflen) {
 		spin_unlock_irqrestore(&inring_info->ring_lock, flags);
@@ -552,6 +551,7 @@ int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info, void *buffer,
 	hv_set_next_read_location(inring_info, next_read_location);
 
 	spin_unlock_irqrestore(&inring_info->ring_lock, flags);
+
 	*signal = hv_need_to_signal_on_read(bytes_avail_towrite, inring_info);
 
 	return 0;

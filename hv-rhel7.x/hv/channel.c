@@ -679,7 +679,7 @@ int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
 				     u32 pagecount, void *buffer, u32 bufferlen,
 				     u64 requestid,
 				     u32 flags,
-                                     bool kick_q)
+				     bool kick_q)
 {
 	int ret;
 	int i;

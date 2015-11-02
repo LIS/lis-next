@@ -132,7 +132,6 @@ int vmbus_open(struct vmbus_channel *newchannel, u32 send_ringbuffer_size,
 	newchannel->channel_callback_context = context;
 
 	/* Allocate the ring buffer */
-
 	page = alloc_pages_node(cpu_to_node(newchannel->target_cpu),
                                GFP_KERNEL|__GFP_ZERO,
                                get_order(send_ringbuffer_size +
@@ -144,7 +143,6 @@ int vmbus_open(struct vmbus_channel *newchannel, u32 send_ringbuffer_size,
                                                         recv_ringbuffer_size));
         else
                out = (void *)page_address(page);
-
 
 	if (!out) {
 		err = -ENOMEM;
@@ -233,6 +231,7 @@ int vmbus_open(struct vmbus_channel *newchannel, u32 send_ringbuffer_size,
 		err = -ETIMEDOUT;
 		goto error1;
 	}
+
 
 	spin_lock_irqsave(&vmbus_connection.channelmsg_lock, flags);
 	list_del(&open_info->msglistentry);
@@ -601,6 +600,7 @@ static int vmbus_close_internal(struct vmbus_channel *channel)
 	if (channel->rescind)
 		hv_process_channel_removal(channel,
 					   channel->offermsg.child_relid);
+
 	return ret;
 }
 
@@ -680,9 +680,8 @@ int vmbus_sendpacket_ctl(struct vmbus_channel *channel, void *buffer,
          * even if we may not have written anything. This is a rare
          * enough condition that it should not matter.
          */
-
-	if (((ret == 0) && kick_q && signal) || (ret))
-        	vmbus_setevent(channel);
+        if (((ret == 0) && kick_q && signal) || (ret))
+                vmbus_setevent(channel);
 
 	return ret;
 
@@ -704,11 +703,11 @@ EXPORT_SYMBOL(vmbus_sendpacket_ctl);
  * Mainly used by Hyper-V drivers.
  */
 int vmbus_sendpacket(struct vmbus_channel *channel, void *buffer,
-			   u32 bufferlen, u64 requestid,
-			   enum vmbus_packet_type type, u32 flags)
+                           u32 bufferlen, u64 requestid,
+                           enum vmbus_packet_type type, u32 flags)
 {
-	return vmbus_sendpacket_ctl(channel, buffer, bufferlen, requestid,
-				    type, flags, true);
+        return vmbus_sendpacket_ctl(channel, buffer, bufferlen, requestid,
+                                    type, flags, true);
 }
 EXPORT_SYMBOL(vmbus_sendpacket);
 
@@ -772,7 +771,7 @@ int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
 	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
 
 	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
-	
+
 	/*
          * Signalling the host is conditional on many factors:
          * 1. The ring state changed from being empty to non-empty.
@@ -797,17 +796,18 @@ EXPORT_SYMBOL_GPL(vmbus_sendpacket_pagebuffer_ctl);
  * packets using a GPADL Direct packet type.
  */
 int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
-				     struct hv_page_buffer pagebuffers[],
-				     u32 pagecount, void *buffer, u32 bufferlen,
-				     u64 requestid)
+                                     struct hv_page_buffer pagebuffers[],
+                                     u32 pagecount, void *buffer, u32 bufferlen,
+                                     u64 requestid)
 {
-	u32 flags = VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED;
-	return vmbus_sendpacket_pagebuffer_ctl(channel, pagebuffers, pagecount,
-					       buffer, bufferlen, requestid,
-					       flags, true);
+        u32 flags = VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED;
+        return vmbus_sendpacket_pagebuffer_ctl(channel, pagebuffers, pagecount,
+                                               buffer, bufferlen, requestid,
+                                               flags, true);
 
 }
 EXPORT_SYMBOL_GPL(vmbus_sendpacket_pagebuffer);
+
 
 /*
  * vmbus_sendpacket_multipagebuffer - Send a multi-page buffer packet
