@@ -1,7 +1,7 @@
-Only in ./hv-rhel7.x/hv: CHANGELOG
-diff -u ./hv-rhel7.x/hv/channel.c ./hv-rhel6.x/hv/channel.c
---- ./hv-rhel7.x/hv/channel.c	2015-10-29 16:52:36.975863203 -0700
-+++ ./hv-rhel6.x/hv/channel.c	2015-10-29 16:52:36.963863201 -0700
+Only in hv-rhel7.x/hv: CHANGELOG
+diff -u hv-rhel7.x/hv/channel.c hv-rhel6.x/hv/channel.c
+--- hv-rhel7.x/hv/channel.c	2015-10-29 16:52:36.975863203 -0700
++++ hv-rhel6.x/hv/channel.c	2015-10-29 16:52:36.963863201 -0700
 @@ -61,6 +61,50 @@
  }
  
@@ -53,9 +53,9 @@ diff -u ./hv-rhel7.x/hv/channel.c ./hv-rhel6.x/hv/channel.c
   * vmbus_open - Open the specified channel.
   */
  int vmbus_open(struct vmbus_channel *newchannel, u32 send_ringbuffer_size,
-diff -u ./hv-rhel7.x/hv/connection.c ./hv-rhel6.x/hv/connection.c
---- ./hv-rhel7.x/hv/connection.c	2015-10-29 16:52:02.351154402 -0700
-+++ ./hv-rhel6.x/hv/connection.c	2015-10-29 16:52:36.963863201 -0700
+diff -u hv-rhel7.x/hv/connection.c hv-rhel6.x/hv/connection.c
+--- hv-rhel7.x/hv/connection.c	2015-10-29 16:52:02.351154402 -0700
++++ hv-rhel6.x/hv/connection.c	2015-10-29 16:52:36.963863201 -0700
 @@ -30,8 +30,7 @@
  #include <linux/slab.h>
  #include <linux/vmalloc.h>
@@ -75,11 +75,11 @@ diff -u ./hv-rhel7.x/hv/connection.c ./hv-rhel6.x/hv/connection.c
  		destroy_workqueue(vmbus_connection.work_queue);
  	}
  
-Only in ./hv-rhel7.x/hv: hid-core.c
-Only in ./hv-rhel7.x/hv: hid-debug.c
-diff -u ./hv-rhel7.x/hv/hid-hyperv.c ./hv-rhel6.x/hv/hid-hyperv.c
---- ./hv-rhel7.x/hv/hid-hyperv.c	2015-10-29 16:52:02.352154402 -0700
-+++ ./hv-rhel6.x/hv/hid-hyperv.c	2015-10-29 16:52:36.963863201 -0700
+Only in hv-rhel7.x/hv: hid-core.c
+Only in hv-rhel7.x/hv: hid-debug.c
+diff -u hv-rhel7.x/hv/hid-hyperv.c hv-rhel6.x/hv/hid-hyperv.c
+--- hv-rhel7.x/hv/hid-hyperv.c	2015-10-29 16:52:02.352154402 -0700
++++ hv-rhel6.x/hv/hid-hyperv.c	2015-10-29 16:52:36.963863201 -0700
 @@ -612,6 +612,6 @@
  
  MODULE_LICENSE("GPL");
@@ -88,11 +88,11 @@ diff -u ./hv-rhel7.x/hv/hid-hyperv.c ./hv-rhel6.x/hv/hid-hyperv.c
 +MODULE_ALIAS("vmbus:9eb6a8cf4a5bc04cb98b8ba1a1f3f95a");
  module_init(mousevsc_init);
  module_exit(mousevsc_exit);
-Only in ./hv-rhel7.x/hv: hid-ids.h
-Only in ./hv-rhel7.x/hv: hid-input.c
-diff -u ./hv-rhel7.x/hv/hv_balloon.c ./hv-rhel6.x/hv/hv_balloon.c
---- ./hv-rhel7.x/hv/hv_balloon.c	2015-10-29 16:52:02.354154402 -0700
-+++ ./hv-rhel6.x/hv/hv_balloon.c	2015-10-29 16:52:36.963863201 -0700
+Only in hv-rhel7.x/hv: hid-ids.h
+Only in hv-rhel7.x/hv: hid-input.c
+diff -u hv-rhel7.x/hv/hv_balloon.c hv-rhel6.x/hv/hv_balloon.c
+--- hv-rhel7.x/hv/hv_balloon.c	2015-10-29 16:52:02.354154402 -0700
++++ hv-rhel6.x/hv/hv_balloon.c	2015-10-29 16:52:36.963863201 -0700
 @@ -1039,7 +1039,7 @@
  	 * asking us to balloon them out.
  	 */
@@ -102,9 +102,9 @@ diff -u ./hv-rhel7.x/hv/hv_balloon.c ./hv-rhel6.x/hv/hv_balloon.c
  		dm->num_pages_ballooned +
  		(dm->num_pages_added > dm->num_pages_onlined ?
  		 dm->num_pages_added - dm->num_pages_onlined : 0) +
-diff -u ./hv-rhel7.x/hv/hv.c ./hv-rhel6.x/hv/hv.c
---- ./hv-rhel7.x/hv/hv.c	2015-10-29 16:52:02.353154402 -0700
-+++ ./hv-rhel6.x/hv/hv.c	2015-10-29 16:52:36.963863201 -0700
+diff -u hv-rhel7.x/hv/hv.c hv-rhel6.x/hv/hv.c
+--- hv-rhel7.x/hv/hv.c	2015-10-29 16:52:02.353154402 -0700
++++ hv-rhel6.x/hv/hv.c	2015-10-29 16:52:36.963863201 -0700
 @@ -28,7 +28,10 @@
  #include "include/linux/hyperv.h"
  #include <linux/version.h>
@@ -316,10 +316,10 @@ diff -u ./hv-rhel7.x/hv/hv.c ./hv-rhel6.x/hv/hv.c
  
  	rdmsrl(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT, shared_sint.as_uint64);
  
-Only in ./hv-rhel7.x/hv: hv_compat.c
-diff -u ./hv-rhel7.x/hv/hv_fcopy.c ./hv-rhel6.x/hv/hv_fcopy.c
---- ./hv-rhel7.x/hv/hv_fcopy.c	2015-10-29 16:52:02.354154402 -0700
-+++ ./hv-rhel6.x/hv/hv_fcopy.c	2015-10-29 16:52:36.963863201 -0700
+Only in hv-rhel7.x/hv: hv_compat.c
+diff -u hv-rhel7.x/hv/hv_fcopy.c hv-rhel6.x/hv/hv_fcopy.c
+--- hv-rhel7.x/hv/hv_fcopy.c	2015-10-29 16:52:02.354154402 -0700
++++ hv-rhel6.x/hv/hv_fcopy.c	2015-10-29 16:52:36.963863201 -0700
 @@ -19,8 +19,8 @@
  
  #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -339,9 +339,9 @@ diff -u ./hv-rhel7.x/hv/hv_fcopy.c ./hv-rhel6.x/hv/hv_fcopy.c
  static u8 *recv_buffer;
  static struct hvutil_transport *hvt;
  /*
-diff -u ./hv-rhel7.x/hv/hv_kvp.c ./hv-rhel6.x/hv/hv_kvp.c
---- ./hv-rhel7.x/hv/hv_kvp.c	2015-10-29 16:52:02.354154402 -0700
-+++ ./hv-rhel6.x/hv/hv_kvp.c	2015-10-29 16:52:36.963863201 -0700
+diff -u hv-rhel7.x/hv/hv_kvp.c hv-rhel6.x/hv/hv_kvp.c
+--- hv-rhel7.x/hv/hv_kvp.c	2015-10-29 16:52:02.354154402 -0700
++++ hv-rhel6.x/hv/hv_kvp.c	2015-10-29 16:52:36.963863201 -0700
 @@ -84,7 +84,7 @@
  static DECLARE_DELAYED_WORK(kvp_timeout_work, kvp_timeout_func);
  static DECLARE_WORK(kvp_sendkey_work, kvp_send_key);
@@ -454,9 +454,9 @@ diff -u ./hv-rhel7.x/hv/hv_kvp.c ./hv-rhel6.x/hv/hv_kvp.c
  	kvp_data->value_size = 2*(valuelen + 1); /* utf16 encoding */
  
  	/*
-diff -u ./hv-rhel7.x/hv/hv_snapshot.c ./hv-rhel6.x/hv/hv_snapshot.c
---- ./hv-rhel7.x/hv/hv_snapshot.c	2015-10-29 16:52:02.354154402 -0700
-+++ ./hv-rhel6.x/hv/hv_snapshot.c	2015-10-29 16:52:36.963863201 -0700
+diff -u hv-rhel7.x/hv/hv_snapshot.c hv-rhel6.x/hv/hv_snapshot.c
+--- hv-rhel7.x/hv/hv_snapshot.c	2015-10-29 16:52:02.354154402 -0700
++++ hv-rhel6.x/hv/hv_snapshot.c	2015-10-29 16:52:36.963863201 -0700
 @@ -64,7 +64,7 @@
   */
  static int dm_reg_value;
@@ -466,9 +466,9 @@ diff -u ./hv-rhel7.x/hv/hv_snapshot.c ./hv-rhel6.x/hv/hv_snapshot.c
  static __u8 *recv_buffer;
  static struct hvutil_transport *hvt;
  
-diff -u ./hv-rhel7.x/hv/hv_util.c ./hv-rhel6.x/hv/hv_util.c
---- ./hv-rhel7.x/hv/hv_util.c	2015-10-29 16:52:02.354154402 -0700
-+++ ./hv-rhel6.x/hv/hv_util.c	2015-10-29 16:52:02.342154402 -0700
+diff -u hv-rhel7.x/hv/hv_util.c hv-rhel6.x/hv/hv_util.c
+--- hv-rhel7.x/hv/hv_util.c	2015-10-29 16:52:02.354154402 -0700
++++ hv-rhel6.x/hv/hv_util.c	2015-10-29 16:52:02.342154402 -0700
 @@ -446,3 +446,9 @@
  MODULE_DESCRIPTION("Hyper-V Utilities");
  MODULE_LICENSE("GPL");
@@ -479,9 +479,9 @@ diff -u ./hv-rhel7.x/hv/hv_util.c ./hv-rhel6.x/hv/hv_util.c
 +MODULE_ALIAS("vmbus:394f16571591784eab55382f3bd5422d");
 +MODULE_ALIAS("vmbus:e7f4a0a9455a964db8278a841e8c03e6");
 +MODULE_ALIAS("vmbus:292efa3523ea364296ae3a6ebacba440");
-diff -u ./hv-rhel7.x/hv/hv_utils_transport.c ./hv-rhel6.x/hv/hv_utils_transport.c
---- ./hv-rhel7.x/hv/hv_utils_transport.c	2015-10-29 16:52:02.355154402 -0700
-+++ ./hv-rhel6.x/hv/hv_utils_transport.c	2015-10-29 16:52:36.963863201 -0700
+diff -u hv-rhel7.x/hv/hv_utils_transport.c hv-rhel6.x/hv/hv_utils_transport.c
+--- hv-rhel7.x/hv/hv_utils_transport.c	2015-10-29 16:52:02.355154402 -0700
++++ hv-rhel6.x/hv/hv_utils_transport.c	2015-10-29 16:52:36.963863201 -0700
 @@ -212,7 +212,7 @@
  	return ret;
  }
@@ -491,9 +491,9 @@ diff -u ./hv-rhel7.x/hv/hv_utils_transport.c ./hv-rhel6.x/hv/hv_utils_transport.
  					       u32 cn_idx, u32 cn_val,
  					       int (*on_msg)(void *, int),
  					       void (*on_reset)(void))
-diff -u ./hv-rhel7.x/hv/hv_utils_transport.h ./hv-rhel6.x/hv/hv_utils_transport.h
---- ./hv-rhel7.x/hv/hv_utils_transport.h	2015-10-29 16:52:02.355154402 -0700
-+++ ./hv-rhel6.x/hv/hv_utils_transport.h	2015-10-29 16:52:36.963863201 -0700
+diff -u hv-rhel7.x/hv/hv_utils_transport.h hv-rhel6.x/hv/hv_utils_transport.h
+--- hv-rhel7.x/hv/hv_utils_transport.h	2015-10-29 16:52:02.355154402 -0700
++++ hv-rhel6.x/hv/hv_utils_transport.h	2015-10-29 16:52:36.963863201 -0700
 @@ -41,7 +41,7 @@
  	struct mutex outmsg_lock;           /* protects outmsg */
  };
@@ -503,9 +503,9 @@ diff -u ./hv-rhel7.x/hv/hv_utils_transport.h ./hv-rhel6.x/hv/hv_utils_transport.
  					       u32 cn_idx, u32 cn_val,
  					       int (*on_msg)(void *, int),
  					       void (*on_reset)(void));
-diff -u ./hv-rhel7.x/hv/hyperv_fb.c ./hv-rhel6.x/hv/hyperv_fb.c
---- ./hv-rhel7.x/hv/hyperv_fb.c	2015-10-29 16:52:02.355154402 -0700
-+++ ./hv-rhel6.x/hv/hyperv_fb.c	2015-10-29 16:52:36.963863201 -0700
+diff -u hv-rhel7.x/hv/hyperv_fb.c hv-rhel6.x/hv/hyperv_fb.c
+--- hv-rhel7.x/hv/hyperv_fb.c	2015-10-29 16:52:02.355154402 -0700
++++ hv-rhel6.x/hv/hyperv_fb.c	2015-10-29 16:52:36.963863201 -0700
 @@ -682,7 +682,7 @@
  	struct hvfb_par *par = info->par;
  	struct pci_dev *pdev  = NULL;
@@ -552,9 +552,9 @@ diff -u ./hv-rhel7.x/hv/hyperv_fb.c ./hv-rhel6.x/hv/hyperv_fb.c
  MODULE_VERSION(HV_DRV_VERSION);
  MODULE_DESCRIPTION("Microsoft Hyper-V Synthetic Video Frame Buffer Driver");
 +MODULE_ALIAS("vmbus:02780ada77e3ac4a8e770558eb1073f8");
-diff -u ./hv-rhel7.x/hv/hyperv-keyboard.c ./hv-rhel6.x/hv/hyperv-keyboard.c
---- ./hv-rhel7.x/hv/hyperv-keyboard.c	2015-10-29 16:52:02.355154402 -0700
-+++ ./hv-rhel6.x/hv/hyperv-keyboard.c	2015-10-29 16:52:02.342154402 -0700
+diff -u hv-rhel7.x/hv/hyperv-keyboard.c hv-rhel6.x/hv/hyperv-keyboard.c
+--- hv-rhel7.x/hv/hyperv-keyboard.c	2015-10-29 16:52:02.355154402 -0700
++++ hv-rhel6.x/hv/hyperv-keyboard.c	2015-10-29 16:52:02.342154402 -0700
 @@ -449,6 +449,6 @@
  
  MODULE_LICENSE("GPL");
@@ -563,9 +563,9 @@ diff -u ./hv-rhel7.x/hv/hyperv-keyboard.c ./hv-rhel6.x/hv/hyperv-keyboard.c
 +MODULE_ALIAS("vmbus:6dad12f9172bea48bd65f927a61c7684");
  module_init(hv_kbd_init);
  module_exit(hv_kbd_exit);
-diff -u ./hv-rhel7.x/hv/hyperv_net.h ./hv-rhel6.x/hv/hyperv_net.h
---- ./hv-rhel7.x/hv/hyperv_net.h	2015-10-29 16:52:02.355154402 -0700
-+++ ./hv-rhel6.x/hv/hyperv_net.h	2015-11-04 15:25:40.168573489 -0800
+diff -u hv-rhel7.x/hv/hyperv_net.h hv-rhel6.x/hv/hyperv_net.h
+--- hv-rhel7.x/hv/hyperv_net.h	2015-10-29 16:52:02.355154402 -0700
++++ hv-rhel6.x/hv/hyperv_net.h	2015-11-04 15:25:40.168573489 -0800
 @@ -26,7 +26,7 @@
  
  #include <linux/list.h>
@@ -589,9 +589,9 @@ diff -u ./hv-rhel7.x/hv/hyperv_net.h ./hv-rhel6.x/hv/hyperv_net.h
  };
  
  /* Per netvsc device */
-diff -u ./hv-rhel7.x/hv/hyperv_vmbus.h ./hv-rhel6.x/hv/hyperv_vmbus.h
---- ./hv-rhel7.x/hv/hyperv_vmbus.h	2015-10-29 16:52:02.356154402 -0700
-+++ ./hv-rhel6.x/hv/hyperv_vmbus.h	2015-10-29 16:52:36.963863201 -0700
+diff -u hv-rhel7.x/hv/hyperv_vmbus.h hv-rhel6.x/hv/hyperv_vmbus.h
+--- hv-rhel7.x/hv/hyperv_vmbus.h	2015-10-29 16:52:02.356154402 -0700
++++ hv-rhel6.x/hv/hyperv_vmbus.h	2015-10-29 16:52:36.963863201 -0700
 @@ -576,14 +576,6 @@
         u64 reserved2[509];
  };
@@ -607,13 +607,13 @@ diff -u ./hv-rhel7.x/hv/hyperv_vmbus.h ./hv-rhel6.x/hv/hyperv_vmbus.h
  /* Hv Interface */
  
  extern int hv_init(void);
-Common subdirectories: ./hv-rhel7.x/hv/include and ./hv-rhel6.x/hv/include
-Only in ./hv-rhel7.x/hv: Module.markers
-Only in ./hv-rhel7.x/hv: modules.order
-Only in ./hv-rhel7.x/hv: Module.symvers
-diff -u ./hv-rhel7.x/hv/netvsc.c ./hv-rhel6.x/hv/netvsc.c
---- ./hv-rhel7.x/hv/netvsc.c	2015-10-29 16:52:02.361154401 -0700
-+++ ./hv-rhel6.x/hv/netvsc.c	2015-10-29 16:52:36.963863201 -0700
+Common subdirectories: hv-rhel7.x/hv/include and hv-rhel6.x/hv/include
+Only in hv-rhel7.x/hv: Module.markers
+Only in hv-rhel7.x/hv: modules.order
+Only in hv-rhel7.x/hv: Module.symvers
+diff -u hv-rhel7.x/hv/netvsc.c hv-rhel6.x/hv/netvsc.c
+--- hv-rhel7.x/hv/netvsc.c	2015-10-29 16:52:02.361154401 -0700
++++ hv-rhel6.x/hv/netvsc.c	2015-10-29 16:52:36.963863201 -0700
 @@ -227,17 +227,23 @@
  	struct netvsc_device *net_device;
  	struct nvsp_message *init_packet;
@@ -654,9 +654,9 @@ diff -u ./hv-rhel7.x/hv/netvsc.c ./hv-rhel6.x/hv/netvsc.c
  	if (!net_device->send_buf) {
  		netdev_err(ndev, "unable to allocate send "
  			   "buffer of size %d\n", net_device->send_buf_size);
-diff -u ./hv-rhel7.x/hv/netvsc_drv.c ./hv-rhel6.x/hv/netvsc_drv.c
---- ./hv-rhel7.x/hv/netvsc_drv.c	2015-10-29 16:52:02.361154401 -0700
-+++ ./hv-rhel6.x/hv/netvsc_drv.c	2015-10-29 16:52:36.963863201 -0700
+diff -u hv-rhel7.x/hv/netvsc_drv.c hv-rhel6.x/hv/netvsc_drv.c
+--- hv-rhel7.x/hv/netvsc_drv.c	2015-10-29 16:52:02.361154401 -0700
++++ hv-rhel6.x/hv/netvsc_drv.c	2015-10-29 16:52:36.963863201 -0700
 @@ -33,11 +33,13 @@
  #include <linux/if_vlan.h>
  #include <linux/in.h>
@@ -879,9 +879,9 @@ diff -u ./hv-rhel7.x/hv/netvsc_drv.c ./hv-rhel6.x/hv/netvsc_drv.c
  
  module_init(netvsc_drv_init);
  module_exit(netvsc_drv_exit);
-diff -u ./hv-rhel7.x/hv/README ./hv-rhel6.x/hv/README
---- ./hv-rhel7.x/hv/README	2015-10-29 16:52:36.975863203 -0700
-+++ ./hv-rhel6.x/hv/README	2015-10-29 16:52:02.340154402 -0700
+diff -u hv-rhel7.x/hv/README hv-rhel6.x/hv/README
+--- hv-rhel7.x/hv/README	2015-10-29 16:52:36.975863203 -0700
++++ hv-rhel6.x/hv/README	2015-10-29 16:52:02.340154402 -0700
 @@ -1,9 +1,9 @@
  After unpacking the tar file; as root:
  
@@ -897,12 +897,12 @@ diff -u ./hv-rhel7.x/hv/README ./hv-rhel6.x/hv/README
 -	to bringup RHEL7 in fully emulated mode.
 +	./rhel6-hv-driver-uninstall. Once the script completes, reboot the machine
 +	to bringup RHEL6 in fully emulated mode.
-Only in ./hv-rhel6.x/hv: rhel6-hv-driver-install
-Only in ./hv-rhel6.x/hv: rhel6-hv-driver-uninstall
-Only in ./hv-rhel7.x/hv: rhel7-hv-driver-install
-diff -u ./hv-rhel7.x/hv/rndis_filter.c ./hv-rhel6.x/hv/rndis_filter.c
---- ./hv-rhel7.x/hv/rndis_filter.c	2015-10-29 16:52:02.362154401 -0700
-+++ ./hv-rhel6.x/hv/rndis_filter.c	2015-10-29 16:52:36.972863194 -0700
+Only in hv-rhel6.x/hv: rhel6-hv-driver-install
+Only in hv-rhel6.x/hv: rhel6-hv-driver-uninstall
+Only in hv-rhel7.x/hv: rhel7-hv-driver-install
+diff -u hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
+--- hv-rhel7.x/hv/rndis_filter.c	2015-10-29 16:52:02.362154401 -0700
++++ hv-rhel6.x/hv/rndis_filter.c	2015-10-29 16:52:36.972863194 -0700
 @@ -590,13 +590,22 @@
  
  	cfg_nwadr = (wchar_t *)((ulong)cpi + cpi->parameter_name_offset);
@@ -926,9 +926,9 @@ diff -u ./hv-rhel7.x/hv/rndis_filter.c ./hv-rhel6.x/hv/rndis_filter.c
  	if (ret < 0)
  		goto cleanup;
  
-diff -u ./hv-rhel7.x/hv/storvsc_drv.c ./hv-rhel6.x/hv/storvsc_drv.c
---- ./hv-rhel7.x/hv/storvsc_drv.c	2015-10-29 16:52:02.362154401 -0700
-+++ ./hv-rhel6.x/hv/storvsc_drv.c	2015-11-04 15:25:40.170573455 -0800
+diff -u hv-rhel7.x/hv/storvsc_drv.c hv-rhel6.x/hv/storvsc_drv.c
+--- hv-rhel7.x/hv/storvsc_drv.c	2015-10-29 16:52:02.362154401 -0700
++++ hv-rhel6.x/hv/storvsc_drv.c	2015-11-04 15:25:40.170573455 -0800
 @@ -727,6 +727,17 @@
  	return NULL;
  }
@@ -1105,10 +1105,10 @@ diff -u ./hv-rhel7.x/hv/storvsc_drv.c ./hv-rhel6.x/hv/storvsc_drv.c
  
  	if (vmstor_proto_version <= VMSTOR_PROTO_VERSION_WIN8) {
  		/*
-Common subdirectories: ./hv-rhel7.x/hv/tools and ./hv-rhel6.x/hv/tools
-diff -u ./hv-rhel7.x/hv/vmbus_drv.c ./hv-rhel6.x/hv/vmbus_drv.c
---- ./hv-rhel7.x/hv/vmbus_drv.c	2015-10-29 16:52:36.977863202 -0700
-+++ ./hv-rhel6.x/hv/vmbus_drv.c	2015-10-29 16:52:36.975863203 -0700
+Common subdirectories: hv-rhel7.x/hv/tools and hv-rhel6.x/hv/tools
+diff -u hv-rhel7.x/hv/vmbus_drv.c hv-rhel6.x/hv/vmbus_drv.c
+--- hv-rhel7.x/hv/vmbus_drv.c	2015-10-29 16:52:36.977863202 -0700
++++ hv-rhel6.x/hv/vmbus_drv.c	2015-10-29 16:52:36.975863203 -0700
 @@ -31,7 +31,6 @@
  #include <linux/slab.h>
  #include <linux/acpi.h>
@@ -1927,4 +1927,4 @@ diff -u ./hv-rhel7.x/hv/vmbus_drv.c ./hv-rhel6.x/hv/vmbus_drv.c
  	tasklet_kill(&msg_dpc);
  	vmbus_free_channels();
  	if (ms_hyperv.features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
-Only in ./hv-rhel7.x/hv: xorg.conf
+Only in hv-rhel7.x/hv: xorg.conf
