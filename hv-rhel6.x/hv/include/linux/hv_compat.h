@@ -315,6 +315,10 @@ static inline void u64_stats_init(struct u64_stats_sync *syncp)
 })
 #endif
 
+#if defined(RHEL_RELEASE_VERSION) && RHEL_RELEASE_CODE <= 1536
+#define this_cpu_ptr(ptr) SHIFT_PERCPU_PTR((ptr), my_cpu_offset)
+#endif
+
 #endif
 #endif
 #endif
