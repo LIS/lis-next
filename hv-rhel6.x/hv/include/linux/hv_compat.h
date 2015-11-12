@@ -29,6 +29,9 @@
 #include <scsi/scsi_eh.h>
 #include <scsi/scsi_host.h>
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1542)
+#include <linux/u64_stats_sync.h>
+#endif
 
 #define CN_KVP_IDX	0x9
 
@@ -244,7 +247,7 @@ static inline void  netif_notify_peers(struct net_device *net)
  *    * - UP 32bit must disable irqs.
  *     * - 64bit have no problem atomically reading u64 values, irq safe.
  *      */
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1792)
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1542)
 struct u64_stats_sync {
 #if BITS_PER_LONG==32 && defined(CONFIG_SMP)
 	seqcount_t	seq;
@@ -264,7 +267,6 @@ static inline void u64_stats_update_end(struct u64_stats_sync *syncp)
 	write_seqcount_end(&syncp->seq);
 #endif
 }
-#endif
 
 static inline unsigned int u64_stats_fetch_begin_irq(const struct u64_stats_sync *syncp)
 {
@@ -291,7 +293,6 @@ static inline bool u64_stats_fetch_retry_irq(const struct u64_stats_sync *syncp,
 #endif
 }
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1792)
 static inline void u64_stats_init(struct u64_stats_sync *syncp)
 {
 #if BITS_PER_LONG == 32 && defined(CONFIG_SMP)
@@ -312,6 +313,10 @@ static inline void u64_stats_init(struct u64_stats_sync *syncp)
 	}							\
 	pcpu_stats;						\
 })
+#endif
+
+#if defined(RHEL_RELEASE_VERSION) && RHEL_RELEASE_CODE <= 1536
+#define this_cpu_ptr(ptr) SHIFT_PERCPU_PTR((ptr), my_cpu_offset)
 #endif
 
 #endif

@@ -652,8 +652,13 @@ struct net_device_context {
 	struct work_struct work;
 	u32 msg_enable; /* debug level */
 
+#if defined(RHEL_RELEASE_VERSION) && RHEL_RELEASE_CODE > 1536
 	struct netvsc_stats __percpu *tx_stats;
 	struct netvsc_stats __percpu *rx_stats;
+#else
+	struct netvsc_stats *tx_stats;
+	struct netvsc_stats *rx_stats;
+#endif
 };
 
 /* Per netvsc device */
