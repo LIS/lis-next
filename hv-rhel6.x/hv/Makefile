@@ -15,11 +15,15 @@ extraversioninfo = $(shell uname -r | awk -F'-' '{print $$2}')
 extraversion1 = $(shell echo $(extraversioninfo) | awk -F'.' '{print $$1}' | grep -E '^[0-9]+$$')
 ifneq ($(extraversion1),)
 	ccflags-y += -DEXTRAVERSION1=$(extraversion1)
+else
+	ccflags-y += -DEXTRAVERSION1=0
 endif
 
 extraversion2 = $(shell echo $(extraversioninfo) | awk -F'.' '{print $$2}' | grep -E '^[0-9]+$$')
 ifneq ($(extraversion2),)
 	ccflags-y += -DEXTRAVERSION2=$(extraversion2)
+else
+	ccflags-y += -DEXTRAVERSION2=0
 endif
 
 hv_vmbus-y := vmbus_drv.o \
