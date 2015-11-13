@@ -1,5 +1,3 @@
-include $(M)/overrides.mk
-
 obj-m	+= hv_vmbus.o
 obj-m	+= hv_storvsc.o
 obj-m	+= hv_netvsc.o
@@ -8,6 +6,8 @@ obj-m	+= hid-hyperv.o
 obj-m	+= hyperv_fb.o
 obj-m	+= hv_balloon.o
 obj-m	+= hyperv-keyboard.o
+
+ccflags-y += -I$(M)/include/
 
 hv_vmbus-y := vmbus_drv.o \
 		 hv.o connection.o channel.o \
