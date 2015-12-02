@@ -435,6 +435,12 @@ struct storvsc_cmd_request {
 	struct list_head entry;
 	struct scsi_cmnd *cmd;
 
+	/*
+	 * Divergence from upstream commit 81988a0e6b031bc80da15257201810ddcf989e64
+	 * Bounce buffer is needed for RH7 and below, due
+	 * to possible gaps in sg list. Bounce buffers are
+	 * eliminated upstream with calls to blk_queue_virt_boundary().
+	 */
 	unsigned int bounce_sgl_count;
 	struct scatterlist *bounce_sgl;
 
