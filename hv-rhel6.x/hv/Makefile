@@ -9,8 +9,8 @@ obj-m	+= hyperv-keyboard.o
 
 ccflags-y += -I$(M)/include/
 
-# Define extra kernel version information beyond what LINUX_VERSION_CODE or RHEL_RELEASE_CODE specify.
-# This is used to differentiate between RHEL/CentOS kernel updates with the same RHEL_RELEASE_CODE and LINUX_VERSION_CODE.
+# Get extra kernel version information beyond LINUX_VERSION_CODE or RHEL_RELEASE_CODE.
+# This is used to identify RHEL/CentOS kernel update versions.
 extraversioninfo = $(shell uname -r | awk -F'-' '{print $$2}')
 extraversion1 = $(shell echo $(extraversioninfo) | awk -F'.' '{print $$1}' | grep -E '^[0-9]+$$')
 ifneq ($(extraversion1),)

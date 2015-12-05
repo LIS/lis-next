@@ -238,9 +238,8 @@ static int process_ob_ipinfo(void *in_msg, void *out_msg, int op)
 		/*
 		 * Transform all parameters into utf16 encoding.
 		 */
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540) \
-|| (RHEL_RELEASE_CODE == 1540 && defined(EXTRAVERSION1) && EXTRAVERSION1 < 358 \
-&& defined(EXTRAVERSION2) && EXTRAVERSION2 < 18)
+#if defined(RHEL_RELEASE_UPDATE_CODE) && \
+(RHEL_RELEASE_UPDATE_CODE < RHEL_RELEASE_UPDATE_VERSION(6, 4, 358, 18))		
 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.ip_addr,
 				strlen((char *)in->body.kvp_ip_val.ip_addr),
 				(wchar_t *)out->kvp_ip_val.ip_addr);
@@ -255,9 +254,8 @@ static int process_ob_ipinfo(void *in_msg, void *out_msg, int op)
 		if (len < 0)
 			return len;
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540) \
-|| (RHEL_RELEASE_CODE == 1540 && defined(EXTRAVERSION1) && EXTRAVERSION1 < 358 \
-&& defined(EXTRAVERSION2) && EXTRAVERSION2 < 18)
+#if defined(RHEL_RELEASE_UPDATE_CODE) && \
+(RHEL_RELEASE_UPDATE_CODE < RHEL_RELEASE_UPDATE_VERSION(6, 4, 358, 18))
 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.sub_net,
 				strlen((char *)in->body.kvp_ip_val.sub_net),
 				(wchar_t *)out->kvp_ip_val.sub_net);
@@ -271,9 +269,8 @@ static int process_ob_ipinfo(void *in_msg, void *out_msg, int op)
 		if (len < 0)
 			return len;
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540) \
-|| (RHEL_RELEASE_CODE == 1540 && defined(EXTRAVERSION1) && EXTRAVERSION1 < 358 \
-&& defined(EXTRAVERSION2) && EXTRAVERSION2 < 18)
+#if defined(RHEL_RELEASE_UPDATE_CODE) && \
+(RHEL_RELEASE_UPDATE_CODE < RHEL_RELEASE_UPDATE_VERSION(6, 4, 358, 18))
 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.gate_way,
 				strlen((char *)in->body.kvp_ip_val.gate_way),
 				(wchar_t *)out->kvp_ip_val.gate_way);
@@ -288,9 +285,8 @@ static int process_ob_ipinfo(void *in_msg, void *out_msg, int op)
 		if (len < 0)
 			return len;
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540) \
-|| (RHEL_RELEASE_CODE == 1540 && defined(EXTRAVERSION1) && EXTRAVERSION1 < 358 \
-&& defined(EXTRAVERSION2) && EXTRAVERSION2 < 18)
+#if defined(RHEL_RELEASE_UPDATE_CODE) && \
+(RHEL_RELEASE_UPDATE_CODE < RHEL_RELEASE_UPDATE_VERSION(6, 4, 358, 18))
 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.dns_addr,
 				strlen((char *)in->body.kvp_ip_val.dns_addr),
 				(wchar_t *)out->kvp_ip_val.dns_addr);
@@ -304,9 +300,8 @@ static int process_ob_ipinfo(void *in_msg, void *out_msg, int op)
 		if (len < 0)
 			return len;
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540) \
-|| (RHEL_RELEASE_CODE == 1540 && defined(EXTRAVERSION1) && EXTRAVERSION1 < 358 \
-&& defined(EXTRAVERSION2) && EXTRAVERSION2 < 18)
+#if defined(RHEL_RELEASE_UPDATE_CODE) && \
+(RHEL_RELEASE_UPDATE_CODE < RHEL_RELEASE_UPDATE_VERSION(6, 4, 358, 18))
 		len = utf8s_to_utf16s((char *)in->body.kvp_ip_val.adapter_id,
 				strlen((char *)in->body.kvp_ip_val.adapter_id),
 				(wchar_t *)out->kvp_ip_val.adapter_id);
@@ -587,9 +582,8 @@ kvp_respond_to_host(struct hv_kvp_msg *msg_to_host, int error)
 	 * will be less than or equal to the MAX size (including the
 	 * terminating character).
 	 */
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540) \
-|| (RHEL_RELEASE_CODE == 1540 && defined(EXTRAVERSION1) && EXTRAVERSION1 < 358 \
-&& defined(EXTRAVERSION2) && EXTRAVERSION2 < 18)
+#if defined(RHEL_RELEASE_UPDATE_CODE) && \
+(RHEL_RELEASE_UPDATE_CODE < RHEL_RELEASE_UPDATE_VERSION(6, 4, 358, 18))
 	keylen = utf8s_to_utf16s(key_name, strlen(key_name),
 				(wchar_t *) kvp_data->key);
 #else
@@ -601,9 +595,8 @@ kvp_respond_to_host(struct hv_kvp_msg *msg_to_host, int error)
 
 copy_value:
 	value = msg_to_host->body.kvp_enum_data.data.value;
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540) \
-|| (RHEL_RELEASE_CODE == 1540 && defined(EXTRAVERSION1) && EXTRAVERSION1 < 358 \
-&& defined(EXTRAVERSION2) && EXTRAVERSION2 < 18)
+#if defined(RHEL_RELEASE_UPDATE_CODE) && \
+(RHEL_RELEASE_UPDATE_CODE < RHEL_RELEASE_UPDATE_VERSION(6, 4, 358, 18))
 	valuelen = utf8s_to_utf16s(value, strlen(value),
 				(wchar_t *) kvp_data->value);
 #else
