@@ -376,11 +376,14 @@ enum storvsc_request_type {
  */
 
 #define SRB_STATUS_AUTOSENSE_VALID	0x80
+#define SRB_STATUS_QUEUE_FROZEN		0x40
 #define SRB_STATUS_INVALID_LUN	0x20
 #define SRB_STATUS_SUCCESS	0x01
 #define SRB_STATUS_ABORTED	0x02
 #define SRB_STATUS_ERROR	0x04
 
+#define SRB_STATUS(status) \
+	(status & ~(SRB_STATUS_AUTOSENSE_VALID | SRB_STATUS_QUEUE_FROZEN))
 /*
  * This is the end of Protocol specific defines.
  */
@@ -432,6 +435,12 @@ struct storvsc_cmd_request {
 	struct list_head entry;
 	struct scsi_cmnd *cmd;
 
+	/*
+	 * Divergence from upstream commit 81988a0e6b031bc80da15257201810ddcf989e64
+	 * Bounce buffer is needed for RH7 and below, due
+	 * to possible gaps in sg list. Bounce buffers are
+	 * eliminated upstream with calls to blk_queue_virt_boundary().
+	 */
 	unsigned int bounce_sgl_count;
 	struct scatterlist *bounce_sgl;
 
@@ -1167,8 +1176,7 @@ static void storvsc_handle_error(struct vmscsi_request *vm_srb,
 	struct hv_host_device *host_dev = shost_priv(scmnd->device->host);
 	int error_handling_cpu = host_dev->dev->channel->target_cpu;
 
-
-	switch (vm_srb->srb_status) {
+	switch (SRB_STATUS(vm_srb->srb_status)) {
 	case SRB_STATUS_ERROR:
 		/*
 		 * If there is an error; offline the device since all
@@ -1827,8 +1835,7 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 	vm_srb->win8_extension.time_out_value = 60;
 
 	vm_srb->win8_extension.srb_flags |=
-		(SRB_FLAGS_QUEUE_ACTION_ENABLE |
-		SRB_FLAGS_DISABLE_SYNCH_TRANSFER);
+		SRB_FLAGS_DISABLE_SYNCH_TRANSFER;
 
 	/* Build the SRB */
 	switch (scmnd->sc_data_direction) {

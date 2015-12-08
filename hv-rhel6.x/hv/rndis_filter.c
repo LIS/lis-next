@@ -590,7 +590,8 @@ int rndis_filter_set_device_mac(struct hv_device *hdev, char *mac)
 
 	cfg_nwadr = (wchar_t *)((ulong)cpi + cpi->parameter_name_offset);
 	cfg_mac = (wchar_t *)((ulong)cpi + cpi->parameter_value_offset);
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
+#if defined(RHEL_RELEASE_UPDATE_CODE) && \
+(RHEL_RELEASE_UPDATE_CODE < RHEL_RELEASE_UPDATE_VERSION(6, 4, 358, 18))
 	ret = utf8s_to_utf16s(NWADR_STR, NWADR_STRLEN, cfg_nwadr);
 #else
 	ret = utf8s_to_utf16s(NWADR_STR, NWADR_STRLEN, UTF16_HOST_ENDIAN,
@@ -599,7 +600,8 @@ int rndis_filter_set_device_mac(struct hv_device *hdev, char *mac)
 	if (ret < 0)
 		goto cleanup;
 	snprintf(macstr, 2*ETH_ALEN+1, "%pm", mac);
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1541)
+#if defined(RHEL_RELEASE_UPDATE_CODE) && \
+(RHEL_RELEASE_UPDATE_CODE < RHEL_RELEASE_UPDATE_VERSION(6, 4, 358, 18))	
 	ret = utf8s_to_utf16s(macstr, 2*ETH_ALEN, cfg_mac);
 #else
 	ret = utf8s_to_utf16s(macstr, 2*ETH_ALEN, UTF16_HOST_ENDIAN,

@@ -1,5 +1,3 @@
-include $(M)/overrides.mk
-
 obj-m	+= hv_vmbus.o
 obj-m	+= hv_storvsc.o
 obj-m	+= hv_netvsc.o
@@ -8,6 +6,25 @@ obj-m	+= hid-hyperv.o
 obj-m	+= hyperv_fb.o
 obj-m	+= hv_balloon.o
 obj-m	+= hyperv-keyboard.o
+
+ccflags-y += -I$(M)/include/
+
+# Get extra kernel version information beyond LINUX_VERSION_CODE or RHEL_RELEASE_CODE.
+# This is used to identify RHEL/CentOS kernel update versions.
+extraversioninfo = $(shell uname -r | awk -F'-' '{print $$2}')
+extraversion1 = $(shell echo $(extraversioninfo) | awk -F'.' '{print $$1}' | grep -E '^[0-9]+$$')
+ifneq ($(extraversion1),)
+	ccflags-y += -DEXTRAVERSION1=$(extraversion1)
+else
+	ccflags-y += -DEXTRAVERSION1=0
+endif
+
+extraversion2 = $(shell echo $(extraversioninfo) | awk -F'.' '{print $$2}' | grep -E '^[0-9]+$$')
+ifneq ($(extraversion2),)
+	ccflags-y += -DEXTRAVERSION2=$(extraversion2)
+else
+	ccflags-y += -DEXTRAVERSION2=0
+endif
 
 hv_vmbus-y := vmbus_drv.o \
 		 hv.o connection.o channel.o \
