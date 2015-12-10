@@ -337,6 +337,33 @@ static inline void u64_stats_init(struct u64_stats_sync *syncp)
 #define this_cpu_ptr(ptr) SHIFT_PERCPU_PTR((ptr), my_cpu_offset)
 #endif
 
+
+/*
+ * Define Infiniband MLX4 dependencies for RDMA driver
+ */
+struct mlx4_ib_create_cq {
+	__u64	buf_addr;
+	__u64	db_addr;
+};
+
+struct mlx4_ib_create_qp {
+	__u64	buf_addr;
+	__u64	db_addr;
+	__u8	log_sq_bb_count;
+	__u8	log_sq_stride;
+	__u8	sq_no_prefetch;
+	__u8	reserved[5];
+};
+
+struct mlx4_ib_alloc_ucontext_resp {
+	__u32	dev_caps;
+	__u32	qp_tab_size;
+	__u16	bf_reg_size;
+	__u16	bf_regs_per_page;
+	__u32	cqe_size;
+};
+
+
 #endif
 #endif
 #endif
