@@ -20,11 +20,10 @@
 #include <linux/completion.h>
 #include <linux/module.h>
 #include <linux/errno.h>
-#include "include/linux/hyperv.h"
+#include <linux/hyperv.h>
 #include <linux/efi.h>
 #include <linux/slab.h>
 #include <linux/cred.h>
-#include <linux/uidgid.h>
 #include <linux/sched.h>
 #include <linux/types.h>
 #include <linux/completion.h>
@@ -44,6 +43,8 @@
 #include <linux/sched.h>
 #include <linux/uaccess.h>
 #include <linux/miscdevice.h>
+#include <linux/hyperv.h>
+
 
 /*
  * Create a char device that can support read/write for passing

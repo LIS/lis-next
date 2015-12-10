@@ -52,6 +52,7 @@ MODULE_PARM_DESC(hvnd_log_level,
 	"3 - Debug.");
 
 static int disable_cq_notify = 1;
+//static int disable_cq_notify = 0;
 module_param(disable_cq_notify, int, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(disable_cq_notify,
 	"Disable CQ notification, "
@@ -1330,7 +1331,11 @@ static int hvnd_dereg_mr(struct ib_mr *ib_mr)
 	return 0;
 }
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,5))
+static struct ib_mw *hvnd_alloc_mw(struct ib_pd *pd)
+#else
 static struct ib_mw *hvnd_alloc_mw(struct ib_pd *pd, enum ib_mw_type type)
+#endif
 {
 	hvnd_info("check code\n");
 	return NULL;
@@ -1427,8 +1432,13 @@ static int hvnd_connect(struct iw_cm_id *cm_id,
 	union nd_sockaddr_inet addr;
 	char addr_buf[50];
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
+	if (cm_id->remote_addr.sin_family != AF_INET) {
+		hvnd_error("cm_id->remote_addr.ss_family=%d not AF_INET\n", cm_id->remote_addr.sin_family);
+#else
 	if (cm_id->remote_addr.ss_family != AF_INET) {
 		hvnd_error("cm_id->remote_addr.ss_family=%d not AF_INET\n", cm_id->remote_addr.ss_family);
+#endif
 		return -ENOSYS;
 	}
 
@@ -2348,8 +2358,13 @@ static int hvnd_create_listen(struct iw_cm_id *cm_id, int backlog)
 	uctx = get_uctx(nd_dev, current_pid());
 	hvnd_debug("uctx is %p; pid is %d\n", uctx, current_pid());
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
+	if (cm_id->local_addr.sin_family != AF_INET) {
+		hvnd_error("cm_id->local_addr.ss_family =%d not AF_INET\n", cm_id->local_addr.sin_family);
+#else
 	if (cm_id->local_addr.ss_family != AF_INET) {
 		hvnd_error("cm_id->local_addr.ss_family =%d not AF_INET\n", cm_id->local_addr.ss_family);
+#endif
 		return -ENOSYS;
 	}
 

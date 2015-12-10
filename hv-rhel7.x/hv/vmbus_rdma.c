@@ -24,13 +24,11 @@
 #include <linux/efi.h>
 #include <linux/slab.h>
 #include <linux/cred.h>
-#include <linux/uidgid.h>
 #include <linux/sched.h>
 #include <linux/types.h>
 #include <asm/scatterlist.h>
 #include <rdma/ib_umem.h>
 #include <rdma/ib_user_verbs.h>
-#include <asm-generic/delay.h>
 
 #include "vmbus_rdma.h"
 
@@ -222,11 +220,7 @@ static void user_va_init_pfn(u64 *pfn, struct ib_umem *umem)
 	struct scatterlist *sg;
 	int i =0;
 
-#if defined(RHEL_RELEASE_VERSION) && RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,1)
-	for_each_sg(umem->sg_head.sgl, sg, umem->nmap, entry) {
-		pfn[i++] = page_to_pfn(sg_page(sg));
-	}
-#else
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,6) || RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(7,0))
 	struct ib_umem_chunk *chunk;
 	int len, j;
 	int shift = ffs(umem->page_size) - 1;
@@ -238,6 +232,10 @@ static void user_va_init_pfn(u64 *pfn, struct ib_umem *umem)
 				pfn[i++] = page_to_pfn(sg_page(sg));
 			}
 		}
+	}
+#else
+	for_each_sg(umem->sg_head.sgl, sg, umem->nmap, entry) {
+		pfn[i++] = page_to_pfn(sg_page(sg));
 	}
 #endif
 }
@@ -1403,7 +1401,11 @@ int hvnd_bind_listener(struct hvnd_dev *nd_dev, struct hvnd_ucontext *uctx,
 			u64 listener_handle, union nd_sockaddr_inet *addr)
 {
 	struct pkt_nd_bind_listener pkt;
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0))
+	uid_t uid = current_uid();
+#else
 	kuid_t uid = current_uid();
+#endif
 	int ret;
  
 	memset(&pkt, 0, sizeof(pkt)); //KYS try to avoid having to zero everything
@@ -1421,7 +1423,11 @@ int hvnd_bind_listener(struct hvnd_dev *nd_dev, struct hvnd_ucontext *uctx,
 	pkt.ioctl.in.hdr.handle = listener_handle;
 	pkt.ioctl.in.hdr.reserved = 0;
  
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0))
+	pkt.ioctl.in.authentication_id = (u32)uid;
+#else
 	pkt.ioctl.in.authentication_id = (u32)uid.val;
+#endif
 	pkt.ioctl.in.is_admin = false;
 
 	memcpy(&pkt.ioctl.in.hdr.address, addr, sizeof(*addr));
@@ -1633,7 +1639,11 @@ int hvnd_bind_connector(struct hvnd_dev *nd_dev, struct hvnd_ucontext *uctx,
 {
 	struct pkt_nd_bind_connector pkt;
 	int ret;
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0))
+	uid_t uid = current_uid();
+#else
 	kuid_t uid = current_uid();
+#endif
  
 	memset(&pkt, 0, sizeof(pkt)); //KYS try to avoid having to zero everything
 	hvnd_init_hdr(&pkt.hdr,
@@ -1651,7 +1661,11 @@ int hvnd_bind_connector(struct hvnd_dev *nd_dev, struct hvnd_ucontext *uctx,
 
 	memcpy(&pkt.ioctl.in.hdr.address, addr, sizeof(*addr));
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0))
+	pkt.ioctl.in.authentication_id = (u32)uid;
+#else
 	pkt.ioctl.in.authentication_id = (u32)uid.val;
+#endif
 	pkt.ioctl.in.is_admin = false;
 	
  

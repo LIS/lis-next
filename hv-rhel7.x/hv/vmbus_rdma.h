@@ -26,6 +26,7 @@
 #include <linux/in6.h>
 #include <rdma/ib_verbs.h>
 #include <linux/idr.h>
+#include <linux/if_ether.h>
 
 /* NetworkDirect version Numbers.
  */
@@ -932,7 +933,9 @@ union query_addr_list_ioctl {
 struct pkt_query_addr_list {
 	struct ndv_packet_hdr_control_1 hdr;
 	union query_addr_list_ioctl ioctl;
+#if defined(MLX_ND_5)
 	unsigned long activity_id;
+#endif
 };
 
 
@@ -1066,7 +1069,9 @@ struct pkt_nd_notify_cq {
 struct nd_ep_create {
 	struct nd_handle hdr;
 	bool to_semantics;
+#if defined(MLX_ND_5)
 	unsigned long activity_id;
+#endif
 };
 
 union listener_cr_ioctl {
@@ -1227,7 +1232,9 @@ struct connector_connect_in {
 	u8 retry_cnt;
 	u8 rnr_retry_cnt;
 	u8 priv_data[56];
+#if defined(MLX_ND_5)
 	unsigned long activity_id;
+#endif
 };
 
 union connector_connect_ioctl {
@@ -1246,7 +1253,9 @@ struct pkt_nd_connector_connect {
 struct complete_connect_in {
 	struct nd_handle hdr;
 	u8 rnr_nak_to;
+#if defined(MLX_ND_5)
 	unsigned long activity_id;
+#endif
 };
 
 struct complete_connect_out {
@@ -1275,7 +1284,9 @@ struct connector_accept_in {
 	u8 rnr_retry_cnt;
 	u8 rnr_nak_to;
 	u8 private_data[MAX_PRIVATE_DATA_LEN];
+#if defined(MLX_ND_5)
 	unsigned long activity_id;
+#endif
 };
 
 struct connector_accept_out {
@@ -1479,7 +1490,9 @@ struct pkt_nd_create_mr {
 struct mr_out {
 	u32 lkey;
 	u32 rkey;
+#if defined(MLX_ND_5)
 	unsigned long activity_id;
+#endif
 };
 
 
@@ -1904,28 +1917,28 @@ static inline struct hvnd_mr *to_nd_mr(struct ib_mr *ibmr)
  */
 
 static inline int insert_handle(struct hvnd_dev *dev, struct idr *idr,
-	                        void *handle, u32 id)
+				void *handle, u32 id)
 {
 	int ret;
-	unsigned long flags;
+	int newid;
 
-	idr_preload(GFP_KERNEL);
-	spin_lock_irqsave(&dev->id_lock, flags);
+	do {
+		if (!idr_pre_get(idr, GFP_KERNEL)) {
+			return -ENOMEM;
+		}
+		spin_lock_irq(&dev->id_lock);
+		ret = idr_get_new_above(idr, handle, id, &newid);
+		BUG_ON(newid != id);
+		spin_unlock_irq(&dev->id_lock);
+	} while (ret == -EAGAIN);
 
-	ret = idr_alloc(idr, handle, id, id + 1, GFP_ATOMIC);
-
-	spin_unlock_irqrestore(&dev->id_lock, flags);
-	idr_preload_end();
-
-	BUG_ON(ret == -ENOSPC);
-	return ret < 0 ? ret : 0;
+	return ret;
 }
 
-static inline void remove_handle(struct hvnd_dev *dev, struct idr *idr,
-	                        u32 id)
+static inline void remove_handle(struct hvnd_dev *dev, struct idr *idr, u32 id)
 {
 	unsigned long flags;
-
+	
 	spin_lock_irqsave(&dev->id_lock, flags);
 	idr_remove(idr, id);
 	spin_unlock_irqrestore(&dev->id_lock, flags);
