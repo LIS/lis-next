@@ -1,7 +1,7 @@
 Only in hv-rhel7.x/hv/: CHANGELOG
 diff -ru hv-rhel7.x/hv/channel.c hv-rhel6.x/hv/channel.c
---- hv-rhel7.x/hv/channel.c	2015-12-04 19:33:24.690163622 -0500
-+++ hv-rhel6.x/hv/channel.c	2015-12-04 19:33:24.684163399 -0500
+--- hv-rhel7.x/hv/channel.c	2015-12-01 16:53:22.715618821 -0800
++++ hv-rhel6.x/hv/channel.c	2015-12-01 16:53:22.518622187 -0800
 @@ -61,6 +61,50 @@
  }
  
@@ -54,8 +54,8 @@ diff -ru hv-rhel7.x/hv/channel.c hv-rhel6.x/hv/channel.c
   */
  int vmbus_open(struct vmbus_channel *newchannel, u32 send_ringbuffer_size,
 diff -ru hv-rhel7.x/hv/connection.c hv-rhel6.x/hv/connection.c
---- hv-rhel7.x/hv/connection.c	2015-12-04 19:33:24.690163622 -0500
-+++ hv-rhel6.x/hv/connection.c	2015-12-04 19:33:24.684163399 -0500
+--- hv-rhel7.x/hv/connection.c	2015-12-01 16:53:22.716618804 -0800
++++ hv-rhel6.x/hv/connection.c	2015-12-01 16:53:22.537621863 -0800
 @@ -30,8 +30,7 @@
  #include <linux/slab.h>
  #include <linux/vmalloc.h>
@@ -78,8 +78,8 @@ diff -ru hv-rhel7.x/hv/connection.c hv-rhel6.x/hv/connection.c
 Only in hv-rhel7.x/hv/: hid-core.c
 Only in hv-rhel7.x/hv/: hid-debug.c
 diff -ru hv-rhel7.x/hv/hid-hyperv.c hv-rhel6.x/hv/hid-hyperv.c
---- hv-rhel7.x/hv/hid-hyperv.c	2015-12-04 19:33:24.691163659 -0500
-+++ hv-rhel6.x/hv/hid-hyperv.c	2015-12-04 19:33:24.684163399 -0500
+--- hv-rhel7.x/hv/hid-hyperv.c	2015-09-03 18:03:00.739620387 -0700
++++ hv-rhel6.x/hv/hid-hyperv.c	2015-12-01 16:53:22.548621675 -0800
 @@ -612,6 +612,6 @@
  
  MODULE_LICENSE("GPL");
@@ -91,8 +91,8 @@ diff -ru hv-rhel7.x/hv/hid-hyperv.c hv-rhel6.x/hv/hid-hyperv.c
 Only in hv-rhel7.x/hv/: hid-ids.h
 Only in hv-rhel7.x/hv/: hid-input.c
 diff -ru hv-rhel7.x/hv/hv_balloon.c hv-rhel6.x/hv/hv_balloon.c
---- hv-rhel7.x/hv/hv_balloon.c	2015-12-04 19:33:24.692163696 -0500
-+++ hv-rhel6.x/hv/hv_balloon.c	2015-12-04 19:33:24.684163399 -0500
+--- hv-rhel7.x/hv/hv_balloon.c	2015-12-01 16:53:22.717618787 -0800
++++ hv-rhel6.x/hv/hv_balloon.c	2015-12-01 16:53:22.573621248 -0800
 @@ -1039,7 +1039,7 @@
  	 * asking us to balloon them out.
  	 */
@@ -103,8 +103,8 @@ diff -ru hv-rhel7.x/hv/hv_balloon.c hv-rhel6.x/hv/hv_balloon.c
  		(dm->num_pages_added > dm->num_pages_onlined ?
  		 dm->num_pages_added - dm->num_pages_onlined : 0) +
 diff -ru hv-rhel7.x/hv/hv.c hv-rhel6.x/hv/hv.c
---- hv-rhel7.x/hv/hv.c	2015-12-04 19:33:24.692163696 -0500
-+++ hv-rhel6.x/hv/hv.c	2015-12-04 19:33:24.684163399 -0500
+--- hv-rhel7.x/hv/hv.c	2015-09-25 15:20:03.180372855 -0700
++++ hv-rhel6.x/hv/hv.c	2015-12-01 16:53:22.556621538 -0800
 @@ -28,7 +28,10 @@
  #include "include/linux/hyperv.h"
  #include <linux/version.h>
@@ -318,8 +318,8 @@ diff -ru hv-rhel7.x/hv/hv.c hv-rhel6.x/hv/hv.c
  
 Only in hv-rhel7.x/hv/: hv_compat.c
 diff -ru hv-rhel7.x/hv/hv_fcopy.c hv-rhel6.x/hv/hv_fcopy.c
---- hv-rhel7.x/hv/hv_fcopy.c	2015-12-04 19:33:24.692163696 -0500
-+++ hv-rhel6.x/hv/hv_fcopy.c	2015-12-04 19:33:24.685163437 -0500
+--- hv-rhel7.x/hv/hv_fcopy.c	2015-12-01 16:53:22.725618650 -0800
++++ hv-rhel6.x/hv/hv_fcopy.c	2015-12-01 16:53:22.584621060 -0800
 @@ -19,8 +19,8 @@
  
  #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
@@ -340,8 +340,8 @@ diff -ru hv-rhel7.x/hv/hv_fcopy.c hv-rhel6.x/hv/hv_fcopy.c
  static struct hvutil_transport *hvt;
  /*
 diff -ru hv-rhel7.x/hv/hv_kvp.c hv-rhel6.x/hv/hv_kvp.c
---- hv-rhel7.x/hv/hv_kvp.c	2015-12-04 19:33:24.692163696 -0500
-+++ hv-rhel6.x/hv/hv_kvp.c	2015-12-04 20:39:49.189131876 -0500
+--- hv-rhel7.x/hv/hv_kvp.c	2015-12-01 16:53:22.735618479 -0800
++++ hv-rhel6.x/hv/hv_kvp.c	2015-12-08 14:58:52.273635771 -0800
 @@ -84,7 +84,7 @@
  static DECLARE_DELAYED_WORK(kvp_timeout_work, kvp_timeout_func);
  static DECLARE_WORK(kvp_sendkey_work, kvp_send_key);
@@ -462,8 +462,8 @@ diff -ru hv-rhel7.x/hv/hv_kvp.c hv-rhel6.x/hv/hv_kvp.c
  
  	/*
 diff -ru hv-rhel7.x/hv/hv_snapshot.c hv-rhel6.x/hv/hv_snapshot.c
---- hv-rhel7.x/hv/hv_snapshot.c	2015-12-04 19:33:24.692163696 -0500
-+++ hv-rhel6.x/hv/hv_snapshot.c	2015-12-04 19:33:24.685163437 -0500
+--- hv-rhel7.x/hv/hv_snapshot.c	2015-12-01 16:53:22.742618360 -0800
++++ hv-rhel6.x/hv/hv_snapshot.c	2015-12-01 16:53:22.593620906 -0800
 @@ -64,7 +64,7 @@
   */
  static int dm_reg_value;
@@ -474,8 +474,8 @@ diff -ru hv-rhel7.x/hv/hv_snapshot.c hv-rhel6.x/hv/hv_snapshot.c
  static struct hvutil_transport *hvt;
  
 diff -ru hv-rhel7.x/hv/hv_util.c hv-rhel6.x/hv/hv_util.c
---- hv-rhel7.x/hv/hv_util.c	2015-12-04 19:33:24.692163696 -0500
-+++ hv-rhel6.x/hv/hv_util.c	2015-12-04 19:33:24.685163437 -0500
+--- hv-rhel7.x/hv/hv_util.c	2015-12-01 16:53:22.742618360 -0800
++++ hv-rhel6.x/hv/hv_util.c	2015-09-03 18:03:00.722577306 -0700
 @@ -446,3 +446,9 @@
  MODULE_DESCRIPTION("Hyper-V Utilities");
  MODULE_LICENSE("GPL");
@@ -487,8 +487,8 @@ diff -ru hv-rhel7.x/hv/hv_util.c hv-rhel6.x/hv/hv_util.c
 +MODULE_ALIAS("vmbus:e7f4a0a9455a964db8278a841e8c03e6");
 +MODULE_ALIAS("vmbus:292efa3523ea364296ae3a6ebacba440");
 diff -ru hv-rhel7.x/hv/hv_utils_transport.c hv-rhel6.x/hv/hv_utils_transport.c
---- hv-rhel7.x/hv/hv_utils_transport.c	2015-12-04 19:33:24.692163696 -0500
-+++ hv-rhel6.x/hv/hv_utils_transport.c	2015-12-04 19:33:24.685163437 -0500
+--- hv-rhel7.x/hv/hv_utils_transport.c	2015-12-01 16:53:22.749618240 -0800
++++ hv-rhel6.x/hv/hv_utils_transport.c	2015-12-01 16:53:22.605620701 -0800
 @@ -212,7 +212,7 @@
  	return ret;
  }
@@ -499,8 +499,8 @@ diff -ru hv-rhel7.x/hv/hv_utils_transport.c hv-rhel6.x/hv/hv_utils_transport.c
  					       int (*on_msg)(void *, int),
  					       void (*on_reset)(void))
 diff -ru hv-rhel7.x/hv/hv_utils_transport.h hv-rhel6.x/hv/hv_utils_transport.h
---- hv-rhel7.x/hv/hv_utils_transport.h	2015-12-04 19:33:24.693163733 -0500
-+++ hv-rhel6.x/hv/hv_utils_transport.h	2015-12-04 19:33:24.685163437 -0500
+--- hv-rhel7.x/hv/hv_utils_transport.h	2015-12-01 16:53:22.755618137 -0800
++++ hv-rhel6.x/hv/hv_utils_transport.h	2015-12-01 16:53:22.606620684 -0800
 @@ -41,7 +41,7 @@
  	struct mutex outmsg_lock;           /* protects outmsg */
  };
@@ -511,8 +511,8 @@ diff -ru hv-rhel7.x/hv/hv_utils_transport.h hv-rhel6.x/hv/hv_utils_transport.h
  					       int (*on_msg)(void *, int),
  					       void (*on_reset)(void));
 diff -ru hv-rhel7.x/hv/hyperv_fb.c hv-rhel6.x/hv/hyperv_fb.c
---- hv-rhel7.x/hv/hyperv_fb.c	2015-12-04 19:33:24.693163733 -0500
-+++ hv-rhel6.x/hv/hyperv_fb.c	2015-12-04 19:33:24.686163474 -0500
+--- hv-rhel7.x/hv/hyperv_fb.c	2015-12-01 16:53:22.756618120 -0800
++++ hv-rhel6.x/hv/hyperv_fb.c	2015-12-01 16:53:22.607620667 -0800
 @@ -682,7 +682,7 @@
  	struct hvfb_par *par = info->par;
  	struct pci_dev *pdev  = NULL;
@@ -560,8 +560,8 @@ diff -ru hv-rhel7.x/hv/hyperv_fb.c hv-rhel6.x/hv/hyperv_fb.c
  MODULE_DESCRIPTION("Microsoft Hyper-V Synthetic Video Frame Buffer Driver");
 +MODULE_ALIAS("vmbus:02780ada77e3ac4a8e770558eb1073f8");
 diff -ru hv-rhel7.x/hv/hyperv-keyboard.c hv-rhel6.x/hv/hyperv-keyboard.c
---- hv-rhel7.x/hv/hyperv-keyboard.c	2015-12-04 19:33:24.693163733 -0500
-+++ hv-rhel6.x/hv/hyperv-keyboard.c	2015-12-04 19:33:24.685163437 -0500
+--- hv-rhel7.x/hv/hyperv-keyboard.c	2015-09-03 18:03:00.742627989 -0700
++++ hv-rhel6.x/hv/hyperv-keyboard.c	2015-09-03 18:03:00.723579840 -0700
 @@ -449,6 +449,6 @@
  
  MODULE_LICENSE("GPL");
@@ -571,8 +571,8 @@ diff -ru hv-rhel7.x/hv/hyperv-keyboard.c hv-rhel6.x/hv/hyperv-keyboard.c
  module_init(hv_kbd_init);
  module_exit(hv_kbd_exit);
 diff -ru hv-rhel7.x/hv/hyperv_net.h hv-rhel6.x/hv/hyperv_net.h
---- hv-rhel7.x/hv/hyperv_net.h	2015-12-04 19:33:24.693163733 -0500
-+++ hv-rhel6.x/hv/hyperv_net.h	2015-12-04 19:33:24.686163474 -0500
+--- hv-rhel7.x/hv/hyperv_net.h	2015-12-01 16:53:22.768617915 -0800
++++ hv-rhel6.x/hv/hyperv_net.h	2015-12-01 16:53:22.608620650 -0800
 @@ -26,7 +26,7 @@
  
  #include <linux/list.h>
@@ -597,8 +597,8 @@ diff -ru hv-rhel7.x/hv/hyperv_net.h hv-rhel6.x/hv/hyperv_net.h
  
  /* Per netvsc device */
 diff -ru hv-rhel7.x/hv/hyperv_vmbus.h hv-rhel6.x/hv/hyperv_vmbus.h
---- hv-rhel7.x/hv/hyperv_vmbus.h	2015-12-04 19:33:24.693163733 -0500
-+++ hv-rhel6.x/hv/hyperv_vmbus.h	2015-12-04 19:33:24.686163474 -0500
+--- hv-rhel7.x/hv/hyperv_vmbus.h	2015-12-01 16:53:22.769617898 -0800
++++ hv-rhel6.x/hv/hyperv_vmbus.h	2015-12-01 16:53:22.609620632 -0800
 @@ -576,14 +576,6 @@
         u64 reserved2[509];
  };
@@ -615,8 +615,8 @@ diff -ru hv-rhel7.x/hv/hyperv_vmbus.h hv-rhel6.x/hv/hyperv_vmbus.h
  
  extern int hv_init(void);
 diff -ru hv-rhel7.x/hv/include/asm/mshyperv.h hv-rhel6.x/hv/include/asm/mshyperv.h
---- hv-rhel7.x/hv/include/asm/mshyperv.h	2015-12-04 19:33:24.693163733 -0500
-+++ hv-rhel6.x/hv/include/asm/mshyperv.h	2015-12-04 19:33:24.686163474 -0500
+--- hv-rhel7.x/hv/include/asm/mshyperv.h	2015-09-03 18:03:00.743630523 -0700
++++ hv-rhel6.x/hv/include/asm/mshyperv.h	2015-09-03 18:03:00.724582374 -0700
 @@ -16,6 +16,8 @@
  #ifdef CONFIG_TRACING
  #define trace_hyperv_callback_vector hyperv_callback_vector
@@ -627,8 +627,8 @@ diff -ru hv-rhel7.x/hv/include/asm/mshyperv.h hv-rhel6.x/hv/include/asm/mshyperv
  void hv_setup_vmbus_irq(void (*handler)(void));
  void hv_remove_vmbus_irq(void);
 diff -ru hv-rhel7.x/hv/include/linux/atomic.h hv-rhel6.x/hv/include/linux/atomic.h
---- hv-rhel7.x/hv/include/linux/atomic.h	2015-12-04 19:33:24.694163770 -0500
-+++ hv-rhel6.x/hv/include/linux/atomic.h	2015-12-04 19:33:24.687163511 -0500
+--- hv-rhel7.x/hv/include/linux/atomic.h	2015-09-03 18:03:00.743630523 -0700
++++ hv-rhel6.x/hv/include/linux/atomic.h	2015-09-03 18:03:00.724582374 -0700
 @@ -1,131 +1,6 @@
 -/* Atomic operations usable in machine independent code */
  #ifndef _LINUX_ATOMIC_H
@@ -766,8 +766,8 @@ Only in hv-rhel7.x/hv/include/linux: hid-debug.h
 Only in hv-rhel7.x/hv/include/linux: hid.h
 Only in hv-rhel7.x/hv/include/linux: hidraw.h
 diff -ru hv-rhel7.x/hv/include/linux/hv_compat.h hv-rhel6.x/hv/include/linux/hv_compat.h
---- hv-rhel7.x/hv/include/linux/hv_compat.h	2015-12-04 19:33:24.694163770 -0500
-+++ hv-rhel6.x/hv/include/linux/hv_compat.h	2015-12-04 20:30:58.105619974 -0500
+--- hv-rhel7.x/hv/include/linux/hv_compat.h	2015-12-08 16:14:55.517922734 -0800
++++ hv-rhel6.x/hv/include/linux/hv_compat.h	2015-12-10 15:21:29.376179197 -0800
 @@ -4,8 +4,25 @@
  
  #include <linux/version.h>
@@ -861,8 +861,8 @@ diff -ru hv-rhel7.x/hv/include/linux/hv_compat.h hv-rhel6.x/hv/include/linux/hv_
          return (PAGE_SHIFT - PTE_SHIFT) + level * PTE_SHIFT;
  }
 -#endif
--
  
+-
 -#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1792)
  static inline unsigned long page_level_size(int level)
  {
@@ -925,7 +925,7 @@ diff -ru hv-rhel7.x/hv/include/linux/hv_compat.h hv-rhel6.x/hv/include/linux/hv_
  static inline void u64_stats_init(struct u64_stats_sync *syncp)
  {
  #if BITS_PER_LONG == 32 && defined(CONFIG_SMP)
-@@ -309,6 +333,10 @@
+@@ -309,6 +333,11 @@
  })
  #endif
  
@@ -933,12 +933,24 @@ diff -ru hv-rhel7.x/hv/include/linux/hv_compat.h hv-rhel6.x/hv/include/linux/hv_
 +#define this_cpu_ptr(ptr) SHIFT_PERCPU_PTR((ptr), my_cpu_offset)
 +#endif
 +
- #endif
- #endif
- #endif
++
+ /*
+  * Define Infiniband MLX4 dependencies for RDMA driver
+  */
+@@ -334,6 +363,7 @@
+ 	__u32	cqe_size;
+ };
+ 
+-#endif //#ifdef __KERNEL__
+-#endif //#if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 10, 0)
+-#endif //#ifndef _HV_COMPAT_H
++
++#endif
++#endif
++#endif
 diff -ru hv-rhel7.x/hv/include/linux/hyperv.h hv-rhel6.x/hv/include/linux/hyperv.h
---- hv-rhel7.x/hv/include/linux/hyperv.h	2015-12-04 19:33:24.694163770 -0500
-+++ hv-rhel6.x/hv/include/linux/hyperv.h	2015-12-04 19:33:24.687163511 -0500
+--- hv-rhel7.x/hv/include/linux/hyperv.h	2015-12-01 16:53:22.780617710 -0800
++++ hv-rhel6.x/hv/include/linux/hyperv.h	2015-12-01 16:53:22.627620325 -0800
 @@ -26,6 +26,7 @@
  #define _HYPERV_H
  
@@ -1006,8 +1018,8 @@ diff -ru hv-rhel7.x/hv/include/linux/hyperv.h hv-rhel6.x/hv/include/linux/hyperv
  struct hv_driver {
  	const char *name;
 diff -ru hv-rhel7.x/hv/include/uapi/linux/hyperv.h hv-rhel6.x/hv/include/uapi/linux/hyperv.h
---- hv-rhel7.x/hv/include/uapi/linux/hyperv.h	2015-12-04 19:33:24.695163807 -0500
-+++ hv-rhel6.x/hv/include/uapi/linux/hyperv.h	2015-12-04 19:33:24.688163548 -0500
+--- hv-rhel7.x/hv/include/uapi/linux/hyperv.h	2015-12-01 16:53:22.791617522 -0800
++++ hv-rhel6.x/hv/include/uapi/linux/hyperv.h	2015-12-01 16:53:22.632620239 -0800
 @@ -25,10 +25,10 @@
  #ifndef _UAPI_HYPERV_H
  #define _UAPI_HYPERV_H
@@ -1023,8 +1035,8 @@ diff -ru hv-rhel7.x/hv/include/uapi/linux/hyperv.h hv-rhel6.x/hv/include/uapi/li
  #endif
  
 diff -ru hv-rhel7.x/hv/include/uapi/linux/uuid.h hv-rhel6.x/hv/include/uapi/linux/uuid.h
---- hv-rhel7.x/hv/include/uapi/linux/uuid.h	2015-12-04 19:33:24.695163807 -0500
-+++ hv-rhel6.x/hv/include/uapi/linux/uuid.h	2015-12-04 19:33:24.688163548 -0500
+--- hv-rhel7.x/hv/include/uapi/linux/uuid.h	2015-09-03 18:03:00.747640660 -0700
++++ hv-rhel6.x/hv/include/uapi/linux/uuid.h	2015-09-03 18:03:00.727589977 -0700
 @@ -18,8 +18,8 @@
   * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
   */
@@ -1060,11 +1072,11 @@ diff -ru hv-rhel7.x/hv/include/uapi/linux/uuid.h hv-rhel6.x/hv/include/uapi/linu
 +
 +#endif
 diff -ru hv-rhel7.x/hv/Makefile hv-rhel6.x/hv/Makefile
---- hv-rhel7.x/hv/Makefile	2015-12-04 19:33:46.325965719 -0500
-+++ hv-rhel6.x/hv/Makefile	2015-12-04 19:46:39.812029796 -0500
-@@ -9,6 +9,23 @@
+--- hv-rhel7.x/hv/Makefile	2015-12-10 15:28:27.983834151 -0800
++++ hv-rhel6.x/hv/Makefile	2015-12-10 15:21:29.374179243 -0800
+@@ -10,6 +10,23 @@
  
- ccflags-y += -I$(M)/include/
+ ccflags-y += -I$(M)/include/ -DMLX_ND_5
  
 +# Get extra kernel version information beyond LINUX_VERSION_CODE or RHEL_RELEASE_CODE.
 +# This is used to identify RHEL/CentOS kernel update versions.
@@ -1090,8 +1102,8 @@ Only in hv-rhel7.x/hv/: Module.markers
 Only in hv-rhel7.x/hv/: modules.order
 Only in hv-rhel7.x/hv/: Module.symvers
 diff -ru hv-rhel7.x/hv/netvsc.c hv-rhel6.x/hv/netvsc.c
---- hv-rhel7.x/hv/netvsc.c	2015-12-04 19:33:24.695163807 -0500
-+++ hv-rhel6.x/hv/netvsc.c	2015-12-04 19:33:24.688163548 -0500
+--- hv-rhel7.x/hv/netvsc.c	2015-12-01 16:53:22.792617505 -0800
++++ hv-rhel6.x/hv/netvsc.c	2015-12-01 16:53:22.644620034 -0800
 @@ -227,17 +227,23 @@
  	struct netvsc_device *net_device;
  	struct nvsp_message *init_packet;
@@ -1133,8 +1145,8 @@ diff -ru hv-rhel7.x/hv/netvsc.c hv-rhel6.x/hv/netvsc.c
  		netdev_err(ndev, "unable to allocate send "
  			   "buffer of size %d\n", net_device->send_buf_size);
 diff -ru hv-rhel7.x/hv/netvsc_drv.c hv-rhel6.x/hv/netvsc_drv.c
---- hv-rhel7.x/hv/netvsc_drv.c	2015-12-04 19:33:24.696163844 -0500
-+++ hv-rhel6.x/hv/netvsc_drv.c	2015-12-04 19:33:24.688163548 -0500
+--- hv-rhel7.x/hv/netvsc_drv.c	2015-12-01 16:53:22.793617488 -0800
++++ hv-rhel6.x/hv/netvsc_drv.c	2015-12-01 16:53:22.651619915 -0800
 @@ -33,11 +33,13 @@
  #include <linux/if_vlan.h>
  #include <linux/in.h>
@@ -1358,8 +1370,8 @@ diff -ru hv-rhel7.x/hv/netvsc_drv.c hv-rhel6.x/hv/netvsc_drv.c
  module_init(netvsc_drv_init);
  module_exit(netvsc_drv_exit);
 diff -ru hv-rhel7.x/hv/README hv-rhel6.x/hv/README
---- hv-rhel7.x/hv/README	2015-12-04 19:33:24.690163622 -0500
-+++ hv-rhel6.x/hv/README	2015-12-04 19:33:24.684163399 -0500
+--- hv-rhel7.x/hv/README	2015-12-01 16:53:22.704619009 -0800
++++ hv-rhel6.x/hv/README	2015-09-03 18:03:00.720572238 -0700
 @@ -1,9 +1,9 @@
  After unpacking the tar file; as root:
  
@@ -1379,8 +1391,8 @@ Only in hv-rhel6.x/hv/: rhel6-hv-driver-install
 Only in hv-rhel6.x/hv/: rhel6-hv-driver-uninstall
 Only in hv-rhel7.x/hv/: rhel7-hv-driver-install
 diff -ru hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
---- hv-rhel7.x/hv/rndis_filter.c	2015-12-04 19:33:24.696163844 -0500
-+++ hv-rhel6.x/hv/rndis_filter.c	2015-12-04 20:37:31.664065080 -0500
+--- hv-rhel7.x/hv/rndis_filter.c	2015-12-01 16:53:22.793617488 -0800
++++ hv-rhel6.x/hv/rndis_filter.c	2015-12-08 14:58:52.286635550 -0800
 @@ -590,13 +590,24 @@
  
  	cfg_nwadr = (wchar_t *)((ulong)cpi + cpi->parameter_name_offset);
@@ -1407,8 +1419,8 @@ diff -ru hv-rhel7.x/hv/rndis_filter.c hv-rhel6.x/hv/rndis_filter.c
  		goto cleanup;
  
 diff -ru hv-rhel7.x/hv/storvsc_drv.c hv-rhel6.x/hv/storvsc_drv.c
---- hv-rhel7.x/hv/storvsc_drv.c	2015-12-04 19:33:46.325965719 -0500
-+++ hv-rhel6.x/hv/storvsc_drv.c	2015-12-04 19:33:46.324965682 -0500
+--- hv-rhel7.x/hv/storvsc_drv.c	2015-12-08 14:58:52.335634718 -0800
++++ hv-rhel6.x/hv/storvsc_drv.c	2015-12-08 14:58:52.288635516 -0800
 @@ -736,6 +736,17 @@
  	return NULL;
  }
@@ -1588,8 +1600,8 @@ diff -ru hv-rhel7.x/hv/storvsc_drv.c hv-rhel6.x/hv/storvsc_drv.c
 Only in hv-rhel7.x/hv/tools: hv_get_dhcp_info
 Only in hv-rhel7.x/hv/tools: hv_get_dns_info
 diff -ru hv-rhel7.x/hv/tools/hv_kvp_daemon.c hv-rhel6.x/hv/tools/hv_kvp_daemon.c
---- hv-rhel7.x/hv/tools/hv_kvp_daemon.c	2015-12-04 19:33:24.697163881 -0500
-+++ hv-rhel6.x/hv/tools/hv_kvp_daemon.c	2015-12-04 19:33:24.689163585 -0500
+--- hv-rhel7.x/hv/tools/hv_kvp_daemon.c	2015-12-01 16:53:22.795617454 -0800
++++ hv-rhel6.x/hv/tools/hv_kvp_daemon.c	2015-12-01 16:53:22.680619419 -0800
 @@ -34,6 +34,7 @@
  #include <errno.h>
  #include <arpa/inet.h>
@@ -1601,8 +1613,8 @@ diff -ru hv-rhel7.x/hv/tools/hv_kvp_daemon.c hv-rhel6.x/hv/tools/hv_kvp_daemon.c
 Only in hv-rhel7.x/hv/tools: hv_set_ifconfig
 Only in hv-rhel7.x/hv/tools: lsvmbus
 diff -ru hv-rhel7.x/hv/vmbus_drv.c hv-rhel6.x/hv/vmbus_drv.c
---- hv-rhel7.x/hv/vmbus_drv.c	2015-12-04 19:33:24.697163881 -0500
-+++ hv-rhel6.x/hv/vmbus_drv.c	2015-12-04 19:33:24.690163622 -0500
+--- hv-rhel7.x/hv/vmbus_drv.c	2015-12-01 16:53:22.805617283 -0800
++++ hv-rhel6.x/hv/vmbus_drv.c	2015-12-01 16:53:22.688619282 -0800
 @@ -31,7 +31,6 @@
  #include <linux/slab.h>
  #include <linux/acpi.h>
