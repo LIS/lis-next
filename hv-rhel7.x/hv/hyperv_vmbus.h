@@ -31,6 +31,11 @@
 #include "include/linux/hyperv.h"
 
 /*
+ * Timeout for services such as KVP and fcopy.
+ */
+#define HV_UTIL_TIMEOUT 30
+
+/*
  * The below CPUID leaves are present if VersionAndFeatures.HypervisorPresent
  * is set by CPUID(HVCPUID_VERSION_FEATURES).
  */
@@ -594,7 +599,7 @@ extern int hv_post_message(union hv_connection_id connection_id,
 			 enum hv_message_type message_type,
 			 void *payload, size_t payload_size);
 
-extern u16 hv_signal_event(void *con_id);
+extern int hv_signal_event(void *con_id);
 
 extern int hv_synic_alloc(void);
 
@@ -690,7 +695,7 @@ struct vmbus_connection {
 
 	/* List of channels */
 	struct list_head chn_list;
-	spinlock_t channel_lock;
+	struct mutex channel_mutex;
 
 	struct workqueue_struct *work_queue;
 };
@@ -773,11 +778,7 @@ static inline void hv_poll_channel(struct vmbus_channel *channel,
 	if (!channel)
 		return;
 
-	if (channel->target_cpu != smp_processor_id())
-		smp_call_function_single(channel->target_cpu,
-					 cb, channel, true);
-	else
-		cb(channel);
+	smp_call_function_single(channel->target_cpu, cb, channel, true);
 }
 
 enum hvutil_device_state {

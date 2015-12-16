@@ -630,6 +630,11 @@ struct hv_input_signal_event_buffer {
 	struct hv_input_signal_event event;
 };
 
+enum hv_signal_policy {
+	HV_SIGNAL_POLICY_DEFAULT = 0,
+	HV_SIGNAL_POLICY_EXPLICIT,
+};
+
 struct vmbus_channel {
 	/* Unique channel id */
 	int id;
@@ -757,8 +762,20 @@ struct vmbus_channel {
 	 * link up channels based on their CPU affinity.
 	 */
 	struct list_head percpu_list;
-
+	/*
+	 * Host signaling policy: The default policy will be
+	 * based on the ring buffer state. We will also support
+	 * a policy where the client driver can have explicit
+	 * signaling control.
+	 */
+	enum hv_signal_policy  signal_policy;
 };
+
+static inline void set_channel_signal_state(struct vmbus_channel *c,
+					    enum hv_signal_policy policy)
+{
+	c->signal_policy = policy;
+}
 
 static inline void set_channel_read_state(struct vmbus_channel *c, bool state)
 {
@@ -986,6 +1003,9 @@ int vmbus_allocate_mmio(struct resource **new, struct hv_device *device_obj,
 			resource_size_t size, resource_size_t align,
 			bool fb_overlap_ok);
 
+int vmbus_cpu_number_to_vp_number(int cpu_number);
+u64 hv_do_hypercall(u64 control, void *input, void *output);
+
 /**
  * VMBUS_DEVICE - macro used to describe a specific hyperv vmbus device
  *
@@ -1137,6 +1157,15 @@ int vmbus_allocate_mmio(struct resource **new, struct hv_device *device_obj,
 	.guid = { \
 			0x3d, 0xaf, 0x2e, 0x8c, 0xa7, 0x32, 0x09, 0x4b, \
 			0xab, 0x99, 0xbd, 0x1f, 0x1c, 0x86, 0xb5, 0x01 \
+		}
+/*
+ * PCI Express Pass Through
+ * {44C4F61D-4444-4400-9D52-802E27EDE19F}
+ */
+#define HV_PCIE_GUID \
+	.guid = { \
+			0x1D, 0xF6, 0xC4, 0x44, 0x44, 0x44, 0x00, 0x44, \
+			0x9D, 0x52, 0x80, 0x2E, 0x27, 0xED, 0xE1, 0x9F \
 		}
 
 /*
