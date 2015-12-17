@@ -815,9 +815,6 @@ static int vmbus_bus_init(int irq)
 	hv_setup_vmbus_irq(vmbus_isr);
 #endif
 	
-
-
-
 	ret = hv_synic_alloc();
 	if (ret)
 		goto err_alloc;
@@ -828,7 +825,7 @@ static int vmbus_bus_init(int irq)
 	on_each_cpu(hv_synic_init, NULL, 1);
 	ret = vmbus_connect();
 	if (ret)
-		goto err_alloc;
+		goto err_connect;
 
 	hv_cpu_hotplug_quirk(true);
 
@@ -848,6 +845,8 @@ static int vmbus_bus_init(int irq)
 
 	return 0;
 
+err_connect:
+	on_each_cpu(hv_synic_cleanup, NULL, 1);
 err_alloc:
 	free_irq(irq, hv_acpi_dev);
 	hv_synic_free();
