@@ -360,6 +360,7 @@ enum {
 	SCSI,
 	NIC,
 	ND_NIC,
+	PCIE,
 	MAX_PERF_CHN,
 };
 
@@ -377,6 +378,8 @@ static const struct hv_vmbus_device_id hp_devs[] = {
 	{ HV_NIC_GUID, },
 	/* NetworkDirect Guest RDMA */
 	{ HV_ND_GUID, },
+	/* PCI Express Pass Through */
+	{ HV_PCIE_GUID, },
 };
 
 
