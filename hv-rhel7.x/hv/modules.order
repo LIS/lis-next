@@ -1,8 +1,9 @@
-kernel//root/lis-next/hv-rhel7.x/hv/hv_vmbus.ko
-kernel//root/lis-next/hv-rhel7.x/hv/hv_storvsc.ko
-kernel//root/lis-next/hv-rhel7.x/hv/hv_netvsc.ko
-kernel//root/lis-next/hv-rhel7.x/hv/hv_utils.ko
-kernel//root/lis-next/hv-rhel7.x/hv/hid-hyperv.ko
-kernel//root/lis-next/hv-rhel7.x/hv/hyperv_fb.ko
-kernel//root/lis-next/hv-rhel7.x/hv/hv_balloon.ko
-kernel//root/lis-next/hv-rhel7.x/hv/hyperv-keyboard.ko
+kernel//tmp/lis-next/hv-rhel7.x/hv/hv_vmbus.ko
+kernel//tmp/lis-next/hv-rhel7.x/hv/hv_storvsc.ko
+kernel//tmp/lis-next/hv-rhel7.x/hv/hv_netvsc.ko
+kernel//tmp/lis-next/hv-rhel7.x/hv/hv_utils.ko
+kernel//tmp/lis-next/hv-rhel7.x/hv/hid-hyperv.ko
+kernel//tmp/lis-next/hv-rhel7.x/hv/hyperv_fb.ko
+kernel//tmp/lis-next/hv-rhel7.x/hv/hv_balloon.ko
+kernel//tmp/lis-next/hv-rhel7.x/hv/hyperv-keyboard.ko
+kernel//tmp/lis-next/hv-rhel7.x/hv/hv_network_direct.ko
