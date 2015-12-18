@@ -417,9 +417,9 @@ static int storvsc_timeout = 180;
 static int msft_blist_flags = BLIST_TRY_VPD_PAGES;
 #endif
 
-#ifdef CONFIG_SCSI_FC_ATTRS
+//KYS#ifdef CONFIG_SCSI_FC_ATTRS
 static struct scsi_transport_template *fc_transport_template;
-#endif
+//#endif
 
 static void storvsc_on_channel_callback(void *context);
 
@@ -1385,10 +1385,10 @@ static void storvsc_on_receive(struct storvsc_device *stor_device,
 		break;
 	case VSTOR_OPERATION_FCHBA_DATA:
 		cache_wwn(stor_device, vstor_packet);
-#ifdef CONFIG_SCSI_FC_ATTRS
+//KYS#ifdef CONFIG_SCSI_FC_ATTRS
 		fc_host_node_name(stor_device->host) = stor_device->node_name;
 		fc_host_port_name(stor_device->host) = stor_device->port_name;
-#endif
+//#endif
 		break;
 	default:
 		break;
@@ -2096,9 +2096,9 @@ static int storvsc_probe(struct hv_device *device,
 		host->max_lun = STORVSC_FC_MAX_LUNS_PER_TARGET;
 		host->max_id = STORVSC_FC_MAX_TARGETS;
 		host->max_channel = STORVSC_FC_MAX_CHANNELS - 1;
-#ifdef CONFIG_SCSI_FC_ATTRS
+//KYS#ifdef CONFIG_SCSI_FC_ATTRS
 		host->transportt = fc_transport_template;
-#endif
+//#endif
 		break;
 
 	case SCSI_GUID:
@@ -2140,12 +2140,12 @@ static int storvsc_probe(struct hv_device *device,
 			goto err_out2;
 		}
 	}
-#ifdef CONFIG_SCSI_FC_ATTRS
+//KYS#ifdef CONFIG_SCSI_FC_ATTRS
 	if (host->transportt == fc_transport_template) {
 		fc_host_node_name(host) = stor_device->node_name;
 		fc_host_port_name(host) = stor_device->port_name;
 	}
-#endif
+//#endif
 	return 0;
 
 err_out2:
@@ -2171,10 +2171,10 @@ static int storvsc_remove(struct hv_device *dev)
 	struct storvsc_device *stor_device = hv_get_drvdata(dev);
 	struct Scsi_Host *host = stor_device->host;
 
-#ifdef CONFIG_SCSI_FC_ATTRS
+//KYS#ifdef CONFIG_SCSI_FC_ATTRS
 	if (host->transportt == fc_transport_template)
 		fc_remove_host(host);
-#endif
+//#endif
 	scsi_remove_host(host);
 	storvsc_dev_remove(dev);
 	scsi_host_put(host);
@@ -2189,12 +2189,12 @@ static struct hv_driver storvsc_drv = {
 	.remove = storvsc_remove,
 };
 
-#ifdef CONFIG_SCSI_FC_ATTRS
+//KYS#ifdef CONFIG_SCSI_FC_ATTRS
 static struct fc_function_template fc_transport_functions = {
-	.show_host_node_name = 1;
+	.show_host_node_name = 1,
 	.show_host_port_name = 1,
 };
-#endif
+//#endif
 
 static int __init storvsc_drv_init(void)
 {
@@ -2213,18 +2213,18 @@ static int __init storvsc_drv_init(void)
 		vmscsi_size_delta,
 		sizeof(u64)));
 
-#ifdef CONFIG_SCSI_FC_ATTRS
+//KYS#ifdef CONFIG_SCSI_FC_ATTRS
 	fc_transport_template = fc_attach_transport(&fc_transport_functions);
-	if (!fc_transport_template_
+	if (!fc_transport_template)
 		return -ENODEV;
-#endif
+//#endif
 
 	ret = vmbus_driver_register(&storvsc_drv);
 
-#ifdef CONFIG_SCSI_FC_ATTRS
+//KYS#ifdef CONFIG_SCSI_FC_ATTRS
 	if (ret)
 		fc_release_transport(fc_transport_template);
-#endif
+//#endif
 
 	return ret;
 }
@@ -2232,9 +2232,9 @@ static int __init storvsc_drv_init(void)
 static void __exit storvsc_drv_exit(void)
 {
 	vmbus_driver_unregister(&storvsc_drv);
-#ifdef CONFIG_SCSI_FC_ATTRS
+//#ifdef CONFIG_SCSI_FC_ATTRS
 	fc_release_transport(fc_transport_template);
-#endif
+//#endif
 }
 
 MODULE_LICENSE("GPL");
