@@ -177,19 +177,24 @@ static void percpu_channel_deq(void *arg)
 	list_del(&channel->percpu_list);
 }
 
-void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid)
+static void vmbus_release_relid(u32 relid)
 {
 	struct vmbus_channel_relid_released msg;
-	unsigned long flags;
-	struct vmbus_channel *primary_channel;
 
 	memset(&msg, 0, sizeof(struct vmbus_channel_relid_released));
 	msg.child_relid = relid;
 	msg.header.msgtype = CHANNELMSG_RELID_RELEASED;
 	vmbus_post_msg(&msg, sizeof(struct vmbus_channel_relid_released));
+}
 
-	if (channel == NULL)
-		return;
+void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid)
+{
+	unsigned long flags;
+	struct vmbus_channel *primary_channel;
+
+	vmbus_release_relid(relid);
+
+	BUG_ON(!channel->rescind);
 
 	if (channel->target_cpu != get_cpu()) {
 		put_cpu();
@@ -201,9 +206,9 @@ void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid)
 	}
 
 	if (channel->primary_channel == NULL) {
-		spin_lock_irqsave(&vmbus_connection.channel_lock, flags);
+		mutex_lock(&vmbus_connection.channel_mutex);
 		list_del(&channel->listentry);
-		spin_unlock_irqrestore(&vmbus_connection.channel_lock, flags);
+		mutex_unlock(&vmbus_connection.channel_mutex);
 
 		primary_channel = channel;
 	} else {
@@ -230,9 +235,7 @@ void vmbus_free_channels(void)
 
 	list_for_each_entry_safe(channel, tmp, &vmbus_connection.chn_list,
 		listentry) {
-		/* if we don't set rescind to true, vmbus_close_internal()
-		 * won't invoke hv_process_channel_removal().
-		 */
+		 /* hv_process_channel_removal() needs this */
 		channel->rescind = true;
 
 		vmbus_device_unregister(channel->device_obj);
@@ -251,7 +254,7 @@ static void vmbus_process_offer(struct vmbus_channel *newchannel)
 	unsigned long flags;
 
 	/* Make sure this is a new offer */
-	spin_lock_irqsave(&vmbus_connection.channel_lock, flags);
+	mutex_lock(&vmbus_connection.channel_mutex);
 
 	list_for_each_entry(channel, &vmbus_connection.chn_list, listentry) {
 		if (!uuid_le_cmp(channel->offermsg.offer.if_type,
@@ -267,7 +270,7 @@ static void vmbus_process_offer(struct vmbus_channel *newchannel)
 		list_add_tail(&newchannel->listentry,
 			      &vmbus_connection.chn_list);
 
-	spin_unlock_irqrestore(&vmbus_connection.channel_lock, flags);
+	mutex_unlock(&vmbus_connection.channel_mutex);
 
 	if (!fnew) {
 		/*
@@ -338,9 +341,11 @@ static void vmbus_process_offer(struct vmbus_channel *newchannel)
 	return;
 
 err_deq_chan:
-	spin_lock_irqsave(&vmbus_connection.channel_lock, flags);
+	vmbus_release_relid(newchannel->offermsg.child_relid);
+
+	mutex_lock(&vmbus_connection.channel_mutex);
 	list_del(&newchannel->listentry);
-	spin_unlock_irqrestore(&vmbus_connection.channel_lock, flags);
+	mutex_unlock(&vmbus_connection.channel_mutex);
 
 	if (newchannel->target_cpu != get_cpu()) {
 		put_cpu();
@@ -360,6 +365,7 @@ enum {
 	SCSI,
 	NIC,
 	ND_NIC,
+	PCIE,
 	MAX_PERF_CHN,
 };
 
@@ -377,6 +383,8 @@ static const struct hv_vmbus_device_id hp_devs[] = {
 	{ HV_NIC_GUID, },
 	/* NetworkDirect Guest RDMA */
 	{ HV_ND_GUID, },
+	/* PCI Express Pass Through */
+	{ HV_PCIE_GUID, },
 };
 
 
@@ -589,8 +597,13 @@ static void vmbus_onoffer_rescind(struct vmbus_channel_message_header *hdr)
 
 	rescind = (struct vmbus_channel_rescind_offer *)hdr;
 	channel = relid2channel(rescind->child_relid);
+
 	if (channel == NULL) {
-		hv_process_channel_removal(NULL, rescind->child_relid);
+		/*
+		 * This is very impossible, because in
+		 * vmbus_process_offer(), we have already invoked
+		 * vmbus_release_relid() on error.
+		 */
 		return;
 	}
 	
