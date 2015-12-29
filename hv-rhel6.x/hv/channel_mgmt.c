@@ -612,6 +612,16 @@ static void vmbus_onoffer_rescind(struct vmbus_channel_message_header *hdr)
 	spin_unlock_irqrestore(&channel->lock, flags);
 
 	if (channel->device_obj) {
+		if (is_hvsock_channel(channel) &&
+		    channel->hvsock_event_callback) {
+			channel->hvsock_event_callback(channel,
+						       HVSOCK_RESCIND_OFFER);
+			/*
+			 * We can't invoke vmbus_device_unregister()
+			 * until the socket fd is closed.
+			 */
+			return;
+		}
 		/*
 		 * We will have to unregister this device from the
 		 * driver core.
@@ -981,3 +991,11 @@ bool vmbus_are_subchannels_present(struct vmbus_channel *primary)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(vmbus_are_subchannels_present);
+
+void vmbus_set_hvsock_event_callback(struct vmbus_channel *channel,
+		void (*hvsock_event_callback)(struct vmbus_channel *,
+					      enum hvsock_event))
+{
+	channel->hvsock_event_callback = hvsock_event_callback;
+}
+EXPORT_SYMBOL_GPL(vmbus_set_hvsock_event_callback);
