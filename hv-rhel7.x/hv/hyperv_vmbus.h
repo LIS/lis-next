@@ -634,6 +634,10 @@ int hv_ringbuffer_write(struct hv_ring_buffer_info *ring_info,
 int hv_ringbuffer_peek(struct hv_ring_buffer_info *ring_info, void *buffer,
 		   u32 buflen);
 
+void hv_get_ringbuffer_available_space(struct hv_ring_buffer_info *inring_info,
+				       u32 *bytes_avail_toread,
+				       u32 *bytes_avail_towrite);
+
 int hv_ringbuffer_read(struct hv_ring_buffer_info *ring_info,
 		   void *buffer,
 		   u32 buflen,

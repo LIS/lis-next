@@ -910,6 +910,9 @@ extern int vmbus_sendpacket_ctl(struct vmbus_channel *channel,
                                   u32 flags,
                                   bool kick_q);
 
+extern int vmbus_sendpacket_hvsock(struct vmbus_channel *channel,
+				   void *buf, u32 len);
+
 extern int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
 					    struct hv_page_buffer pagebuffers[],
 					    u32 pagecount,
@@ -959,6 +962,11 @@ extern int vmbus_recvpacket_raw(struct vmbus_channel *channel,
 				     u32 *buffer_actual_len,
 				     u64 *requestid);
 
+extern int vmbus_recvpacket_hvsock(struct vmbus_channel *channel, void *buffer,
+				   u32 bufferlen, u32 *buffer_actual_len);
+
+extern void vmbus_get_hvsock_rw_status(struct vmbus_channel *channel,
+				       bool *can_read, bool *can_write);
 
 extern void vmbus_ontimer(unsigned long data);
 
@@ -1302,4 +1310,28 @@ extern __u32 vmbus_proto_version;
 
 int vmbus_send_tl_connect_request(const uuid_le *shv_guest_servie_id,
 				  const uuid_le *shv_host_servie_id);
+struct vmpipe_proto_header {
+	u32 pkt_type;
+
+	union {
+		u32 data_size;
+		struct {
+			u16 data_size;
+			u16 offset;
+		} partial;
+	};
+} __packed;
+
+/* see hv_ringbuffer_read() and hv_ringbuffer_write() */
+#define PREV_INDICES_LEN	(sizeof(u64))
+
+#define HVSOCK_HEADER_LEN	(sizeof(struct vmpacket_descriptor) + \
+				 sizeof(struct vmpipe_proto_header))
+
+#define HVSOCK_PKT_LEN(payload_len)	(HVSOCK_HEADER_LEN + \
+					ALIGN((payload_len), 8) + \
+					PREV_INDICES_LEN)
+
+#define HVSOCK_MIN_PKT_LEN	HVSOCK_PKT_LEN(1)
+
 #endif /* _HYPERV_H */
