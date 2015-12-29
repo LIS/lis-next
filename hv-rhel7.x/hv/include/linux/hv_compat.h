@@ -334,6 +334,32 @@ struct mlx4_ib_alloc_ucontext_resp {
 	__u32	cqe_size;
 };
 
+
+/*
+ * Define VMSock driver dependencies here
+ */
+#define AF_HYPERV	41
+#ifdef AF_MAX
+#undef AF_MAX
+#define AF_MAX		42
+#endif
+
+#define PF_HYPERV	AF_HYPERV
+#ifdef PF_MAX
+#undef PF_MAX
+#define PF_MAX		AF_MAX
+#endif
+
+static inline int memcpy_from_msg(void *data, struct msghdr *msg, int len)
+{
+	return memcpy_fromiovec(data, msg->msg_iov, len);
+}
+
+static inline int memcpy_to_msg(struct msghdr *msg, void *data, int len)
+{
+	return memcpy_toiovec(msg->msg_iov, data, len);
+}
+
 #endif //#ifdef __KERNEL__
 #endif //#if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 10, 0)
 #endif //#ifndef _HV_COMPAT_H

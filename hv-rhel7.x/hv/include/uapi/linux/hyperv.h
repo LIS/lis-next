@@ -26,6 +26,7 @@
 #define _UAPI_HYPERV_H
 
 #include <linux/uuid.h>
+#include <linux/socket.h>
 
 #include <linux/version.h>
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(3,10,0)
@@ -400,5 +401,20 @@ struct hv_kvp_ip_msg {
 	__u8 pool;
 	struct hv_kvp_ipaddr_value      kvp_ip_val;
 } __attribute__((packed));
+
+/* This is the Hyper-V socket's address format. */
+struct sockaddr_hv {
+	__kernel_sa_family_t	shv_family;  /* Address family		*/
+	__le16		reserved;	     /* Must be zero		*/
+	uuid_le		shv_vm_id;	     /* Not used. Must be Zero. */
+	uuid_le		shv_service_id;	     /* Service ID		*/
+};
+
+#define SHV_VMID_GUEST	NULL_UUID_LE
+#define SHV_VMID_HOST	NULL_UUID_LE
+
+#define SHV_SERVICE_ID_ANY	NULL_UUID_LE
+
+#define SHV_PROTO_RAW		1
 
 #endif /* _UAPI_HYPERV_H */

@@ -7,3 +7,4 @@ kernel//root/lis-next/hv-rhel7.x/hv/hyperv_fb.ko
 kernel//root/lis-next/hv-rhel7.x/hv/hv_balloon.ko
 kernel//root/lis-next/hv-rhel7.x/hv/hyperv-keyboard.ko
 kernel//root/lis-next/hv-rhel7.x/hv/hv_network_direct.ko
+kernel//root/lis-next/hv-rhel7.x/hv/hv_sock.ko
