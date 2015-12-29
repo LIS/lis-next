@@ -25,3 +25,4 @@
 0x7696c028	vmbus_recvpacket	/root/lis-next/hv-rhel7.x/hv/hv_vmbus	EXPORT_SYMBOL
 0x358fafa5	vmbus_prep_negotiate_resp	/root/lis-next/hv-rhel7.x/hv/hv_vmbus	EXPORT_SYMBOL_GPL
 0x1d0f4795	vmbus_sendpacket_ctl	/root/lis-next/hv-rhel7.x/hv/hv_vmbus	EXPORT_SYMBOL
+0x8e1e259e	vmbus_hvsock_device_unregister	/root/lis-next/hv-rhel7.x/hv/hv_vmbus	EXPORT_SYMBOL_GPL
