@@ -195,6 +195,7 @@ void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid)
 	vmbus_release_relid(relid);
 
 	BUG_ON(!channel->rescind);
+	BUG_ON(!mutex_is_locked(&vmbus_connection.channel_mutex));
 
 	if (channel->target_cpu != get_cpu()) {
 		put_cpu();
@@ -206,9 +207,7 @@ void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid)
 	}
 
 	if (channel->primary_channel == NULL) {
-		mutex_lock(&vmbus_connection.channel_mutex);
 		list_del(&channel->listentry);
-		mutex_unlock(&vmbus_connection.channel_mutex);
 
 		primary_channel = channel;
 	} else {
@@ -596,6 +595,8 @@ static void vmbus_onoffer_rescind(struct vmbus_channel_message_header *hdr)
 	struct device *dev;
 
 	rescind = (struct vmbus_channel_rescind_offer *)hdr;
+
+	mutex_lock(&vmbus_connection.channel_mutex);
 	channel = relid2channel(rescind->child_relid);
 
 	if (channel == NULL) {
@@ -604,7 +605,7 @@ static void vmbus_onoffer_rescind(struct vmbus_channel_message_header *hdr)
 		 * vmbus_process_offer(), we have already invoked
 		 * vmbus_release_relid() on error.
 		 */
-		return;
+		goto out;
 	}
 	
 	spin_lock_irqsave(&channel->lock, flags);
@@ -620,7 +621,7 @@ static void vmbus_onoffer_rescind(struct vmbus_channel_message_header *hdr)
 			 * We can't invoke vmbus_device_unregister()
 			 * until the socket fd is closed.
 			 */
-			return;
+			goto out;
 		}
 		/*
 		 * We will have to unregister this device from the
@@ -634,9 +635,25 @@ static void vmbus_onoffer_rescind(struct vmbus_channel_message_header *hdr)
 	} else {
 		hv_process_channel_removal(channel,
 			channel->offermsg.child_relid);
-	}	
-		
+	}
+
+out:
+	mutex_unlock(&vmbus_connection.channel_mutex);
 }
+
+
+void vmbus_hvsock_device_unregister(struct vmbus_channel *channel)
+{
+	mutex_lock(&vmbus_connection.channel_mutex);
+
+	BUG_ON(!is_hvsock_channel(channel));
+
+	channel->rescind = true;
+	vmbus_device_unregister(channel->device_obj);
+
+	mutex_unlock(&vmbus_connection.channel_mutex);
+}
+EXPORT_SYMBOL_GPL(vmbus_hvsock_device_unregister);
 
 /*
  * vmbus_onoffers_delivered -
