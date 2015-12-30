@@ -18,6 +18,8 @@ ifeq ($(buildrdma),0)
         obj-m   += hv_network_direct.o
 endif
 
+obj-m	+= hv_sock.o
+
 ccflags-y += -I$(M)/include/ -DMLX_ND_5
 
 # Get extra kernel version information beyond LINUX_VERSION_CODE or RHEL_RELEASE_CODE.
@@ -46,3 +48,4 @@ hv_storvsc-y := storvsc_drv.o
 hv_netvsc-y := netvsc_drv.o netvsc.o rndis_filter.o
 hyperv_keyboard-y := hyperv-keyboard.o
 hv_network_direct-y := provider.o vmbus_rdma.o hvnd_addr.o
+hv_sock-y := af_hvsock.o
