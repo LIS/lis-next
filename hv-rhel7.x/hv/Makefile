@@ -6,9 +6,17 @@ obj-m	+= hid-hyperv.o
 obj-m	+= hyperv_fb.o
 obj-m	+= hv_balloon.o
 obj-m	+= hyperv-keyboard.o
-obj-m	+= hv_network_direct.o
 
-ccflags-y += -I$(M)/include/ -DMLX_ND_5
+# Get machine bit length
+arch=$(shell getconf LONG_BIT)
+
+# RDMA should only build on 64 bits arch
+ifeq ($(arch), 64)
+        obj-m += hv_network_direct.o
+        ccflags-y += -DMLX_ND_5
+endif
+
+ccflags-y += -I$(M)/include/
 
 hv_vmbus-y := vmbus_drv.o \
 		 hv.o connection.o channel.o \
