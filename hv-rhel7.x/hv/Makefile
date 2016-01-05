@@ -13,7 +13,6 @@ arch=$(shell getconf LONG_BIT)
 # RDMA should only build on 64 bits arch
 ifeq ($(arch), 64)
         obj-m += hv_network_direct.o
-        ccflags-y += -DMLX_ND_5
 endif
 
 ccflags-y += -I$(M)/include/
