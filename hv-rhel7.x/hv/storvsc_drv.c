@@ -1309,7 +1309,6 @@ static void storvsc_on_io_completion(struct storvsc_device *stor_device,
 				  struct storvsc_cmd_request *request)
 {
 	struct vstor_packet *stor_pkt;
-	//struct hv_device *device = stor_device->device;
 
 	stor_pkt = &request->vstor_packet;
 
