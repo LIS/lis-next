@@ -20,7 +20,6 @@ buildrdma=$(shell test $(rhel_release_code) -ge 1541; echo $$?)
 ifeq ($(buildrdma),0)
         ifeq ($(arch), 64)
                 obj-m += hv_network_direct.o
-                ccflags-y += -DMLX_ND_5
         endif
 endif
 
