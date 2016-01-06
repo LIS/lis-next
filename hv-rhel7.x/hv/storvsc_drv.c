@@ -1243,21 +1243,18 @@ static void storvsc_handle_error(struct vmscsi_request *vm_srb,
 }
 
 
-static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request)
+static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request,
+				       struct storvsc_device *stor_dev)
 {
 	struct scsi_cmnd *scmnd = cmd_request->cmd;
-	struct hv_host_device *host_dev = shost_priv(scmnd->device->host);
 	void (*scsi_done_fn)(struct scsi_cmnd *);
 	struct scsi_sense_hdr sense_hdr;
 	struct vmscsi_request *vm_srb;
 	struct stor_mem_pools *memp = scmnd->device->hostdata;
 	struct Scsi_Host *host;
-	struct storvsc_device *stor_dev;
-	struct hv_device *dev = host_dev->dev;
 	u32 payload_sz = cmd_request->payload_sz;
 	void *payload = cmd_request->payload;
 
-	stor_dev = get_in_stor_device(dev);
 	host = stor_dev->host;
 
 	vm_srb = &cmd_request->vstor_packet.vm_srb;
@@ -1307,14 +1304,13 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request)
 	mempool_free(cmd_request, memp->request_mempool);
 }
 
-static void storvsc_on_io_completion(struct hv_device *device,
+static void storvsc_on_io_completion(struct storvsc_device *stor_device,
 				  struct vstor_packet *vstor_packet,
 				  struct storvsc_cmd_request *request)
 {
-	struct storvsc_device *stor_device;
 	struct vstor_packet *stor_pkt;
+	//struct hv_device *device = stor_device->device;
 
-	stor_device = hv_get_drvdata(device);
 	stor_pkt = &request->vstor_packet;
 
 	/*
@@ -1358,7 +1354,7 @@ static void storvsc_on_io_completion(struct hv_device *device,
 	stor_pkt->vm_srb.data_transfer_length =
 	vstor_packet->vm_srb.data_transfer_length;
 
-	storvsc_command_completion(request);
+	storvsc_command_completion(request, stor_device);
 
 	if (atomic_dec_and_test(&stor_device->num_outstanding_req) &&
 		stor_device->drain_notify)
@@ -1367,21 +1363,19 @@ static void storvsc_on_io_completion(struct hv_device *device,
 
 }
 
-static void storvsc_on_receive(struct hv_device *device,
+static void storvsc_on_receive(struct storvsc_device *stor_device,
 			     struct vstor_packet *vstor_packet,
 			     struct storvsc_cmd_request *request)
 {
 	struct storvsc_scan_work *work;
-	struct storvsc_device *stor_device;
 
 	switch (vstor_packet->operation) {
 	case VSTOR_OPERATION_COMPLETE_IO:
-		storvsc_on_io_completion(device, vstor_packet, request);
+		storvsc_on_io_completion(stor_device, vstor_packet, request);
 		break;
 
 	case VSTOR_OPERATION_REMOVE_DEVICE:
 	case VSTOR_OPERATION_ENUMERATE_BUS:
-		stor_device = get_in_stor_device(device);
 		work = kmalloc(sizeof(struct storvsc_scan_work), GFP_ATOMIC);
 		if (!work)
 			return;
@@ -1391,7 +1385,6 @@ static void storvsc_on_receive(struct hv_device *device,
 		schedule_work(&work->work);
 		break;
 	case VSTOR_OPERATION_FCHBA_DATA:
-		stor_device = get_in_stor_device(device);
 		cache_wwn(stor_device, vstor_packet);
 #if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 		fc_host_node_name(stor_device->host) = stor_device->node_name;
@@ -1441,7 +1434,7 @@ static void storvsc_on_channel_callback(void *context)
 					vmscsi_size_delta));
 				complete(&request->wait_event);
 			} else {
-				storvsc_on_receive(device,
+				storvsc_on_receive(stor_device,
 						(struct vstor_packet *)packet,
 						request);
 			}
