@@ -351,10 +351,23 @@ static int hvnd_multicast_detach(struct ib_qp *ibqp, union ib_gid *gid, u16 lid)
 	return -ENOSYS;
 }
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+static int hvnd_process_mad(struct ib_device *ibdev,
+			    int mad_flags,
+			    u8 port_num,
+			    const struct ib_wc *in_wc,
+			    const struct ib_grh *in_grh,
+			    const struct ib_mad_hdr *in_mad,
+			    size_t in_mad_size,
+			    struct ib_mad_hdr *out_mad,
+			    size_t *out_mad_size,
+			    u16 *out_mad_pkey_index)
+#else
 static int hvnd_process_mad(struct ib_device *ibdev, int mad_flags,
 			    u8 port_num, struct ib_wc *in_wc,
 			    struct ib_grh *in_grh, struct ib_mad *in_mad,
 			    struct ib_mad *out_mad)
+#endif
 {
 	debug_check(__func__, __LINE__);
 	return -ENOSYS;
@@ -593,8 +606,14 @@ static int hvnd_query_gid(struct ib_device *ibdev, u8 port, int index,
 	return 0;
 }
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+static int hvnd_query_device(struct ib_device *ibdev,
+			     struct ib_device_attr *props,
+			     struct ib_udata *udata)
+#else
 static int hvnd_query_device(struct ib_device *ibdev,
 			     struct ib_device_attr *props)
+#endif
 {
 	struct hvnd_dev *nd_dev = to_nd_dev(ibdev);
 	struct adapter_info_v2 *adap_info;
@@ -1006,15 +1025,25 @@ free_qp:
 	return ret;
 }
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+static struct ib_cq *hvnd_ib_create_cq(struct ib_device *ibdev,
+				       const struct ib_cq_init_attr *attr,
+				       struct ib_ucontext *ib_context,
+				       struct ib_udata *udata)
+#else
 static struct ib_cq *hvnd_ib_create_cq(struct ib_device *ibdev, int entries,
 				    int vector, struct ib_ucontext *ib_context,
 				    struct ib_udata *udata)
+#endif
 {
 	struct hvnd_ucontext *uctx;
 	struct hvnd_dev *nd_dev;
 	struct mlx4_ib_create_cq ucmd;
 	struct hvnd_cq *cq;
 	int ret = 0;
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+	int entries = attr->cqe;
+#endif
 
 	uctx = to_nd_context(ib_context);
 	nd_dev = to_nd_dev(ibdev);

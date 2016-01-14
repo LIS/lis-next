@@ -654,7 +654,9 @@ static struct bus_type  hv_bus = {
 	.dev_groups =		vmbus_groups,
 };
 
+#if (RHEL_RELEASE_CODE < 1794)
 static const char *driver_name = "hyperv";
+#endif
 
 struct onmessage_work_context {
 	struct work_struct work;
@@ -757,7 +759,7 @@ msg_handled:
 	}
 }
 
-#if (RHEL_RELEASE_CODE >=1800 ) /* KYS; we may have to tweak this */
+#if (RHEL_RELEASE_CODE >=1794 ) /* KYS; we may have to tweak this */
 static void vmbus_isr(void)
 #else
 static irqreturn_t vmbus_isr(int irq, void *dev_id)
@@ -771,7 +773,7 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id)
 
 	page_addr = hv_context.synic_event_page[cpu];
 	if (page_addr == NULL)
-#if (RHEL_RELEASE_CODE >=1800 ) /* KYS; we may have to tweak this */
+#if (RHEL_RELEASE_CODE >=1794 ) /* KYS; we may have to tweak this */
 		return;
 #else
 		return IRQ_NONE;
@@ -817,7 +819,7 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id)
 		else
 			tasklet_schedule(&msg_dpc);
 	}
-#if (RHEL_RELEASE_CODE >=1800 ) /* KYS; we may have to tweak this */
+#if (RHEL_RELEASE_CODE >=1794 ) /* KYS; we may have to tweak this */
 	return;
 #else
 	if (handled)
@@ -862,18 +864,19 @@ static void hv_cpu_hotplug_quirk(bool vmbus_loaded)
 #endif
 
 
+#if (RHEL_RELEASE_CODE < 1794)
 /*
  * vmbus interrupt flow handler:
  * vmbus interrupts can concurrently occur on multiple CPUs and
  * can be handled concurrently.
  */
-
 static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc)
 {
 	kstat_incr_irqs_this_cpu(irq, desc);
 
 	desc->action->handler(irq, desc->action->dev_id);
 }
+#endif
 
 /*
  * vmbus_bus_init -Main vmbus driver initialization routine.
@@ -901,11 +904,13 @@ static int vmbus_bus_init(int irq)
 	if (ret)
 		goto err_cleanup;
 
-	ret = request_irq(irq, vmbus_isr, 0, driver_name, hv_acpi_dev);
+#if (RHEL_RELEASE_CODE >=1794 ) /* KYS; we may have to tweak this */
+	hv_setup_vmbus_irq(vmbus_isr);
 
+#else
+	ret = request_irq(irq, vmbus_isr, 0, driver_name, hv_acpi_dev);
 	if (ret != 0) {
-		pr_err("Unable to request IRQ %d\n",
-			irq);
+		pr_err("Unable to request IRQ %d\n", irq);
 		goto err_unregister;
 	}
 
@@ -915,12 +920,6 @@ static int vmbus_bus_init(int irq)
 	 * handler that can support this model.
 	 */
 	irq_set_handler(irq, vmbus_flow_handler);
-
-#if (RHEL_RELEASE_CODE >=1800 ) /* KYS; we may have to tweak this */
-
-	hv_setup_vmbus_irq(vmbus_isr);
-
-#else
 
 	hv_register_vmbus_handler(irq, vmbus_isr);
 #endif
@@ -954,12 +953,15 @@ err_connect:
 	on_each_cpu(hv_synic_cleanup, NULL, 1);
 err_alloc:
 	hv_synic_free();
-	free_irq(irq, hv_acpi_dev);
-#if (RHEL_RELEASE_CODE >=1800 ) /* KYS; we may have to tweak this */
+#if (RHEL_RELEASE_CODE >=1794 ) /* KYS; we may have to tweak this */
 	hv_remove_vmbus_irq();
+#else
+	free_irq(irq, hv_acpi_dev);
 #endif
 
+#if (RHEL_RELEASE_CODE < 1794)
 err_unregister:
+#endif
 	bus_unregister(&hv_bus);
 
 err_cleanup:
