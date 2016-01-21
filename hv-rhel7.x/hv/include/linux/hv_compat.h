@@ -261,6 +261,7 @@ static inline void  netif_notify_peers(struct net_device *net)
  *    * - UP 32bit must disable irqs.
  *     * - 64bit have no problem atomically reading u64 values, irq safe.
  *      */
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1794)
 static inline unsigned int u64_stats_fetch_begin_irq(const struct u64_stats_sync *syncp)
 {
 #if BITS_PER_LONG==32 && defined(CONFIG_SMP)
@@ -285,6 +286,7 @@ static inline bool u64_stats_fetch_retry_irq(const struct u64_stats_sync *syncp,
 	return false;
 #endif
 }
+#endif
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1792)
 static inline void u64_stats_init(struct u64_stats_sync *syncp)
