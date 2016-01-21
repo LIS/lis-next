@@ -496,6 +496,20 @@ int hv_ringbuffer_peek(struct hv_ring_buffer_info *Inring_info,
 	return 0;
 }
 
+void hv_get_ringbuffer_available_space(struct hv_ring_buffer_info *inring_info,
+				       u32 *bytes_avail_toread,
+				       u32 *bytes_avail_towrite)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&inring_info->ring_lock, flags);
+
+	hv_get_ringbuffer_availbytes(inring_info,
+				     bytes_avail_toread,
+				     bytes_avail_towrite);
+
+	spin_unlock_irqrestore(&inring_info->ring_lock, flags);
+}
 
 /*
  *
