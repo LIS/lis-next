@@ -417,4 +417,11 @@ struct sockaddr_hv {
 
 #define SHV_PROTO_RAW           1
 
+/* 
+ * Kernel doesn't allow out-of-tree module to register new address family.
+ * So we borrow an existing family that's obsolete.
+ */
+#define AF_HYPERV	AF_X25	/* Hyper-V virtual sockets */
+#define PF_HYPERV	AF_HYPERV
+
 #endif /* _UAPI_HYPERV_H */

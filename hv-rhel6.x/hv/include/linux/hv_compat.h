@@ -368,18 +368,6 @@ struct mlx4_ib_alloc_ucontext_resp {
 /*
  * Define VMSock driver dependencies here
  */
-#define AF_HYPERV       41
-#ifdef AF_MAX
-#undef AF_MAX
-#define AF_MAX          42
-#endif
-
-#define PF_HYPERV       AF_HYPERV
-#ifdef PF_MAX
-#undef PF_MAX
-#define PF_MAX          AF_MAX
-#endif
-
 static inline int memcpy_from_msg(void *data, struct msghdr *msg, int len)
 {
         return memcpy_fromiovec(data, msg->msg_iov, len);
