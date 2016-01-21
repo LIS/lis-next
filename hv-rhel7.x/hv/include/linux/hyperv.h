@@ -236,6 +236,7 @@ struct vmbus_channel_offer {
 #define VMBUS_CHANNEL_LOOPBACK_OFFER			0x100
 #define VMBUS_CHANNEL_PARENT_OFFER			0x200
 #define VMBUS_CHANNEL_REQUEST_MONITORED_NOTIFICATION	0x400
+#define VMBUS_CHANNEL_TLNPI_PROVIDER_OFFER		0x2000
 
 struct vmpacket_descriptor {
 	u16 type;
@@ -392,6 +393,10 @@ enum vmbus_channel_message_type {
 	CHANNELMSG_VERSION_RESPONSE		= 15,
 	CHANNELMSG_UNLOAD			= 16,
 	CHANNELMSG_UNLOAD_RESPONSE		= 17,
+	CHANNELMSG_18				= 18,
+	CHANNELMSG_19				= 19,
+	CHANNELMSG_20				= 20,
+	CHANNELMSG_TL_CONNECT_REQUEST		= 21,
 	CHANNELMSG_COUNT
 };
 
@@ -563,6 +568,13 @@ struct vmbus_channel_initiate_contact {
 	u64 monitor_page2;
 } __packed;
 
+/* Hyper-V socket: guest's connect()-ing to host */
+struct vmbus_channel_tl_connect_request {
+	struct vmbus_channel_message_header header;
+	uuid_le guest_endpoint_id;
+	uuid_le host_service_id;
+} __packed;
+
 struct vmbus_channel_version_response {
 	struct vmbus_channel_message_header header;
 	u8 version_supported;
@@ -634,6 +646,13 @@ enum hv_signal_policy {
 	HV_SIGNAL_POLICY_DEFAULT = 0,
 	HV_SIGNAL_POLICY_EXPLICIT,
 };
+
+/* hvsock related definitions */
+enum hvsock_event {
+	/* The host application is close()-ing the connection */
+	HVSOCK_RESCIND_OFFER,
+};
+
 
 struct vmbus_channel {
 	/* Unique channel id */
@@ -729,6 +748,13 @@ struct vmbus_channel {
 	void (*sc_creation_callback)(struct vmbus_channel *new_sc);
 
 	/*
+	 * hvsock event callback.
+	 * For now only 1 event is defined: HVSOCK_RESCIND_OFFER.
+	 */
+	void (*hvsock_event_callback)(struct vmbus_channel *channel,
+				      enum hvsock_event event);
+
+	/*
 	 * The spinlock to protect the structure. It is being used to protect
 	 * test-and-set access to various attributes of the structure as well
 	 * as all sc_list operations.
@@ -777,6 +803,12 @@ static inline void set_channel_signal_state(struct vmbus_channel *c,
 	c->signal_policy = policy;
 }
 
+static inline bool is_hvsock_channel(const struct vmbus_channel *c)
+{
+	return !!(c->offermsg.offer.chn_flags &
+		  VMBUS_CHANNEL_TLNPI_PROVIDER_OFFER);
+}
+
 static inline void set_channel_read_state(struct vmbus_channel *c, bool state)
 {
 	c->batched_reading = state;
@@ -792,6 +824,12 @@ static inline void *get_per_channel_state(struct vmbus_channel *c)
 	return c->per_channel_state;
 }
 
+static inline void set_channel_pending_send_size(struct vmbus_channel *c,
+						 u32 size)
+{
+	c->outbound.ring_buffer->pending_send_sz = size;
+}
+
 void vmbus_onmessage(void *context);
 
 int vmbus_request_offers(void);
@@ -802,6 +840,10 @@ int vmbus_request_offers(void);
 
 void vmbus_set_sc_create_callback(struct vmbus_channel *primary_channel,
 			void (*sc_cr_cb)(struct vmbus_channel *new_sc));
+
+void vmbus_set_hvsock_event_callback(struct vmbus_channel *channel,
+		void (*hvsock_event_callback)(struct vmbus_channel *,
+					      enum hvsock_event));
 
 /*
  * Retrieve the (sub) channel on which to send an outgoing request.
@@ -886,6 +928,9 @@ extern int vmbus_sendpacket_ctl(struct vmbus_channel *channel,
                                   u32 flags,
                                   bool kick_q);
 
+extern int vmbus_sendpacket_hvsock(struct vmbus_channel *channel,
+				   void *buf, u32 len);
+
 extern int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
 					    struct hv_page_buffer pagebuffers[],
 					    u32 pagecount,
@@ -935,12 +980,31 @@ extern int vmbus_recvpacket_raw(struct vmbus_channel *channel,
 				     u32 *buffer_actual_len,
 				     u64 *requestid);
 
+extern int vmbus_recvpacket_hvsock(struct vmbus_channel *channel, void *buffer,
+				   u32 bufferlen, u32 *buffer_actual_len);
+
+extern void vmbus_get_hvsock_rw_status(struct vmbus_channel *channel,
+				       bool *can_read, bool *can_write);
 
 extern void vmbus_ontimer(unsigned long data);
 
 /* Base driver object */
 struct hv_driver {
 	const char *name;
+
+	/*
+	 * A hvsock offer, which has a VMBUS_CHANNEL_TLNPI_PROVIDER_OFFER
+	 * channel flag, actually doesn't mean a synthetic device because the
+	 * offer's if_type/if_instance can change for every new hvsock
+	 * connection.
+	 *
+	 * However, to facilitate the notification of new-offer/rescind-offer
+	 * from vmbus driver to hvsock driver, we can handle hvsock offer as
+	 * a special vmbus device, and hence we need the below flag to
+	 * indicate if the driver is the hvsock driver or not: we need to
+	 * specially treat the hvosck offer & driver in vmbus_match().
+	 */
+	bool hvsock;
 
 	/* the device type supported by this driver */
 	uuid_le dev_type;
@@ -997,6 +1061,8 @@ int __must_check __vmbus_driver_register(struct hv_driver *hv_driver,
 					 struct module *owner,
 					 const char *mod_name);
 void vmbus_driver_unregister(struct hv_driver *hv_driver);
+
+void vmbus_hvsock_device_unregister(struct vmbus_channel *channel);
 
 int vmbus_allocate_mmio(struct resource **new, struct hv_device *device_obj,
 			resource_size_t min, resource_size_t max,
@@ -1275,5 +1341,31 @@ void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid);
  */
 
 extern __u32 vmbus_proto_version;
+
+int vmbus_send_tl_connect_request(const uuid_le *shv_guest_servie_id,
+				  const uuid_le *shv_host_servie_id);
+struct vmpipe_proto_header {
+	u32 pkt_type;
+
+	union {
+		u32 data_size;
+		struct {
+			u16 data_size;
+			u16 offset;
+		} partial;
+	};
+} __packed;
+
+/* see hv_ringbuffer_read() and hv_ringbuffer_write() */
+#define PREV_INDICES_LEN	(sizeof(u64))
+
+#define HVSOCK_HEADER_LEN	(sizeof(struct vmpacket_descriptor) + \
+				 sizeof(struct vmpipe_proto_header))
+
+#define HVSOCK_PKT_LEN(payload_len)	(HVSOCK_HEADER_LEN + \
+					ALIGN((payload_len), 8) + \
+					PREV_INDICES_LEN)
+
+#define HVSOCK_MIN_PKT_LEN	HVSOCK_PKT_LEN(1)
 
 #endif /* _HYPERV_H */

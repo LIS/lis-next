@@ -6,6 +6,7 @@ obj-m	+= hid-hyperv.o
 obj-m	+= hyperv_fb.o
 obj-m	+= hv_balloon.o
 obj-m	+= hyperv-keyboard.o
+obj-m	+= hv_sock.o
 
 # Get RHEL/CentOS version information
 rhel_major=$(shell grep -Eoh [0-9]+\.[0-9]+ /etc/{issue,*release} | head -1 | awk -F'.' '{ print $$1 }')
@@ -51,3 +52,4 @@ hv_storvsc-y := storvsc_drv.o
 hv_netvsc-y := netvsc_drv.o netvsc.o rndis_filter.o
 hyperv_keyboard-y := hyperv-keyboard.o
 hv_network_direct-y := provider.o vmbus_rdma.o hvnd_addr.o
+hv_sock-y := af_hvsock.o
