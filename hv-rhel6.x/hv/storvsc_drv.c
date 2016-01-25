@@ -48,6 +48,7 @@
 #include <scsi/scsi_devinfo.h>
 #include <scsi/scsi_dbg.h>
 #include <scsi/scsi_transport_fc.h>
+#include <scsi/scsi_transport.h>
 
 /*
  * All wire protocol details (storage protocol between the guest and the host)
@@ -417,9 +418,9 @@ static int storvsc_timeout = 180;
 static int msft_blist_flags = BLIST_TRY_VPD_PAGES;
 #endif
 
-//KYS#ifdef CONFIG_SCSI_FC_ATTRS
+#if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 static struct scsi_transport_template *fc_transport_template;
-//#endif
+#endif
 
 static void storvsc_on_channel_callback(void *context);
 
@@ -514,6 +515,7 @@ struct storvsc_scan_work {
 	struct work_struct work;
 	struct Scsi_Host *host;
 	uint lun;
+	uint tgt_id;
 };
 
 static void storvsc_device_scan(struct work_struct *work)
@@ -525,7 +527,7 @@ static void storvsc_device_scan(struct work_struct *work)
 	wrk = container_of(work, struct storvsc_scan_work, work);
 	lun = wrk->lun;
 
-	sdev = scsi_device_lookup(wrk->host, 0, 0, lun);
+	sdev = scsi_device_lookup(wrk->host, 0, wrk->tgt_id, lun);
 	if (!sdev)
 		goto done;
 	scsi_rescan_device(&sdev->sdev_gendev);
@@ -597,7 +599,7 @@ static void storvsc_remove_lun(struct work_struct *work)
 	if (!scsi_host_get(wrk->host))
 		goto done;
 
-	sdev = scsi_device_lookup(wrk->host, 0, 0, wrk->lun);
+	sdev = scsi_device_lookup(wrk->host, 0, wrk->tgt_id, wrk->lun);
 
 	if (sdev) {
 		scsi_remove_device(sdev);
@@ -1239,6 +1241,7 @@ static void storvsc_handle_error(struct vmscsi_request *vm_srb,
 
 	wrk->host = host;
 	wrk->lun = vm_srb->lun;
+	wrk->tgt_id = vm_srb->target_id;
 	INIT_WORK(&wrk->work, process_err_fn);
 	schedule_work_on(error_handling_cpu, &wrk->work);
 }
@@ -1385,10 +1388,10 @@ static void storvsc_on_receive(struct storvsc_device *stor_device,
 		break;
 	case VSTOR_OPERATION_FCHBA_DATA:
 		cache_wwn(stor_device, vstor_packet);
-//KYS#ifdef CONFIG_SCSI_FC_ATTRS
+#if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 		fc_host_node_name(stor_device->host) = stor_device->node_name;
 		fc_host_port_name(stor_device->host) = stor_device->port_name;
-//#endif
+#endif
 		break;
 	default:
 		break;
@@ -2096,9 +2099,9 @@ static int storvsc_probe(struct hv_device *device,
 		host->max_lun = STORVSC_FC_MAX_LUNS_PER_TARGET;
 		host->max_id = STORVSC_FC_MAX_TARGETS;
 		host->max_channel = STORVSC_FC_MAX_CHANNELS - 1;
-//KYS#ifdef CONFIG_SCSI_FC_ATTRS
+#if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 		host->transportt = fc_transport_template;
-//#endif
+#endif
 		break;
 
 	case SCSI_GUID:
@@ -2140,12 +2143,12 @@ static int storvsc_probe(struct hv_device *device,
 			goto err_out2;
 		}
 	}
-//KYS#ifdef CONFIG_SCSI_FC_ATTRS
+#if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 	if (host->transportt == fc_transport_template) {
 		fc_host_node_name(host) = stor_device->node_name;
 		fc_host_port_name(host) = stor_device->port_name;
 	}
-//#endif
+#endif
 	return 0;
 
 err_out2:
@@ -2171,10 +2174,10 @@ static int storvsc_remove(struct hv_device *dev)
 	struct storvsc_device *stor_device = hv_get_drvdata(dev);
 	struct Scsi_Host *host = stor_device->host;
 
-//KYS#ifdef CONFIG_SCSI_FC_ATTRS
+#if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 	if (host->transportt == fc_transport_template)
 		fc_remove_host(host);
-//#endif
+#endif
 	scsi_remove_host(host);
 	storvsc_dev_remove(dev);
 	scsi_host_put(host);
@@ -2189,12 +2192,12 @@ static struct hv_driver storvsc_drv = {
 	.remove = storvsc_remove,
 };
 
-//KYS#ifdef CONFIG_SCSI_FC_ATTRS
+#if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 static struct fc_function_template fc_transport_functions = {
 	.show_host_node_name = 1,
 	.show_host_port_name = 1,
 };
-//#endif
+#endif
 
 static int __init storvsc_drv_init(void)
 {
@@ -2213,18 +2216,23 @@ static int __init storvsc_drv_init(void)
 		vmscsi_size_delta,
 		sizeof(u64)));
 
-//KYS#ifdef CONFIG_SCSI_FC_ATTRS
+#if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 	fc_transport_template = fc_attach_transport(&fc_transport_functions);
 	if (!fc_transport_template)
 		return -ENODEV;
-//#endif
+
+	/*
+	 * Install Hyper-V specific timeout handler.
+	 */
+	fc_transport_template->eh_timed_out = storvsc_eh_timed_out;
+#endif
 
 	ret = vmbus_driver_register(&storvsc_drv);
 
-//KYS#ifdef CONFIG_SCSI_FC_ATTRS
+#if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 	if (ret)
 		fc_release_transport(fc_transport_template);
-//#endif
+#endif
 
 	return ret;
 }
@@ -2232,9 +2240,9 @@ static int __init storvsc_drv_init(void)
 static void __exit storvsc_drv_exit(void)
 {
 	vmbus_driver_unregister(&storvsc_drv);
-//#ifdef CONFIG_SCSI_FC_ATTRS
+#if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 	fc_release_transport(fc_transport_template);
-//#endif
+#endif
 }
 
 MODULE_LICENSE("GPL");
