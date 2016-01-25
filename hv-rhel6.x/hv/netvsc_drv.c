@@ -450,7 +450,9 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	u32 skb_length;
 	u32 pkt_sz;
 	struct hv_page_buffer page_buf[MAX_PAGE_BUFFER_COUNT];
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
 	struct netvsc_stats *tx_stats = this_cpu_ptr(net_device_ctx->tx_stats);
+#endif
 
 	/* We will atmost need two pages to describe the rndis
 	 * header. We can only transmit MAX_PAGE_BUFFER_COUNT number
@@ -648,10 +650,15 @@ do_send:
 
 drop:
 	if (ret == 0) {
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
 		u64_stats_update_begin(&tx_stats->syncp);
 		tx_stats->packets++;
 		tx_stats->bytes += skb_length;
 		u64_stats_update_end(&tx_stats->syncp);
+#else
+		net->stats.tx_bytes += skb_length;
+		net->stats.tx_packets++;
+#endif
 	} else {
 		if (ret != -EAGAIN) {
 			dev_kfree_skb_any(skb);
@@ -716,7 +723,9 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 	struct net_device *net;
 	struct net_device_context *net_device_ctx;
 	struct sk_buff *skb;
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
 	struct netvsc_stats *rx_stats;
+#endif
 
 	net = ((struct netvsc_device *)hv_get_drvdata(device_obj))->ndev;
 	if (!net || net->reg_state != NETREG_REGISTERED) {
@@ -724,7 +733,9 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 		return 0;
 	}
 	net_device_ctx = netdev_priv(net);
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
 	rx_stats = this_cpu_ptr(net_device_ctx->rx_stats);
+#endif
 
 	/* Allocate a skb - TODO direct I/O to pages? */
 	skb = netdev_alloc_skb_ip_align(net, packet->total_data_buflen);
@@ -759,10 +770,15 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 	skb_record_rx_queue(skb, packet->channel->
 			    offermsg.offer.sub_channel_index);
 
+#if defined(RHEL_RELEASE_CODE) && (RHEL_RELEASE_CODE >= 1792)
 	u64_stats_update_begin(&rx_stats->syncp);
 	rx_stats->packets++;
 	rx_stats->bytes += packet->total_data_buflen;
 	u64_stats_update_end(&rx_stats->syncp);
+#else
+	net->stats.rx_packets++;
+	net->stats.rx_bytes += packet->total_data_buflen;
+#endif
 
 	/*
 	 * Pass the skb back up. Network stack will deallocate the skb when it
@@ -1088,10 +1104,12 @@ static void netvsc_link_change(struct work_struct *w)
 
 static void netvsc_free_netdev(struct net_device *netdev)
 {
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
 	struct net_device_context *net_device_ctx = netdev_priv(netdev);
 
 	free_percpu(net_device_ctx->tx_stats);
 	free_percpu(net_device_ctx->rx_stats);
+#endif
 	free_netdev(netdev);
 }
 
