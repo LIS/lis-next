@@ -41,4 +41,9 @@ struct hvsock_sock {
 	unsigned int recv_data_offset;
 };
 
+static inline wait_queue_head_t *sk_sleep(struct sock *sk)
+{
+        return sk->sk_sleep;
+}
+
 #endif /* __AF_HVSOCK_H__ */
