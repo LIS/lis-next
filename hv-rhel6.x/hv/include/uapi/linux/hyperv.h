@@ -403,6 +403,7 @@ struct hv_kvp_ip_msg {
 } __attribute__((packed));
 
 /* This is the Hyper-V socket's address format. */
+typedef unsigned short __kernel_sa_family_t;
 struct sockaddr_hv {
         __kernel_sa_family_t    shv_family;  /* Address family          */
         __le16          reserved;            /* Must be zero            */
