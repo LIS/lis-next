@@ -6,21 +6,25 @@ obj-m	+= hid-hyperv.o
 obj-m	+= hyperv_fb.o
 obj-m	+= hv_balloon.o
 obj-m	+= hyperv-keyboard.o
+obj-m	+= hv_sock.o
 
 # Get RHEL/CentOS version information
 rhel_major=$(shell grep -Eoh [0-9]+\.[0-9]+ /etc/{issue,*release} | head -1 | awk -F'.' '{ print $$1 }')
 rhel_minor=$(shell grep -Eoh [0-9]+\.[0-9]+ /etc/{issue,*release} | head -1 | awk -F'.' '{ print $$2 }')
 rhel_release_code=$(shell echo $$(($(rhel_major) << 8 | $(rhel_minor))))
 
-# RDMA should only build on RHEL/CentOS 6.5 and above
+# Get machine bit length
+arch=$(shell getconf LONG_BIT)
+
+# RDMA should only build on RHEL/CentOS 6.5 and above, and on 64 bits arch
 buildrdma=$(shell test $(rhel_release_code) -ge 1541; echo $$?)
 ifeq ($(buildrdma),0)
-        obj-m   += hv_network_direct.o
+        ifeq ($(arch), 64)
+                obj-m += hv_network_direct.o
+        endif
 endif
 
-obj-m	+= hv_sock.o
-
-ccflags-y += -I$(M)/include/ -DMLX_ND_5
+ccflags-y += -I$(M)/include/
 
 # Get extra kernel version information beyond LINUX_VERSION_CODE or RHEL_RELEASE_CODE.
 # This is used to identify RHEL/CentOS kernel update versions.

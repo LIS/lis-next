@@ -261,6 +261,7 @@ static inline void  netif_notify_peers(struct net_device *net)
  *    * - UP 32bit must disable irqs.
  *     * - 64bit have no problem atomically reading u64 values, irq safe.
  *      */
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1794)
 static inline unsigned int u64_stats_fetch_begin_irq(const struct u64_stats_sync *syncp)
 {
 #if BITS_PER_LONG==32 && defined(CONFIG_SMP)
@@ -285,6 +286,7 @@ static inline bool u64_stats_fetch_retry_irq(const struct u64_stats_sync *syncp,
 	return false;
 #endif
 }
+#endif
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1792)
 static inline void u64_stats_init(struct u64_stats_sync *syncp)
@@ -338,18 +340,6 @@ struct mlx4_ib_alloc_ucontext_resp {
 /*
  * Define VMSock driver dependencies here
  */
-#define AF_HYPERV	41
-#ifdef AF_MAX
-#undef AF_MAX
-#define AF_MAX		42
-#endif
-
-#define PF_HYPERV	AF_HYPERV
-#ifdef PF_MAX
-#undef PF_MAX
-#define PF_MAX		AF_MAX
-#endif
-
 static inline int memcpy_from_msg(void *data, struct msghdr *msg, int len)
 {
 	return memcpy_fromiovec(data, msg->msg_iov, len);
