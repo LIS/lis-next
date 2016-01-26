@@ -3,7 +3,6 @@
 #define _HV_COMPAT_H
 
 #include <linux/version.h>
-#include <net/sock.h>
 
 /*
  * Helpers for determining EXTRAVERSION info on RHEL/CentOS update kernels
@@ -376,13 +375,6 @@ static inline int memcpy_from_msg(void *data, struct msghdr *msg, int len)
 static inline int memcpy_to_msg(struct msghdr *msg, void *data, int len)
 {
         return memcpy_toiovec(msg->msg_iov, data, len);
-}
-
-typedef unsigned short __kernel_sa_family_t;
-
-static inline wait_queue_head_t *sk_sleep(struct sock *sk)
-{
-	return sk->sk_sleep;
 }
 
 #endif
