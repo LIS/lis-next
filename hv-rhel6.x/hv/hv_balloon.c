@@ -619,6 +619,9 @@ static void hv_mem_hot_add(unsigned long start, unsigned long size,
 	unsigned long processed_pfn;
 	unsigned long total_pfn = pfn_count;
 
+	pr_info("hv_mem_hot_add start=%lu, size=%lu, pfn_count=%lu\n", \
+		start, size, pfn_count);
+
 	for (i = 0; i < (size/HA_CHUNK); i++) {
 		start_pfn = start + (i * HA_CHUNK);
 		has->ha_end_pfn +=  HA_CHUNK;
@@ -669,6 +672,8 @@ static void hv_mem_hot_add(unsigned long start, unsigned long size,
 		mutex_lock(&dm_device.ha_region_mutex);
 		post_status(&dm_device);
 	}
+
+	pr_info("exiting hv_mem_hot_add\n");
 
 	return;
 }
@@ -912,8 +917,11 @@ static void hot_add_req(struct work_struct *dummy)
 	}
 
 	if (do_hot_add)
+	{
+		pr_info("Hot adding %lu pages\n", pfn_cnt);
 		resp.page_count = process_hot_add(pg_start, pfn_cnt,
 						rg_start, rg_sz);
+	}
 
 	dm->num_pages_added += resp.page_count;
 	mutex_unlock(&dm_device.ha_region_mutex);
@@ -1369,6 +1377,8 @@ static void balloon_onchannelcallback(void *context)
 	if (recvlen > 0) {
 		dm_msg = (struct dm_message *)recv_buffer;
 		dm_hdr = &dm_msg->hdr;
+
+		pr_info("Received request %u\n", dm_hdr->type);
 
 		switch (dm_hdr->type) {
 		case DM_VERSION_RESPONSE:
