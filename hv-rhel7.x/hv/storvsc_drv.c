@@ -384,7 +384,8 @@ enum storvsc_request_type {
 #define SRB_STATUS_ERROR	0x04
 
 #define SRB_STATUS(status) \
-	(status & ~(SRB_STATUS_AUTOSENSE_VALID | SRB_STATUS_QUEUE_FROZEN))
+	(status & ~(SRB_STATUS_QUEUE_FROZEN))
+
 /*
  * This is the end of Protocol specific defines.
  */
