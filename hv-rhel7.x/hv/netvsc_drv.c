@@ -195,6 +195,81 @@ static void *init_ppi_data(struct rndis_message *msg, u32 ppi_size,
 	return ppi;
 }
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1793)
+union sub_key {
+	u64 k;
+	struct {
+		u8 pad[3];
+		u8 kb;
+		u32 ka;
+	};
+};
+
+/* Toeplitz hash function
+ * data: network byte order
+ * return: host byte order
+ */
+static u32 comp_hash(u8 *key, int klen, void *data, int dlen)
+{
+	union sub_key subk;
+	int k_next = 4;
+	u8 dt;
+	int i, j;
+	u32 ret = 0;
+
+	subk.k = 0;
+	subk.ka = ntohl(*(u32 *)key);
+
+	for (i = 0; i < dlen; i++) {
+		subk.kb = key[k_next];
+		k_next = (k_next + 1) % klen;
+		dt = ((u8 *)data)[i];
+		for (j = 0; j < 8; j++) {
+			if (dt & 0x80)
+				ret ^= subk.ka;
+			dt <<= 1;
+			subk.k <<= 1;
+		}
+	}
+
+	return ret;
+}
+
+bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
+{
+	struct flow_keys flow;
+	int data_len;
+
+#ifdef NOTYET
+	/* Divergence from upstream commits:
+	 * 06635a35d13d42b95422bba6633f175245cc644e
+	 * cd79a2382aa5dcefa6e21a7c59bb1bb19e53b74d
+	 */
+	if (!skb_flow_dissect_flow_keys(skb, &flow, 0) ||
+	    !(flow.basic.n_proto == htons(ETH_P_IP) ||
+	      flow.basic.n_proto == htons(ETH_P_IPV6)))
+#endif
+	if (!skb_flow_dissect(skb, &flow))
+		return false;
+
+#ifdef NOTYET
+	/* Divergence from upstream commit:
+	 * 06635a35d13d42b95422bba6633f175245cc644e
+	 */
+	if (flow.basic.ip_proto == IPPROTO_TCP)
+#endif
+	if (flow.ip_proto == IPPROTO_TCP)
+		data_len = 12;
+	else
+		data_len = 8;
+
+	*hash = comp_hash(netvsc_hash_key, HASH_KEYLEN, &flow, data_len);
+
+	return true;
+}
+#endif
+
+
 #ifdef NOTYET
 // Divergence from upstream commit:
 // 5b54dac856cb5bd6f33f4159012773e4a33704f7
@@ -212,10 +287,17 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 	if (nvsc_dev == NULL || ndev->real_num_tx_queues <= 1)
 		return 0;
 
+#if defined(REHL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1793)
+	if (netvsc_set_hash(&hash, skb)) {
+		q_idx = nvsc_dev->send_table[hash % VRSS_SEND_TAB_SIZE] %
+			ndev->real_num_tx_queues;
+		skb_set_hash(skb, hash, PKT_HASH_TYPE_L3);
+	}
+#else
 	hash = skb_get_hash(skb);
 	q_idx = nvsc_dev->send_table[hash % VRSS_SEND_TAB_SIZE] %
 		ndev->real_num_tx_queues;
-
+#endif
 	return q_idx;
 }
 
