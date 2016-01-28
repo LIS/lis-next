@@ -46,4 +46,11 @@ static inline wait_queue_head_t *sk_sleep(struct sock *sk)
         return sk->sk_sleep;
 }
 
+#if defined(RHEL_RELEASE_UPDATE_CODE) && \
+(RHEL_RELEASE_UPDATE_CODE < RHEL_RELEASE_UPDATE_VERSION(6, 4, 358, 18))
+#define __sockaddr_check_size(size)	\
+        BUILD_BUG_ON(((size) > sizeof(struct __kernel_sockaddr_storage)))
+#endif
+
+
 #endif /* __AF_HVSOCK_H__ */
