@@ -1099,8 +1099,13 @@ static void __exit vmbus_exit(void)
 	vmbus_free_channels();
 	bus_unregister(&hv_bus);
 	hv_cleanup();
+#ifndef CONFIG_X86_32
 	for_each_online_cpu(cpu)
 		smp_call_function_single(cpu, hv_synic_cleanup, NULL, true, 1);
+#else
+		smp_call_function(hv_synic_cleanup, NULL, true, 1);
+#endif
+
 	acpi_bus_unregister_driver(&vmbus_acpi_driver);
 	vmbus_disconnect();
 }

@@ -8,7 +8,7 @@
 #define CN_VSS_IDX	0xA
 #define CN_VSS_VAL	0x1
 
-#define HV_DRV_VERSION  "4.1-alpha-1"
+#define HV_DRV_VERSION  "4.1.0-RC1"
 
 #ifndef O_CLOEXEC
 #define O_CLOEXEC       02000000        /* set close_on_exec */
@@ -16,6 +16,7 @@
 
 #ifdef __KERNEL__
 
+#define __packed	__attribute__((packed))
 #include <linux/rcupdate.h>
 #include <linux/version.h>
 #include "../uapi/linux/uuid.h"
@@ -23,6 +24,7 @@
 #include <linux/nls.h>
 #include <linux/input.h>
 #include <linux/timex.h>
+#include <linux/skbuff.h>
 #include <linux/unaligned/le_struct.h>
 #include <linux/inetdevice.h>
 #include <linux/libata-compat.h> /* sg_* apis */
@@ -57,6 +59,25 @@
 #define PFN_UP(x)       (((x) + PAGE_SIZE-1) >> PAGE_SHIFT)
 #endif
 
+
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1283)
+static inline void scsi_build_sense_buffer(int desc, u8 *buf, u8 key, u8 asc, u8 ascq)
+{
+	if (desc) {
+		buf[0] = 0x72;  /* descriptor, current */
+		buf[1] = key;
+		buf[2] = asc;
+		buf[3] = ascq;
+		buf[7] = 0;
+	} else {
+		buf[0] = 0x70;  /* fixed, current */
+		buf[2] = key;
+		buf[7] = 0xa;
+		buf[12] = asc;
+		buf[13] = ascq;
+	}
+}
+#endif
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1286)
 #ifndef CSUM_MANGLED_0
