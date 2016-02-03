@@ -311,17 +311,23 @@ void hv_cleanup(void)
 		hv_context.hypercall_page = NULL;
 	}
 #ifdef CONFIG_X86_64
-       /*
-        * Cleanup the TSC page based CS.
-        */
-       if (ms_hyperv.features & HV_X64_MSR_REFERENCE_TSC_AVAILABLE) {
-               clocksource_change_rating(&hyperv_cs_tsc, 10);
-               clocksource_unregister(&hyperv_cs_tsc);
+	/*
+	 * Cleanup the TSC page based CS.
+	 */
+	if (ms_hyperv.features & HV_X64_MSR_REFERENCE_TSC_AVAILABLE) {
+		/*
+		 * Crash can happen in an interrupt context and unregistering
+		 * a clocksource is impossible and redundant in this case.
+		 */
+		if (!oops_in_progress) {
+			clocksource_change_rating(&hyperv_cs_tsc, 10);
+			clocksource_unregister(&hyperv_cs_tsc);
+		}
 
-               hypercall_msr.as_uint64 = 0;
-               wrmsrl(HV_X64_MSR_REFERENCE_TSC, hypercall_msr.as_uint64);
-               vfree(hv_context.tsc_page);
-               hv_context.tsc_page = NULL;
+		hypercall_msr.as_uint64 = 0;
+		wrmsrl(HV_X64_MSR_REFERENCE_TSC, hypercall_msr.as_uint64);
+		vfree(hv_context.tsc_page);
+		hv_context.tsc_page = NULL;
        }
 #endif
 
