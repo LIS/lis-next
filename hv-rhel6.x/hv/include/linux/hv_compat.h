@@ -377,8 +377,7 @@ static inline int memcpy_to_msg(struct msghdr *msg, void *data, int len)
         return memcpy_toiovec(msg->msg_iov, data, len);
 }
 
-#if defined(RHEL_RELEASE_UPDATE_CODE) && \
-(RHEL_RELEASE_UPDATE_CODE < RHEL_RELEASE_UPDATE_VERSION(6, 4, 358, 18))
+#if defined(RHEL_RELEASE_VERSION) && RHEL_RELEASE_CODE <= 1536 
 
 #include <linux/random.h>
 
@@ -391,7 +390,7 @@ static inline void uuid_le_gen(uuid_le *lu)
 #else
 extern void uuid_le_gen(uuid_le *u);
 extern void uuid_be_gen(uuid_be *u);
-#endif /* RHEL_RELEASE_CODE <= 1540 */
+#endif /* RHEL_RELEASE_CODE <= 1536 */
 
 #endif
 #endif
