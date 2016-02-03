@@ -525,6 +525,9 @@ static void reset_channel_cb(void *arg)
 {
 	struct vmbus_channel *channel = arg;
 
+	if (channel->target_cpu != smp_processor_id())
+		return;
+
 	channel->onchannel_callback = NULL;
 }
 
@@ -538,8 +541,12 @@ static int vmbus_close_internal(struct vmbus_channel *channel)
 	/* Stop callback and cancel the timer asap */
 	if (channel->target_cpu != get_cpu()) {
 		put_cpu();
+#ifndef CONFIG_X86_32
 		smp_call_function_single(channel->target_cpu, reset_channel_cb,
 					 channel, true, 1);
+#else
+		smp_call_function(reset_channel_cb, channel, true, 1);
+#endif
 	} else {
 		reset_channel_cb(channel);
 		put_cpu();

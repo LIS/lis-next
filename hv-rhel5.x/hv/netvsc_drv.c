@@ -530,7 +530,8 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 		struct udphdr *uh;
 		u16 udp_len;
 
-		ret = skb_cow_head(skb, 0);
+		//KYSret = skb_cow_head(skb, 0);
+		ret = skb_cow(skb, 0);
 		if (ret)
 			goto drop;
 

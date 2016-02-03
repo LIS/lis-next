@@ -44,6 +44,10 @@ static struct sockaddr_nl addr;
 #define SOL_NETLINK 270
 #endif
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1284)
+#define FIFREEZE    _IOWR('X', 119, int)    /* Freeze */
+#define FITHAW      _IOWR('X', 120, int)    /* Thaw */
+#endif
 
 /* Don't use syslog() in the function since that can cause write to disk */
 static int vss_do_freeze(char *dir, unsigned int cmd)

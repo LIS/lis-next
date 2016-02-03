@@ -163,12 +163,17 @@ static void percpu_channel_enq(void *arg)
 	struct vmbus_channel *channel = arg;
 	int cpu = smp_processor_id();
 
+	if (channel->target_cpu != cpu)
+		return; 
+
 	list_add_tail(&channel->percpu_list, &hv_context.percpu_list[cpu]);
 }
 
 static void percpu_channel_deq(void *arg)
 {
 	struct vmbus_channel *channel = arg;
+	if (channel->target_cpu != smp_processor_id())
+		return;
 
 	list_del(&channel->percpu_list);
 }
@@ -190,8 +195,13 @@ void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid)
 
 	if (channel->target_cpu != get_cpu()) {
 		put_cpu();
+#ifndef CONFIG_X86_32
 		smp_call_function_single(channel->target_cpu,
 					 percpu_channel_deq, channel, true, 1);
+#else
+		smp_call_function(percpu_channel_deq, channel, true, 1);
+#endif
+
 	} else {
 		percpu_channel_deq(channel);
 		put_cpu();
@@ -255,9 +265,16 @@ static void vmbus_process_offer(struct vmbus_channel *newchannel)
 	if (enq) {
 		if (newchannel->target_cpu != get_cpu()) {
 			put_cpu();
+
+#ifndef CONFIG_X86_32
 			smp_call_function_single(newchannel->target_cpu,
 						 percpu_channel_enq,
 						 newchannel, true, 1);
+#else
+			smp_call_function(percpu_channel_enq,
+					  newchannel, true, 1);
+#endif
+
 		} else {
 			percpu_channel_enq(newchannel);
 			put_cpu();
@@ -278,9 +295,15 @@ static void vmbus_process_offer(struct vmbus_channel *newchannel)
 
 			if (newchannel->target_cpu != get_cpu()) {
 				put_cpu();
+#ifndef CONFIG_X86_32
 				smp_call_function_single(newchannel->target_cpu,
 							 percpu_channel_enq,
 							 newchannel, true, 1);
+#else
+				smp_call_function(percpu_channel_enq,
+						  newchannel, true, 1);
+#endif
+
 			} else {
 				percpu_channel_enq(newchannel);
 				put_cpu();
@@ -337,8 +360,13 @@ err_deq_chan:
 
 	if (newchannel->target_cpu != get_cpu()) {
 		put_cpu();
+#ifndef CONFIG_X86_32
 		smp_call_function_single(newchannel->target_cpu,
 					 percpu_channel_deq, newchannel, true, 1);
+#else
+		smp_call_function(percpu_channel_deq, newchannel, true, 1);
+#endif
+
 	} else {
 		percpu_channel_deq(newchannel);
 		put_cpu();
