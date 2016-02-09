@@ -82,13 +82,23 @@ static int vmbus_negotiate_version(struct vmbus_channel_msginfo *msginfo,
 	msg->interrupt_page = virt_to_phys(vmbus_connection.int_page);
 	msg->monitor_page1 = virt_to_phys(vmbus_connection.monitor_pages[0]);
 	msg->monitor_page2 = virt_to_phys(vmbus_connection.monitor_pages[1]);
+	
 	/*
-	 * We want all channel messages to be delivered on CPU 0.
-	 * This has been the behavior pre-win8. This is not a
-	 * perf issue and having all channel messages delivered on
-	 * CPU 0 would be OK.
+	 * For Win8 and below, we want all channel messages to be delivered 
+	 * on CPU 0. This is not a perf issue and having all channel messages
+	 * delivered on CPU 0 would be OK.
+	 *
+	 * For Win 8.1 and above, we want messages delivered on current 
+	 * CPU, as this is necessary when a connection already exists.
+	 * For example, in the case of a crash kernel coming up.
 	 */
-	msg->target_vcpu = 0;
+	if (version >= VERSION_WIN8_1) {
+		msg->target_vcpu = hv_context.vp_index[get_cpu()];
+		put_cpu();
+	}
+	else {
+		msg->target_vcpu = 0;
+	}
 
 	/*
 	 * Add to list before we send the request since we may
