@@ -816,7 +816,6 @@ static int vmbus_bus_init(int irq)
 
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540)
-	// ms_hyperv.features |= HV_X64_MSR_TIME_REF_COUNT_AVAILABLE;
 	ms_hyperv.features = cpuid_eax(HYPERV_CPUID_FEATURES);
 	ms_hyperv.misc_features = cpuid_edx(HYPERV_CPUID_FEATURES);
 	ms_hyperv.hints = cpuid_eax(HYPERV_CPUID_ENLIGHTMENT_INFO);
@@ -826,7 +825,6 @@ static int vmbus_bus_init(int irq)
 	 * Only register if the crash MSRs are available
 	 */
 	if (ms_hyperv.features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
-pr_err("Nick: vmbus_bus_init(): registered panic notifier callback\n");
 		atomic_notifier_chain_register(&panic_notifier_list,
 					       &hyperv_panic_block);
 	}
