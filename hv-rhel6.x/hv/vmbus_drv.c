@@ -57,10 +57,7 @@ EXPORT_SYMBOL(x86_hyper_ms_hyperv);
 void *x86_hyper = &x86_hyper_ms_hyperv;
 EXPORT_SYMBOL(x86_hyper);
 
-struct ms_hyperv_info ms_hyperv = {
-	.features = HV_X64_MSR_TIME_REF_COUNT_AVAILABLE |
-		    HV_X64_MSR_SYNTIMER_AVAILABLE,
-};
+struct ms_hyperv_info ms_hyperv;
 EXPORT_SYMBOL(ms_hyperv);
 
 #endif
@@ -825,7 +822,13 @@ static int vmbus_bus_init(int irq)
 	hv_cpu_hotplug_quirk(true);
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540)
-	ms_hyperv.features |= HV_X64_MSR_TIME_REF_COUNT_AVAILABLE;
+	/*
+	 * Query the host for available features. Store results
+	 * in the ms_hyperv structure for future reference.
+	 */
+	ms_hyperv.features = cpuid_eax(HYPERV_CPUID_FEATURES);
+	ms_hyperv.misc_features = cpuid_edx(HYPERV_CPUID_FEATURES);
+	ms_hyperv.hints = cpuid_eax(HYPERV_CPUID_ENLIGHTMENT_INFO);
 #endif
 
 	/*

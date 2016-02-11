@@ -55,10 +55,7 @@ bool using_null_legacy_pic = false;
 EXPORT_SYMBOL(using_null_legacy_pic);
 
 
-struct ms_hyperv_info ms_hyperv = {
-	.features = HV_X64_MSR_TIME_REF_COUNT_AVAILABLE |
-		    HV_X64_MSR_SYNTIMER_AVAILABLE,
-};
+struct ms_hyperv_info ms_hyperv;
 EXPORT_SYMBOL(ms_hyperv);
 
 #endif
@@ -819,7 +816,9 @@ static int vmbus_bus_init(int irq)
 
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540)
-	ms_hyperv.features |= HV_X64_MSR_TIME_REF_COUNT_AVAILABLE;
+	ms_hyperv.features = cpuid_eax(HYPERV_CPUID_FEATURES);
+	ms_hyperv.misc_features = cpuid_edx(HYPERV_CPUID_FEATURES);
+	ms_hyperv.hints = cpuid_eax(HYPERV_CPUID_ENLIGHTMENT_INFO);
 #endif
 
 	/*
