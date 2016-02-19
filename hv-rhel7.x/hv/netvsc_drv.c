@@ -43,6 +43,11 @@
 
 #define RING_SIZE_MIN 64
 #define LINKCHANGE_INT (2 * HZ)
+#define NETVSC_HW_FEATURES	(NETIF_F_RXCSUM | \
+				 NETIF_F_SG | \
+				 NETIF_F_TSO | \
+				 NETIF_F_TSO6 | \
+				 NETIF_F_HW_CSUM)
 static int ring_size = 128;
 module_param(ring_size, int, S_IRUGO);
 MODULE_PARM_DESC(ring_size, "Ring buffer size (# of pages)");
@@ -196,7 +201,6 @@ static void *init_ppi_data(struct rndis_message *msg, u32 ppi_size,
 	return ppi;
 }
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1793)
 union sub_key {
 	u64 k;
 	struct {
@@ -236,40 +240,50 @@ static u32 comp_hash(u8 *key, int klen, void *data, int dlen)
 	return ret;
 }
 
+/* Continue using Toeplitz hash function.
+ * This implementation is different from the current upstream code.
+ * See more info from this upstream commit:
+ * 757647e10e55c01fb7a9c4356529442e316a7c72
+ */
 bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 {
-	struct flow_keys flow;
+	struct iphdr *iphdr;
+	struct ipv6hdr *ipv6hdr;
+	__be32 dbuf[9];
 	int data_len;
 
-#ifdef NOTYET
-	/* Divergence from upstream commits:
-	 * 06635a35d13d42b95422bba6633f175245cc644e
-	 * cd79a2382aa5dcefa6e21a7c59bb1bb19e53b74d
-	 */
-	if (!skb_flow_dissect_flow_keys(skb, &flow, 0) ||
-	    !(flow.basic.n_proto == htons(ETH_P_IP) ||
-	      flow.basic.n_proto == htons(ETH_P_IPV6)))
-#endif
-	if (!skb_flow_dissect(skb, &flow))
+	if (eth_hdr(skb)->h_proto != htons(ETH_P_IP) &&
+	    eth_hdr(skb)->h_proto != htons(ETH_P_IPV6))
 		return false;
 
-#ifdef NOTYET
-	/* Divergence from upstream commit:
-	 * 06635a35d13d42b95422bba6633f175245cc644e
-	 */
-	if (flow.basic.ip_proto == IPPROTO_TCP)
-#endif
-	if (flow.ip_proto == IPPROTO_TCP)
-		data_len = 12;
-	else
-		data_len = 8;
+	iphdr = ip_hdr(skb);
+	ipv6hdr = ipv6_hdr(skb);
 
-	*hash = comp_hash(netvsc_hash_key, HASH_KEYLEN, &flow, data_len);
+	if (iphdr->version == 4) {
+		dbuf[0] = iphdr->saddr;
+		dbuf[1] = iphdr->daddr;
+		if (iphdr->protocol == IPPROTO_TCP) {
+			dbuf[2] = *(__be32 *)&tcp_hdr(skb)->source;
+			data_len = 12;
+		} else {
+			data_len = 8;
+		}
+	} else if (ipv6hdr->version == 6) {
+		memcpy(dbuf, &ipv6hdr->saddr, 32);
+		if (ipv6hdr->nexthdr == IPPROTO_TCP) {
+			dbuf[8] = *(__be32 *)&tcp_hdr(skb)->source;
+			data_len = 36;
+		} else {
+			data_len = 32;
+		}
+	} else {
+		return false;
+	}
+
+	*hash = comp_hash(netvsc_hash_key, HASH_KEYLEN, dbuf, data_len);
 
 	return true;
 }
-#endif
-
 
 #ifdef NOTYET
 // Divergence from upstream commit:
@@ -288,17 +302,11 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 	if (nvsc_dev == NULL || ndev->real_num_tx_queues <= 1)
 		return 0;
 
-#if defined(REHL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1793)
 	if (netvsc_set_hash(&hash, skb)) {
 		q_idx = nvsc_dev->send_table[hash % VRSS_SEND_TAB_SIZE] %
 			ndev->real_num_tx_queues;
 		skb_set_hash(skb, hash, PKT_HASH_TYPE_L3);
 	}
-#else
-	hash = skb_get_hash(skb);
-	q_idx = nvsc_dev->send_table[hash % VRSS_SEND_TAB_SIZE] %
-		ndev->real_num_tx_queues;
-#endif
 	return q_idx;
 }
 
@@ -1192,10 +1200,8 @@ static int netvsc_probe(struct hv_device *dev,
 
 	net->netdev_ops = &device_ops;
 
-	net->hw_features = NETIF_F_RXCSUM | NETIF_F_SG | NETIF_F_IP_CSUM |
-				NETIF_F_TSO;
-	net->features = NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_SG | NETIF_F_RXCSUM |
-			NETIF_F_IP_CSUM | NETIF_F_TSO;
+	net->hw_features = NETVSC_HW_FEATURES;
+	net->features = NETVSC_HW_FEATURES | NETIF_F_HW_VLAN_CTAG_TX;
 
 	net->ethtool_ops = &ethtool_ops;
 	SET_NETDEV_DEV(net, &dev->device);
