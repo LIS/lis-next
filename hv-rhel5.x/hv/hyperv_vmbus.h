@@ -765,7 +765,11 @@ static inline void hv_poll_channel(struct vmbus_channel *channel,
 	if (!channel)
 		return;
 
-	smp_call_function_single(channel->target_cpu, cb, channel, 0, true);
+	if (channel->target_cpu != smp_processor_id())
+		smp_call_function_single(channel->target_cpu,
+					 cb, channel, 0, true);
+	else
+		cb(channel);
 }
 
 enum hvutil_device_state {
