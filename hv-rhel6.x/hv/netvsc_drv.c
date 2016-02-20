@@ -245,27 +245,43 @@ static u32 comp_hash(u8 *key, int klen, void *data, int dlen)
 bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 {
 	struct iphdr *iphdr;
+	struct ipv6hdr *ipv6hdr;
+	__be32 dbuf[9];
 	int data_len;
-	bool ret = false;
 
 	skb_reset_mac_header(skb);
 
-	if (eth_hdr(skb)->h_proto != htons(ETH_P_IP))
+	if (eth_hdr(skb)->h_proto != htons(ETH_P_IP) &&
+	    eth_hdr(skb)->h_proto != htons(ETH_P_IPV6))
 		return false;
 
 	iphdr = ip_hdr(skb);
+	ipv6hdr = ipv6_hdr(skb);
 
 	if (iphdr->version == 4) {
-		if (iphdr->protocol == IPPROTO_TCP)
+		dbuf[0] = iphdr->saddr;
+		dbuf[1] = iphdr->daddr;
+		if (iphdr->protocol == IPPROTO_TCP) {
+			dbuf[2] = *(__be32 *)&tcp_hdr(skb)->source;
 			data_len = 12;
-		else
+		} else {
 			data_len = 8;
-		*hash = comp_hash(netvsc_hash_key, HASH_KEYLEN,
-				  (u8 *)&iphdr->saddr, data_len);
-		ret = true;
+		}
+	} else if (ipv6hdr->version == 6) {
+		memcpy(dbuf, &ipv6hdr->saddr, 32);
+		if (ipv6hdr->nexthdr == IPPROTO_TCP) {
+			dbuf[8] = *(__be32 *)&tcp_hdr(skb)->source;
+			data_len = 36;
+		} else {
+			data_len = 32;
+		}
+	} else {
+		return false;
 	}
 
-	return ret;
+	*hash = comp_hash(netvsc_hash_key, HASH_KEYLEN, dbuf, data_len);
+
+	return true;
 }
 
 #ifdef NOTYET
