@@ -1090,7 +1090,9 @@ cleanup:
 
 static void __exit vmbus_exit(void)
 {
+#ifndef CONFIG_X86_32
 	int cpu;
+#endif
 
 	vmbus_connection.conn_state = DISCONNECTED;
 	hv_synic_clockevents_cleanup();
