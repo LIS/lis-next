@@ -596,9 +596,11 @@ void hv_kvp_onchannelcallback(void *context)
 	int util_fw_version;
 	int kvp_srv_version;
 
-	if (kvp_transaction.state > HVUTIL_READY)
+	kvp_transaction.recv_channel = channel;
+	if (kvp_transaction.state != HVUTIL_READY)
 		return;
 
+next_packet:
 	vmbus_recvpacket(channel, recv_buffer, PAGE_SIZE * 4, &recvlen,
 			 &requestid);
 
@@ -640,15 +642,9 @@ void hv_kvp_onchannelcallback(void *context)
 			 */
 
 			kvp_transaction.recv_len = recvlen;
-			kvp_transaction.recv_channel = channel;
 			kvp_transaction.recv_req_id = requestid;
 			kvp_transaction.kvp_msg = kvp_msg;
 
-			if (kvp_transaction.state < HVUTIL_READY) {
-				/* Userspace is not registered yet */
-				kvp_respond_to_host(NULL, HV_E_FAIL);
-				return;
-			}
 			kvp_transaction.state = HVUTIL_HOSTMSG_RECEIVED;
 
 			/*
@@ -674,6 +670,7 @@ void hv_kvp_onchannelcallback(void *context)
 		vmbus_sendpacket(channel, recv_buffer,
 				       recvlen, requestid,
 				       VM_PKT_DATA_INBAND, 0);
+		goto next_packet;
 	}
 
 }
