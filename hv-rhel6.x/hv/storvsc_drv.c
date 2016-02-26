@@ -2192,17 +2192,10 @@ static struct hv_driver storvsc_drv = {
 	.remove = storvsc_remove,
 };
 
-static int  storvsc_issue_fc_host_lip(struct Scsi_Host *shost)
-{
-                return 0;
-}
-
-
 #if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 static struct fc_function_template fc_transport_functions = {
 	.show_host_node_name = 1,
 	.show_host_port_name = 1,
-	.issue_fc_host_lip = storvsc_issue_lip,
 };
 #endif
 
