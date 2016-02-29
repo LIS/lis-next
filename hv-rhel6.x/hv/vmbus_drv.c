@@ -64,7 +64,6 @@ EXPORT_SYMBOL(ms_hyperv);
 
 static struct acpi_device  *hv_acpi_dev;
 
-static struct tasklet_struct msg_dpc;
 static struct completion probe_event;
 static int irq;
 
@@ -588,7 +587,7 @@ static void hv_process_timer_expiration(struct hv_message *msg, int cpu)
 	}
 }
 
-static void vmbus_on_msg_dpc(unsigned long data)
+void vmbus_on_msg_dpc(unsigned long data)
 {
 	int cpu = smp_processor_id();
 	void *page_addr = hv_context.synic_message_page[cpu];
@@ -701,7 +700,7 @@ static void vmbus_isr(void)
 		if (msg->header.message_type == HVMSG_TIMER_EXPIRED)
 			hv_process_timer_expiration(msg, cpu);
 		else
-			tasklet_schedule(&msg_dpc);
+			tasklet_schedule(hv_context.msg_dpc[cpu]);
 	}
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1543)
 	if (handled)
@@ -774,8 +773,6 @@ static int vmbus_bus_init(int irq)
 		pr_err("Unable to initialize the hypervisor - 0x%x\n", ret);
 		return ret;
 	}
-
-	tasklet_init(&msg_dpc, vmbus_on_msg_dpc, 0);
 
 	ret = bus_register(&hv_bus);
 	if (ret)
@@ -1285,7 +1282,8 @@ static void __exit vmbus_exit(void)
 	hv_synic_clockevents_cleanup();
 	vmbus_disconnect();
 	free_irq(irq, hv_acpi_dev);
-	tasklet_kill(&msg_dpc);
+	for_each_online_cpu(cpu)
+		tasklet_kill(hv_context.msg_dpc[cpu]);
 	vmbus_free_channels();
 	if (ms_hyperv.features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
 		atomic_notifier_chain_unregister(&panic_notifier_list,
