@@ -17,17 +17,15 @@ buildsnapshot=$(shell test $(rhel_release_code) -le 1284; echo $$?)
 ifeq ($(buildsnapshot),0)
 all: hv_kvp_daemon hv_fcopy_daemon
 %: %.c
-        $(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $^
 clean:
-        $(RM) hv_kvp_daemon hv_fcopy_daemon
+	$(RM) hv_kvp_daemon hv_fcopy_daemon
 
 else
 all: hv_kvp_daemon hv_vss_daemon hv_fcopy_daemon
 %: %.c
-        $(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $^
 clean:
-        $(RM) hv_kvp_daemon hv_vss_daemon hv_fcopy_daemon
-
+	$(RM) hv_kvp_daemon hv_vss_daemon hv_fcopy_daemon
 endif
-~
 
