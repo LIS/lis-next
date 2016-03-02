@@ -62,6 +62,12 @@ EXPORT_SYMBOL(ms_hyperv);
 
 #endif
 
+/* RHEL provided LIS does not include the misc_features
+ * in the ms_hyperv_info structure. Create a separate
+ * variable to store the misc features.
+ */
+static u32 mshyperv_misc_features;
+
 static struct acpi_device  *hv_acpi_dev;
 
 static struct completion probe_event;
@@ -828,10 +834,16 @@ static int vmbus_bus_init(int irq)
 	ms_hyperv.hints = cpuid_eax(HYPERV_CPUID_ENLIGHTMENT_INFO);
 #endif
 
+	/* RHEL provided LIS does not include the misc_features
+	 * in the ms_hyperv_info structure. Store the misc_features
+	 * in a separate variable.
+	 */
+	mshyperv_misc_features = cpuid_edx(HYPERV_CPUID_FEATURES);
+
 	/*
 	 * Only register if the crash MSRs are available
 	 */
-	if (ms_hyperv.features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
+	if (mshyperv_misc_features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
 		atomic_notifier_chain_register(&panic_notifier_list,
 					       &hyperv_panic_block);
 	}
@@ -1285,7 +1297,7 @@ static void __exit vmbus_exit(void)
 	for_each_online_cpu(cpu)
 		tasklet_kill(hv_context.msg_dpc[cpu]);
 	vmbus_free_channels();
-	if (ms_hyperv.features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
+	if (mshyperv_misc_features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
 		atomic_notifier_chain_unregister(&panic_notifier_list,
 						 &hyperv_panic_block);
 	}
