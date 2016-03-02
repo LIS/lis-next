@@ -933,9 +933,7 @@ union query_addr_list_ioctl {
 struct pkt_query_addr_list {
 	struct ndv_packet_hdr_control_1 hdr;
 	union query_addr_list_ioctl ioctl;
-#if defined(MLX_ND_5)
 	unsigned long activity_id;
-#endif
 };
 
 
@@ -1069,9 +1067,7 @@ struct pkt_nd_notify_cq {
 struct nd_ep_create {
 	struct nd_handle hdr;
 	bool to_semantics;
-#if defined(MLX_ND_5)
 	unsigned long activity_id;
-#endif
 };
 
 union listener_cr_ioctl {
@@ -1232,9 +1228,7 @@ struct connector_connect_in {
 	u8 retry_cnt;
 	u8 rnr_retry_cnt;
 	u8 priv_data[56];
-#if defined(MLX_ND_5)
 	unsigned long activity_id;
-#endif
 };
 
 union connector_connect_ioctl {
@@ -1253,9 +1247,7 @@ struct pkt_nd_connector_connect {
 struct complete_connect_in {
 	struct nd_handle hdr;
 	u8 rnr_nak_to;
-#if defined(MLX_ND_5)
 	unsigned long activity_id;
-#endif
 };
 
 struct complete_connect_out {
@@ -1284,9 +1276,7 @@ struct connector_accept_in {
 	u8 rnr_retry_cnt;
 	u8 rnr_nak_to;
 	u8 private_data[MAX_PRIVATE_DATA_LEN];
-#if defined(MLX_ND_5)
 	unsigned long activity_id;
-#endif
 };
 
 struct connector_accept_out {
@@ -1490,9 +1480,7 @@ struct pkt_nd_create_mr {
 struct mr_out {
 	u32 lkey;
 	u32 rkey;
-#if defined(MLX_ND_5)
 	unsigned long activity_id;
-#endif
 };
 
 

@@ -10,8 +10,6 @@ obj-m	+= hv_balloon.o
 obj-m	+= hyperv-keyboard.o 
 obj-m   += hv_network_direct.o
 
-ccflags-y += -DMLX_ND_5
-
 hv_vmbus-y := vmbus_drv.o \
 		 hv.o connection.o channel.o \
 		 channel_mgmt.o ring_buffer.o
