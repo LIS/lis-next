@@ -13,7 +13,7 @@ rhel_minor=$(shell grep -Eoh [0-9]+\.[0-9]+ /etc/{issue,*release} | head -1 | aw
 rhel_release_code=$(shell echo $$(($(rhel_major) << 8 | $(rhel_minor))))
 
 # hv_vss_daemon will be compiled only on RHEL5.4 and higher.
-buildsnapshot=$(shell test $(rhel_release_code) -le 1284; echo $$?)
+buildsnapshot=$(shell test $(rhel_release_code) -lt 1284; echo $$?)
 ifeq ($(buildsnapshot),0)
 all: hv_kvp_daemon hv_fcopy_daemon
 %: %.c
