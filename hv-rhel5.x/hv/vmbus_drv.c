@@ -824,7 +824,7 @@ static int vmbus_bus_init(int irq)
 	/*
 	 * Only register if the crash MSRs are available
 	 */
-	if (ms_hyperv.features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
+	if (ms_hyperv.misc_features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
 		atomic_notifier_chain_register(&panic_notifier_list,
 					       &hyperv_panic_block);
 	}
