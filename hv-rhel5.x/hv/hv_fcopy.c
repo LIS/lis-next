@@ -68,7 +68,12 @@ static int dm_reg_value;
 
 static void fcopy_poll_wrapper(void *channel)
 {
+	struct vmbus_channel *chn = channel;
+
 	/* Transaction is finished, reset the state here to avoid races. */
+	if (chn->target_cpu != smp_processor_id())
+		return;
+
 	fcopy_transaction.state = HVUTIL_READY;
 	hv_fcopy_onchannelcallback(channel);
 }
