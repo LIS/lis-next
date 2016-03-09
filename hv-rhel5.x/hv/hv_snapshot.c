@@ -75,7 +75,12 @@ static DECLARE_WORK(vss_send_op_work, vss_send_op, &vss_send_op_work);
 
 static void vss_poll_wrapper(void *channel)
 {
+	struct vmbus_channel *chn = channel;
+
 	/* Transaction is finished, reset the state here to avoid races. */
+	if (chn->target_cpu != smp_processor_id())
+		return;
+
 	vss_transaction.state = HVUTIL_READY;
 	hv_vss_onchannelcallback(channel);
 }

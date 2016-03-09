@@ -95,7 +95,12 @@ static struct hvutil_transport *hvt;
 
 static void kvp_poll_wrapper(void *channel)
 {
+	struct vmbus_channel *chn = channel;
+
 	/* Transaction is finished, reset the state here to avoid races. */
+	if (chn->target_cpu != smp_processor_id())
+		return;
+
 	kvp_transaction.state =HVUTIL_READY;
 	hv_kvp_onchannelcallback(channel);
 }
