@@ -127,7 +127,7 @@ static bool hv_need_to_signal_on_read(u32 old_rd,
 			old_rd - write_loc;
 
 
-	if ((prev_write_sz < pending_sz) && (cur_write_sz >= pending_sz))
+	if (cur_write_sz >= pending_sz)
 		return true;
 
 	return false;
