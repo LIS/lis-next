@@ -1294,6 +1294,23 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request,
 		cmd_request->payload->range.len -
 		vm_srb->data_transfer_length);
 
+	/* if this is an INQUIRY when SCSI is trying to probe a LUN, return a proper SCSI level to trigger REPORT_LUNS
+	 * note: on probing LUN0, SCSI sets all the fields  to zero except for the length at[4]
+	 */
+	if (scmnd->cmnd[0] == INQUIRY
+			&& !(scmnd->cmnd[1] || scmnd->cmnd[2] || scmnd->cmnd[3] || scmnd->cmnd[5])
+			&& scsi_bufflen(scmnd) > 2) {
+
+		struct scatterlist *sgl = scsi_sglist(scmnd);
+		char *data = (char *) (sg_kmap_atomic(sgl) + sgl->offset);
+
+		/* if host doesn't return SCSI level, set to SCSI_2 minimal required for REPORT_LUNS */
+		if (!data[2])
+			data[2] = SCSI_2;
+
+		sg_kunmap_atomic((unsigned long)data - sgl->offset);
+	}
+
 	scsi_done_fn = scmnd->scsi_done;
 
 	scmnd->host_scribble = NULL;
