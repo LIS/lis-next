@@ -705,6 +705,7 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id, struct pt_regs *regs)
 		return IRQ_NONE;
 }
 
+#ifdef NOTYET
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
 static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc)
 {
@@ -717,6 +718,7 @@ static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc, struct p
 	desc->action->handler(irq, desc->action->dev_id, NULL);
 }
 #endif
+#endif /* NOTYET */
 
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
 static cycle_t read_hv_clock(struct clocksource *arg)
