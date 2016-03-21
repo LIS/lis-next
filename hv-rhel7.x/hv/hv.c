@@ -206,9 +206,11 @@ int hv_init(void)
 {
 	int max_leaf;
 	union hv_x64_msr_hypercall_contents hypercall_msr;
-	union hv_x64_msr_hypercall_contents tsc_msr;
 	void *virtaddr = NULL;
+#ifdef CONFIG_X86_64	
+	union hv_x64_msr_hypercall_contents tsc_msr;
 	void *va_tsc = NULL;
+#endif
 
 	memset(hv_context.synic_event_page, 0, sizeof(void *) * NR_CPUS);
 	memset(hv_context.synic_message_page, 0,
