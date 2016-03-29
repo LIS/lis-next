@@ -71,7 +71,9 @@ static u32 mshyperv_misc_features;
 static struct acpi_device  *hv_acpi_dev;
 
 static struct completion probe_event;
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 static int irq;
+#endif
 
 struct hv_device_info {
 	u32 chn_id;
@@ -769,7 +771,11 @@ static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc)
  *	- get the irq resource
  *	- retrieve the channel offers
  */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,7))
+static int vmbus_bus_init(void)
+#else
 static int vmbus_bus_init(int irq)
+#endif
 {
 	int ret;
 
@@ -855,7 +861,9 @@ static int vmbus_bus_init(int irq)
 err_connect:
 	on_each_cpu(hv_synic_cleanup, NULL, 1);
 err_alloc:
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	free_irq(irq, hv_acpi_dev);
+#endif
 	hv_synic_free();
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
@@ -1003,10 +1011,11 @@ static acpi_status vmbus_walk_resources(struct acpi_resource *res, void *ctx)
 	struct resource **prev_res = NULL;
 
 	switch (res->type) {
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	case ACPI_RESOURCE_TYPE_IRQ:
 		irq = res->data.irq.interrupts[0];
 		return AE_OK;
-
+#endif
 	/*
 	 * "Address" descriptors are for bus windows. Ignore
 	 * "memory" descriptors, which are for registers on
@@ -1270,12 +1279,16 @@ static int __init hv_acpi_init(void)
 		goto cleanup;
 	}
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	if (irq <= 0) {
 		ret = -ENODEV;
 		goto cleanup;
 	}
 
 	ret = vmbus_bus_init(irq);
+#else
+	ret = vmbus_bus_init();
+#endif
 	if (ret)
 		goto cleanup;
 
@@ -1293,7 +1306,9 @@ static void __exit vmbus_exit(void)
 	vmbus_connection.conn_state = DISCONNECTED;
 	hv_synic_clockevents_cleanup();
 	vmbus_disconnect();
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	free_irq(irq, hv_acpi_dev);
+#endif
 	for_each_online_cpu(cpu)
 		tasklet_kill(hv_context.msg_dpc[cpu]);
 	vmbus_free_channels();
