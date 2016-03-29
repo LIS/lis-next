@@ -892,7 +892,7 @@ static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc)
  *	- retrieve the channel offers
  */
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2))
-static int vmbus_bus_init()
+static int vmbus_bus_init(void)
 #else
 static int vmbus_bus_init(int irq)
 #endif
