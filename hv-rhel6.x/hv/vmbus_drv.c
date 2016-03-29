@@ -43,12 +43,12 @@
 #include <linux/ptrace.h>
 #include "hyperv_vmbus.h"
 
-#if (RHEL_RELEASE_CODE <= 1541)
+#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(6,5))
 bool using_null_legacy_pic = false;
 EXPORT_SYMBOL(using_null_legacy_pic);
 #endif
 
-#if (RHEL_RELEASE_CODE < 1540)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
 #include <asm/mshyperv.h>
 
 int x86_hyper_ms_hyperv;
@@ -71,7 +71,9 @@ static u32 mshyperv_misc_features;
 static struct acpi_device  *hv_acpi_dev;
 
 static struct completion probe_event;
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 static int irq;
+#endif
 
 struct hv_device_info {
 	u32 chn_id;
@@ -543,7 +545,7 @@ static struct bus_type  hv_bus = {
 	.dev_attrs =    	vmbus_device_attrs,
 };
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1543)
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 static const char *driver_name = "hyperv";
 #endif
 
@@ -648,7 +650,7 @@ msg_handled:
 	}
 }
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1543)
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 static irqreturn_t vmbus_isr(int irq, void *dev_id)
 #else
 static void vmbus_isr(void)
@@ -662,7 +664,7 @@ static void vmbus_isr(void)
 
 	page_addr = hv_context.synic_event_page[cpu];
 	if (page_addr == NULL)
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1543)
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 		return IRQ_NONE;
 #else
 		return;
@@ -708,7 +710,7 @@ static void vmbus_isr(void)
 		else
 			tasklet_schedule(hv_context.msg_dpc[cpu]);
 	}
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1543)
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	if (handled)
 		return IRQ_HANDLED;
 	else
@@ -750,7 +752,7 @@ static void hv_cpu_hotplug_quirk(bool vmbus_loaded)
 #endif
 
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1543)
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc)
 {
 	kstat_incr_irqs_this_cpu(irq, desc);
@@ -769,7 +771,11 @@ static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc)
  *	- get the irq resource
  *	- retrieve the channel offers
  */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,7))
+static int vmbus_bus_init(void)
+#else
 static int vmbus_bus_init(int irq)
+#endif
 {
 	int ret;
 
@@ -784,7 +790,7 @@ static int vmbus_bus_init(int irq)
 	if (ret)
 		goto err_cleanup;
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1543)
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	ret = request_irq(irq, vmbus_isr, 0, driver_name, hv_acpi_dev);
 
 	if (ret != 0) {
@@ -800,7 +806,7 @@ static int vmbus_bus_init(int irq)
 	 */
 	set_irq_handler(irq, vmbus_flow_handler);
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1541)
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,5))
 	/*
 	 * Register our interrupt handler.
 	 */
@@ -824,7 +830,7 @@ static int vmbus_bus_init(int irq)
 
 	hv_cpu_hotplug_quirk(true);
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540)
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
 	/*
 	 * Query the host for available features. Store results
 	 * in the ms_hyperv structure for future reference.
@@ -855,10 +861,12 @@ static int vmbus_bus_init(int irq)
 err_connect:
 	on_each_cpu(hv_synic_cleanup, NULL, 1);
 err_alloc:
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	free_irq(irq, hv_acpi_dev);
+#endif
 	hv_synic_free();
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1543)
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 err_unregister:
 	bus_unregister(&hv_bus);
 #endif
@@ -1003,10 +1011,11 @@ static acpi_status vmbus_walk_resources(struct acpi_resource *res, void *ctx)
 	struct resource **prev_res = NULL;
 
 	switch (res->type) {
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	case ACPI_RESOURCE_TYPE_IRQ:
 		irq = res->data.irq.interrupts[0];
 		return AE_OK;
-
+#endif
 	/*
 	 * "Address" descriptors are for bus windows. Ignore
 	 * "memory" descriptors, which are for registers on
@@ -1270,12 +1279,16 @@ static int __init hv_acpi_init(void)
 		goto cleanup;
 	}
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	if (irq <= 0) {
 		ret = -ENODEV;
 		goto cleanup;
 	}
 
 	ret = vmbus_bus_init(irq);
+#else
+	ret = vmbus_bus_init();
+#endif
 	if (ret)
 		goto cleanup;
 
@@ -1293,7 +1306,9 @@ static void __exit vmbus_exit(void)
 	vmbus_connection.conn_state = DISCONNECTED;
 	hv_synic_clockevents_cleanup();
 	vmbus_disconnect();
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	free_irq(irq, hv_acpi_dev);
+#endif
 	for_each_online_cpu(cpu)
 		tasklet_kill(hv_context.msg_dpc[cpu]);
 	vmbus_free_channels();
