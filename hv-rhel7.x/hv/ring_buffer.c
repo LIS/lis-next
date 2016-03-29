@@ -380,43 +380,6 @@ int hv_ringbuffer_write(struct hv_ring_buffer_info *outring_info,
 	return 0;
 }
 
-
-/* Read without advancing the read index */
-int hv_ringbuffer_peek(struct hv_ring_buffer_info *Inring_info,
-		   void *Buffer, u32 buflen)
-{
-	u32 bytes_avail_towrite;
-	u32 bytes_avail_toread;
-	u32 next_read_location = 0;
-	unsigned long flags;
-
-	spin_lock_irqsave(&Inring_info->ring_lock, flags);
-
-	hv_get_ringbuffer_availbytes(Inring_info,
-				&bytes_avail_toread,
-				&bytes_avail_towrite);
-
-	/* Make sure there is something to read */
-	if (bytes_avail_toread < buflen) {
-
-		spin_unlock_irqrestore(&Inring_info->ring_lock, flags);
-
-		return -EAGAIN;
-	}
-
-	/* Convert to byte offset */
-	next_read_location = hv_get_next_read_location(Inring_info);
-
-	next_read_location = hv_copyfrom_ringbuffer(Inring_info,
-						Buffer,
-						buflen,
-						next_read_location);
-
-	spin_unlock_irqrestore(&Inring_info->ring_lock, flags);
-
-	return 0;
-}
-
 void hv_get_ringbuffer_available_space(struct hv_ring_buffer_info *inring_info,
 				       u32 *bytes_avail_toread,
 				       u32 *bytes_avail_towrite)
@@ -432,9 +395,9 @@ void hv_get_ringbuffer_available_space(struct hv_ring_buffer_info *inring_info,
 	spin_unlock_irqrestore(&inring_info->ring_lock, flags);
 }
 
-/* Read and advance the read index */
-int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info, void *buffer,
-		   u32 buflen, u32 offset, bool *signal)
+static inline int __hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info,
+					void *buffer, u32 buflen, u32 offset,
+					bool *signal, bool advance)
 {
 	u32 bytes_avail_towrite;
 	u32 bytes_avail_toread;
@@ -466,6 +429,9 @@ int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info, void *buffer,
 						buflen,
 						next_read_location);
 
+	if (!advance)
+		goto out_unlock;
+
 	next_read_location = hv_copyfrom_ringbuffer(inring_info,
 						&prev_indices,
 						sizeof(u64),
@@ -480,9 +446,27 @@ int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info, void *buffer,
 	/* Update the read index */
 	hv_set_next_read_location(inring_info, next_read_location);
 
-	spin_unlock_irqrestore(&inring_info->ring_lock, flags);
-
 	*signal = hv_need_to_signal_on_read(bytes_avail_towrite, inring_info);
 
+out_unlock:
+	spin_unlock_irqrestore(&inring_info->ring_lock, flags);
 	return 0;
 }
+
+/* Read from ring buffer without advancing the read index. */
+int hv_ringbuffer_peek(struct hv_ring_buffer_info *inring_info,
+		       void *buffer, u32 buflen)
+{
+	return __hv_ringbuffer_read(inring_info, buffer, buflen,
+				    0, NULL, false);
+}
+
+/* Read from ring buffer and advance the read index. */
+int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info,
+		       void *buffer, u32 buflen, u32 offset,
+		       bool *signal)
+{
+	return __hv_ringbuffer_read(inring_info, buffer, buflen,
+				    offset, signal, true);
+}
+
