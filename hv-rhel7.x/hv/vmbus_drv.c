@@ -44,7 +44,9 @@
 static struct acpi_device  *hv_acpi_dev;
 
 static struct completion probe_event;
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 static int irq;
+#endif
 
 int hyperv_panic_event(struct notifier_block *nb,
                         unsigned long event, void *ptr)
@@ -889,7 +891,11 @@ static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc)
  *	- get the irq resource
  *	- retrieve the channel offers
  */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2))
+static int vmbus_bus_init()
+#else
 static int vmbus_bus_init(int irq)
+#endif
 {
 	int ret;
 
@@ -1104,10 +1110,11 @@ static acpi_status vmbus_walk_resources(struct acpi_resource *res, void *ctx)
 	struct resource **prev_res = NULL;
 
 	switch (res->type) {
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 	case ACPI_RESOURCE_TYPE_IRQ:
 		irq = res->data.irq.interrupts[0];
 		return AE_OK;
-
+#endif
 	/*
 	 * "Address" descriptors are for bus windows. Ignore
 	 * "memory" descriptors, which are for registers on
@@ -1358,7 +1365,7 @@ static int __init hv_acpi_init(void)
 	init_completion(&probe_event);
 
 	/*
-	 * Get irq resources first.
+	 * Get ACPI/irq resources first.
 	 */
 	ret = acpi_bus_register_driver(&vmbus_acpi_driver);
 
@@ -1371,12 +1378,16 @@ static int __init hv_acpi_init(void)
 		goto cleanup;
 	}
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 	if (irq <= 0) {
 		ret = -ENODEV;
 		goto cleanup;
 	}
 
 	ret = vmbus_bus_init(irq);
+#else
+	ret = vmbus_bus_init();
+#endif
 	if (ret)
 		goto cleanup;
 
