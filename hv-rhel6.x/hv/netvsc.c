@@ -871,7 +871,6 @@ int netvsc_send(struct hv_device *device,
 	out_channel = get_channel(packet, net_device);
 	q_idx = packet->q_idx;
 	
-	packet->channel = out_channel;
 	packet->send_buf_index = NETVSC_INVALID_INDEX;
 	packet->cp_partial = false;
 
