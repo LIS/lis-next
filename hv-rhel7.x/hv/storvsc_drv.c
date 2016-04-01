@@ -182,15 +182,18 @@ static int vmstor_proto_version;
 static int logging_level = STORVSC_LOGGING_ERROR;
 module_param(logging_level, int, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(logging_level,
-	"Logging level, "
-	"0 - None, "
-	"1 - Error (default), "
-	"2 - Warning.");
+	"Logging level, 0 - None, 1 - Error (default), 2 - Warning.");
 
-inline static bool do_logging(int level)
+static inline bool do_logging(int level)
 {
-	return (logging_level >= level) ? true : false;
+	return logging_level >= level;
 }
+
+#define storvsc_log(dev, level, fmt, ...)			\
+do {								\
+	if (do_logging(level))					\
+		dev_warn(&(dev)->device, fmt, ##__VA_ARGS__);	\
+} while (0)
 
 struct vmscsi_win8_extension {
 	/*
@@ -1274,9 +1277,10 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request,
 
 	scmnd->result = vm_srb->scsi_status;
 
-	if (scmnd->result && do_logging(STORVSC_LOGGING_ERROR)) {
+	if (scmnd->result) {
 		if (scsi_normalize_sense(scmnd->sense_buffer,
-				SCSI_SENSE_BUFFERSIZE, &sense_hdr))
+				SCSI_SENSE_BUFFERSIZE, &sense_hdr) &&
+		    do_logging(STORVSC_LOGGING_ERROR))
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1793)
 			scsi_print_sense_hdr(scmnd->device, "storvsc",
 					     &sense_hdr);
@@ -1329,6 +1333,7 @@ static void storvsc_on_io_completion(struct storvsc_device *stor_device,
 				  struct storvsc_cmd_request *request)
 {
 	struct vstor_packet *stor_pkt;
+	struct hv_device *device = stor_device->device;
 
 	stor_pkt = &request->vstor_packet;
 
@@ -1356,12 +1361,23 @@ static void storvsc_on_io_completion(struct storvsc_device *stor_device,
 	stor_pkt->vm_srb.sense_info_length =
 	vstor_packet->vm_srb.sense_info_length;
 
+	if (vstor_packet->vm_srb.scsi_status != 0 ||
+	    vstor_packet->vm_srb.srb_status != SRB_STATUS_SUCCESS)
+		storvsc_log(device, STORVSC_LOGGING_WARN,
+			"cmd 0x%x scsi status 0x%x srb status 0x%x\n",
+			stor_pkt->vm_srb.cdb[0],
+			vstor_packet->vm_srb.scsi_status,
+			vstor_packet->vm_srb.srb_status);
 
 	if ((vstor_packet->vm_srb.scsi_status & 0xFF) == 0x02) {
 		/* CHECK_CONDITION */
 		if (vstor_packet->vm_srb.srb_status &
 			SRB_STATUS_AUTOSENSE_VALID) {
 			/* autosense data available */
+
+			storvsc_log(device, STORVSC_LOGGING_WARN,
+				"stor pkt %p autosense data valid - len %d\n",
+				request, vstor_packet->vm_srb.sense_info_length);
 
 			memcpy(request->sense_buffer,
 			       vstor_packet->vm_srb.sense_data,
