@@ -749,7 +749,7 @@ static inline int netvsc_send_pkt(
 	struct netvsc_device *net_device)
 {
 	struct nvsp_message nvmsg;
-	struct vmbus_channel *out_channel = get_channel(packet, net_device);;
+	struct vmbus_channel *out_channel = get_channel(packet, net_device);
 	u16 q_idx = packet->q_idx;
 	struct net_device *ndev = net_device->ndev;
 	u64 req_id;

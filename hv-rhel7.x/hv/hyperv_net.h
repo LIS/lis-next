@@ -141,7 +141,6 @@ struct hv_netvsc_packet {
 	u32 send_buf_index;
 	u32 total_data_buflen;
 	u32 pad1;
-	u16 q_idx;
 
 	u64 send_completion_tid;
 	void *send_completion_ctx;
