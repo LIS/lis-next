@@ -525,13 +525,11 @@ struct storvsc_scan_work {
 static void storvsc_device_scan(struct work_struct *work)
 {
 	struct storvsc_scan_work *wrk;
-	uint lun;
 	struct scsi_device *sdev;
 
 	wrk = container_of(work, struct storvsc_scan_work, work);
-	lun = wrk->lun;
 
-	sdev = scsi_device_lookup(wrk->host, 0, wrk->tgt_id, lun);
+	sdev = scsi_device_lookup(wrk->host, 0, wrk->tgt_id, wrk->lun);
 	if (!sdev)
 		goto done;
 	scsi_rescan_device(&sdev->sdev_gendev);
