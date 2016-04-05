@@ -44,8 +44,9 @@
 static struct acpi_device  *hv_acpi_dev;
 
 static struct completion probe_event;
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 static int irq;
-
+#endif
 
 int hyperv_panic_event(struct notifier_block *nb,
                         unsigned long event, void *ptr)
@@ -657,7 +658,7 @@ static struct bus_type  hv_bus = {
 	.dev_groups =		vmbus_groups,
 };
 
-#if (RHEL_RELEASE_CODE < 1794)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 static const char *driver_name = "hyperv";
 #endif
 
@@ -762,7 +763,7 @@ msg_handled:
 	}
 }
 
-#if (RHEL_RELEASE_CODE >=1794 ) /* KYS; we may have to tweak this */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) /* KYS; we may have to tweak this */
 static void vmbus_isr(void)
 #else
 static irqreturn_t vmbus_isr(int irq, void *dev_id)
@@ -776,7 +777,7 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id)
 
 	page_addr = hv_context.synic_event_page[cpu];
 	if (page_addr == NULL)
-#if (RHEL_RELEASE_CODE >=1794 ) /* KYS; we may have to tweak this */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) /* KYS; we may have to tweak this */
 		return;
 #else
 		return IRQ_NONE;
@@ -822,7 +823,7 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id)
 		else
 			tasklet_schedule(hv_context.msg_dpc[cpu]);
 	}
-#if (RHEL_RELEASE_CODE >=1794 ) /* KYS; we may have to tweak this */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) /* KYS; we may have to tweak this */
 	return;
 #else
 	if (handled)
@@ -867,7 +868,7 @@ static void hv_cpu_hotplug_quirk(bool vmbus_loaded)
 #endif
 
 
-#if (RHEL_RELEASE_CODE < 1794)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 /*
  * vmbus interrupt flow handler:
  * vmbus interrupts can concurrently occur on multiple CPUs and
@@ -890,7 +891,11 @@ static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc)
  *	- get the irq resource
  *	- retrieve the channel offers
  */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2))
+static int vmbus_bus_init(void)
+#else
 static int vmbus_bus_init(int irq)
+#endif
 {
 	int ret;
 
@@ -905,7 +910,7 @@ static int vmbus_bus_init(int irq)
 	if (ret)
 		goto err_cleanup;
 
-#if (RHEL_RELEASE_CODE >=1794 ) /* KYS; we may have to tweak this */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) /* KYS; we may have to tweak this */
 	hv_setup_vmbus_irq(vmbus_isr);
 
 #else
@@ -954,13 +959,13 @@ err_connect:
 	on_each_cpu(hv_synic_cleanup, NULL, 1);
 err_alloc:
 	hv_synic_free();
-#if (RHEL_RELEASE_CODE >=1794 ) /* KYS; we may have to tweak this */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) /* KYS; we may have to tweak this */
 	hv_remove_vmbus_irq();
 #else
 	free_irq(irq, hv_acpi_dev);
 #endif
 
-#if (RHEL_RELEASE_CODE < 1794)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 err_unregister:
 #endif
 	bus_unregister(&hv_bus);
@@ -1105,10 +1110,11 @@ static acpi_status vmbus_walk_resources(struct acpi_resource *res, void *ctx)
 	struct resource **prev_res = NULL;
 
 	switch (res->type) {
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 	case ACPI_RESOURCE_TYPE_IRQ:
 		irq = res->data.irq.interrupts[0];
 		return AE_OK;
-
+#endif
 	/*
 	 * "Address" descriptors are for bus windows. Ignore
 	 * "memory" descriptors, which are for registers on
@@ -1359,7 +1365,7 @@ static int __init hv_acpi_init(void)
 	init_completion(&probe_event);
 
 	/*
-	 * Get irq resources first.
+	 * Get ACPI/irq resources first.
 	 */
 	ret = acpi_bus_register_driver(&vmbus_acpi_driver);
 
@@ -1372,12 +1378,16 @@ static int __init hv_acpi_init(void)
 		goto cleanup;
 	}
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 	if (irq <= 0) {
 		ret = -ENODEV;
 		goto cleanup;
 	}
 
 	ret = vmbus_bus_init(irq);
+#else
+	ret = vmbus_bus_init();
+#endif
 	if (ret)
 		goto cleanup;
 

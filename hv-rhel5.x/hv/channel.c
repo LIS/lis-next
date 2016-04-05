@@ -67,7 +67,7 @@ void vmbus_get_debug_info(struct vmbus_channel *channel,
 			struct vmbus_channel_debug_info *debuginfo)
 {
 	struct hv_monitor_page *monitorpage;
-	u8 monitor_group = (u8)channel->offermsg.monitorid / 32;
+	u8 monitor_group = (u8)channel->offermsg.monitorid / 64;
 	u8 monitor_offset = (u8)channel->offermsg.monitorid % 32;
 
 	debuginfo->relid = channel->offermsg.child_relid;
