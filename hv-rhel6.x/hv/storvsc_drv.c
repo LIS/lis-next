@@ -171,26 +171,25 @@ static int sense_buffer_size = PRE_WIN8_STORVSC_SENSE_BUFFER_SIZE;
 */
 static int vmstor_proto_version;
 
-/*
- * Divergence from upstream:
- * This logging should be added to upstream.
- */
-#define STORVSC_LOGGING_NONE   0
-#define STORVSC_LOGGING_ERROR  1
-#define STORVSC_LOGGING_WARN   2
+#define STORVSC_LOGGING_NONE	0
+#define STORVSC_LOGGING_ERROR	1
+#define STORVSC_LOGGING_WARN	2
 
 static int logging_level = STORVSC_LOGGING_ERROR;
 module_param(logging_level, int, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(logging_level,
-	"Logging level, "
-	"0 - None, "
-	"1 - Error (default), "
-	"2 - Warning.");
+	"Logging level, 0 - None, 1 - Error (default), 2 - Warning.");
 
-inline static bool do_logging(int level)
+static inline bool do_logging(int level)
 {
-	return (logging_level >= level) ? true : false;
+	return logging_level >= level;
 }
+
+#define storvsc_log(dev, level, fmt, ...)			\
+do {								\
+	if (do_logging(level))					\
+		dev_warn(&(dev)->device, fmt, ##__VA_ARGS__);	\
+} while (0)
 
 struct vmscsi_win8_extension {
 	/*
@@ -406,7 +405,7 @@ module_param(storvsc_ringbuffer_size, int, S_IRUGO);
 MODULE_PARM_DESC(storvsc_ringbuffer_size, "Ring buffer size (bytes)");
 
 module_param(storvsc_vcpus_per_sub_channel, int, S_IRUGO);
-MODULE_PARM_DESC(vcpus_per_sub_channel, "Ratio of VCPUs to subchannels");
+MODULE_PARM_DESC(storvsc_vcpus_per_sub_channel, "Ratio of VCPUs to subchannels");
 /*
  * Timeout in seconds for all devices managed by this driver.
  */
@@ -521,13 +520,11 @@ struct storvsc_scan_work {
 static void storvsc_device_scan(struct work_struct *work)
 {
 	struct storvsc_scan_work *wrk;
-	uint lun;
 	struct scsi_device *sdev;
 
 	wrk = container_of(work, struct storvsc_scan_work, work);
-	lun = wrk->lun;
 
-	sdev = scsi_device_lookup(wrk->host, 0, wrk->tgt_id, lun);
+	sdev = scsi_device_lookup(wrk->host, 0, wrk->tgt_id, wrk->lun);
 	if (!sdev)
 		goto done;
 	scsi_rescan_device(&sdev->sdev_gendev);
@@ -1215,8 +1212,9 @@ static void storvsc_handle_error(struct vmscsi_request *vm_srb,
 		do_work = true;
 		process_err_fn = storvsc_remove_lun;
 		break;
-	case (SRB_STATUS_ABORTED | SRB_STATUS_AUTOSENSE_VALID):
-		if ((asc == 0x2a) && (ascq == 0x9)) {
+	case SRB_STATUS_ABORTED:
+		if (vm_srb->srb_status & SRB_STATUS_AUTOSENSE_VALID &&
+		    (asc == 0x2a) && (ascq == 0x9)) {
 			do_work = true;
 			process_err_fn = storvsc_device_scan;
 			/*
@@ -1274,9 +1272,10 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request,
 
 	scmnd->result = vm_srb->scsi_status;
 
-	if (scmnd->result && do_logging(STORVSC_LOGGING_ERROR)) {
+	if (scmnd->result) {
 		if (scsi_normalize_sense(scmnd->sense_buffer,
-				SCSI_SENSE_BUFFERSIZE, &sense_hdr))
+				SCSI_SENSE_BUFFERSIZE, &sense_hdr) &&
+		    do_logging(STORVSC_LOGGING_ERROR))
 #ifdef NOTYET
 			// Divergence from upstream commit:
 			// d811b848ebb78a1135658aa20a80e31994df47f7
@@ -1330,7 +1329,7 @@ static void storvsc_on_io_completion(struct storvsc_device *stor_device,
 				  struct storvsc_cmd_request *request)
 {
 	struct vstor_packet *stor_pkt;
-	//struct hv_device *device = stor_device->device;
+	struct hv_device *device = stor_device->device;
 
 	stor_pkt = &request->vstor_packet;
 
@@ -1358,6 +1357,13 @@ static void storvsc_on_io_completion(struct storvsc_device *stor_device,
 	stor_pkt->vm_srb.sense_info_length =
 	vstor_packet->vm_srb.sense_info_length;
 
+	if (vstor_packet->vm_srb.scsi_status != 0 ||
+	    vstor_packet->vm_srb.srb_status != SRB_STATUS_SUCCESS)
+		storvsc_log(device, STORVSC_LOGGING_WARN,
+			"cmd 0x%x scsi status 0x%x srb status 0x%x\n",
+			stor_pkt->vm_srb.cdb[0],
+			vstor_packet->vm_srb.scsi_status,
+			vstor_packet->vm_srb.srb_status);
 
 	if ((vstor_packet->vm_srb.scsi_status & 0xFF) == 0x02) {
 		/* CHECK_CONDITION */
@@ -1365,6 +1371,9 @@ static void storvsc_on_io_completion(struct storvsc_device *stor_device,
 			SRB_STATUS_AUTOSENSE_VALID) {
 			/* autosense data available */
 
+			storvsc_log(device, STORVSC_LOGGING_WARN,
+				"stor pkt %p autosense data valid - len %d\n",
+				request, vstor_packet->vm_srb.sense_info_length);
 			memcpy(request->sense_buffer,
 			       vstor_packet->vm_srb.sense_data,
 			       vstor_packet->vm_srb.sense_info_length);
