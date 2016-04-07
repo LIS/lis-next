@@ -240,4 +240,12 @@ typedef struct _HV_REFERENCE_TSC_PAGE {
 
 #define HV_SYNIC_STIMER_COUNT		(4)
 
+/* Define timer message payload structure. */
+struct hv_timer_message_payload {
+	__u32 timer_index;
+	__u32 reserved;
+	__u64 expiration_time;	/* When the timer expired */
+	__u64 delivery_time;	/* When the message was delivered */
+};
+
 #endif
