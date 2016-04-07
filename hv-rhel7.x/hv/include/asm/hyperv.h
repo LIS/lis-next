@@ -238,4 +238,6 @@ typedef struct _HV_REFERENCE_TSC_PAGE {
 	__s64 tsc_offset;
 } HV_REFERENCE_TSC_PAGE, *PHV_REFERENCE_TSC_PAGE;
 
+#define HV_SYNIC_STIMER_COUNT		(4)
+
 #endif

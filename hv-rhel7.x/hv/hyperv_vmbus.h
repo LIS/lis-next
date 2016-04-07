@@ -112,7 +112,6 @@ enum hv_message_type {
 
 /* Define the number of synthetic interrupt sources. */
 #define HV_SYNIC_SINT_COUNT		(16)
-#define HV_SYNIC_STIMER_COUNT		(4)
 
 /* Define invalid partition identifier. */
 #define HV_PARTITION_ID_INVALID		((u64)0x0)
