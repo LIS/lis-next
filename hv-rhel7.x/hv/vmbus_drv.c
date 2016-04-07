@@ -31,8 +31,8 @@
 #include <linux/slab.h>
 #include <linux/acpi.h>
 #include <linux/completion.h>
-#include <asm/mshyperv.h>
 #include "include/linux/hyperv.h"
+#include <asm/mshyperv.h>
 #include <linux/kernel_stat.h>
 #include <linux/clockchips.h>
 #include <linux/cpu.h>
