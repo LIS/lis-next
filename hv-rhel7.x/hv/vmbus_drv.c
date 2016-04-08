@@ -494,9 +494,9 @@ static struct attribute *vmbus_attrs[] = {
 	&dev_attr_in_write_index.attr,
 	&dev_attr_in_read_bytes_avail.attr,
 	&dev_attr_in_write_bytes_avail.attr,
+	&dev_attr_channel_vp_mapping.attr,
 	&dev_attr_vendor.attr,
 	&dev_attr_device.attr,
-	&dev_attr_channel_vp_mapping.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(vmbus);
@@ -1045,7 +1045,7 @@ struct hv_device *vmbus_device_create(const uuid_le *type,
 	memcpy(&child_device_obj->dev_type, type, sizeof(uuid_le));
 	memcpy(&child_device_obj->dev_instance, instance,
 	       sizeof(uuid_le));
-
+	child_device_obj->vendor_id = 0x1414; /* MSFT vendor ID */
 
 	return child_device_obj;
 }
