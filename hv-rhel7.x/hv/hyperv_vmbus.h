@@ -541,7 +541,7 @@ void hv_ringbuffer_cleanup(struct hv_ring_buffer_info *ring_info);
 
 int hv_ringbuffer_write(struct hv_ring_buffer_info *ring_info,
 		    struct kvec *kv_list,
-		    u32 kv_count, bool *signal);
+		    u32 kv_count, bool *signal, bool lock);
 
 void hv_get_ringbuffer_available_space(struct hv_ring_buffer_info *inring_info,
 				       u32 *bytes_avail_toread,
