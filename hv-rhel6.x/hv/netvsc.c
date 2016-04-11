@@ -37,7 +37,6 @@ static struct netvsc_device *alloc_net_device(struct hv_device *device)
 {
 	struct netvsc_device *net_device;
 	struct net_device *ndev = hv_get_drvdata(device);
-	int i;
 
 	net_device = kzalloc(sizeof(struct netvsc_device), GFP_KERNEL);
 	if (!net_device)
@@ -56,9 +55,6 @@ static struct netvsc_device *alloc_net_device(struct hv_device *device)
 	net_device->ndev = ndev;
 	net_device->max_pkt = RNDIS_MAX_PKT_DEFAULT;
 	net_device->pkt_align = RNDIS_PKT_ALIGN_DEFAULT;
-
-	for (i = 0; i < num_online_cpus(); i++)
-		spin_lock_init(&net_device->msd[i].lock);
 
 	hv_set_drvdata(device, net_device);
 	return net_device;
@@ -760,8 +756,8 @@ static inline int netvsc_send_pkt(
 	struct netvsc_device *net_device)
 {
 	struct nvsp_message nvmsg;
-	struct vmbus_channel *out_channel = get_channel(packet, net_device);
 	u16 q_idx = packet->q_idx;
+	struct vmbus_channel *out_channel = net_device->chn_table[q_idx];
 	struct net_device *ndev = net_device->ndev;
 	u64 req_id;
 	int ret;
@@ -861,7 +857,6 @@ int netvsc_send(struct hv_device *device,
 	u16 q_idx = packet->q_idx;
 	u32 pktlen = packet->total_data_buflen, msd_len = 0;
 	unsigned int section_index = NETVSC_INVALID_INDEX;
-	unsigned long flag;
 	struct multi_send_data *msdp;
 	struct hv_netvsc_packet *msd_send = NULL, *cur_send = NULL;
 	bool try_batch;
@@ -870,8 +865,7 @@ int netvsc_send(struct hv_device *device,
 	if (!net_device)
 		return -ENODEV;
 	
-	out_channel = get_channel(packet, net_device);
-	q_idx = packet->q_idx;
+	out_channel = net_device->chn_table[q_idx];
 	
 	packet->send_buf_index = NETVSC_INVALID_INDEX;
 	packet->cp_partial = false;
@@ -879,7 +873,6 @@ int netvsc_send(struct hv_device *device,
 	msdp = &net_device->msd[q_idx];
 
 	/* batch packets in send buffer if possible */
-	spin_lock_irqsave(&msdp->lock, flag);
 	if (msdp->pkt)
 		msd_len = msdp->pkt->total_data_buflen;
 
@@ -938,8 +931,6 @@ int netvsc_send(struct hv_device *device,
 		msdp->count = 0;
 		cur_send = packet;
 	}
-
-	spin_unlock_irqrestore(&msdp->lock, flag);
 
 	if (msd_send) {
 		m_ret = netvsc_send_pkt(msd_send, net_device);

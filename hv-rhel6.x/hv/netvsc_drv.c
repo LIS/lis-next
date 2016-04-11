@@ -308,6 +308,8 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 		skb_set_hash(skb, hash, 0);
 	}
 
+	if (!nvsc_dev->chn_table[q_idx])
+		q_idx = 0;
 	return q_idx;
 }
 

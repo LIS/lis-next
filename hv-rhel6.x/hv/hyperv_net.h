@@ -628,7 +628,6 @@ struct nvsp_message {
 #define RNDIS_PKT_ALIGN_DEFAULT 8
 
 struct multi_send_data {
-	spinlock_t lock; /* protect struct multi_send_data */
 	struct hv_netvsc_packet *pkt; /* netvsc pkt pending */
 	u32 count; /* counter of batched packets */
 };
@@ -1273,17 +1272,5 @@ struct rndis_message {
 #define TRANSPORT_INFO_IPV6_TCP ((INFO_IPV6 << 16) | INFO_TCP)
 #define TRANSPORT_INFO_IPV6_UDP ((INFO_IPV6 << 16) | INFO_UDP)
 
-static inline struct vmbus_channel *get_channel(struct hv_netvsc_packet *packet,
-					struct netvsc_device *net_device)
-{
-	struct vmbus_channel *out_channel;
-
-	out_channel = net_device->chn_table[packet->q_idx];
-	if (!out_channel) {
-		out_channel = net_device->dev->channel;
-		packet->q_idx = 0;
-	}
-	return out_channel;
-}
 
 #endif /* _HYPERV_NET_H */
