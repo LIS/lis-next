@@ -534,7 +534,6 @@ check_size:
 	isvlan = packet->vlan_tci & VLAN_TAG_PRESENT;
 
 	/* Add the rndis header */
-	rndis_msg = packet->rndis_msg;
 	rndis_msg->ndis_msg_type = RNDIS_MSG_PACKET;
 	rndis_msg->msg_len = packet->total_data_buflen;
 	rndis_pkt = &rndis_msg->msg.pkt;
@@ -663,7 +662,7 @@ do_send:
 	packet->page_buf_cnt = init_page_array(rndis_msg, rndis_msg_size,
 					       skb, packet);
 
-	ret = netvsc_send(net_device_ctx->device_ctx, packet);
+	ret = netvsc_send(net_device_ctx->device_ctx, packet, rndis_msg);
 
 drop:
 	if (ret == 0) {
