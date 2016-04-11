@@ -235,8 +235,8 @@ static int rndis_filter_send_request(struct rndis_device *dev,
 		packet->page_buf[1].len = req->request_msg.msg_len -
 			packet->page_buf[0].len;
 	}
-
-	packet->send_completion = NULL;
+	
+	packet->completion_func = 0;
 	packet->xmit_more = false;
 
 	ret = netvsc_send(dev->net_dev->dev, packet, NULL);
