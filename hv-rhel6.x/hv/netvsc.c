@@ -713,7 +713,8 @@ static u32 netvsc_copy_to_send_buf(struct netvsc_device *net_device,
 				   unsigned int section_index,
 				   u32 pend_size,
 				   struct hv_netvsc_packet *packet,
-				   struct rndis_message *rndis_msg)
+				   struct rndis_message *rndis_msg,
+				   struct hv_page_buffer **pb)
 {
 	char *start = net_device->send_buf;
 	char *dest = start + (section_index * net_device->send_section_size)
@@ -734,9 +735,9 @@ static u32 netvsc_copy_to_send_buf(struct netvsc_device *net_device,
 	}
 
 	for (i = 0; i < page_count; i++) {
-		char *src = phys_to_virt(packet->page_buf[i].pfn << PAGE_SHIFT);
-		u32 offset = packet->page_buf[i].offset;
-		u32 len = packet->page_buf[i].len;
+		char *src = phys_to_virt((*pb)[i].pfn << PAGE_SHIFT);
+		u32 offset = (*pb)[i].offset;
+		u32 len = (*pb)[i].len;
 
 		memcpy(dest, (src + offset), len);
 		msg_size += len;
@@ -753,7 +754,8 @@ static u32 netvsc_copy_to_send_buf(struct netvsc_device *net_device,
 
 static inline int netvsc_send_pkt(
 	struct hv_netvsc_packet *packet,
-	struct netvsc_device *net_device)
+	struct netvsc_device *net_device,
+	struct hv_page_buffer **pb)
 {
 	struct nvsp_message nvmsg;
 	u16 q_idx = packet->q_idx;
@@ -800,8 +802,8 @@ static inline int netvsc_send_pkt(
 		packet->xmit_more = false;
 
 	if (packet->page_buf_cnt) {
-		pgbuf = packet->cp_partial ? packet->page_buf +
-			packet->rmsg_pgcnt : packet->page_buf;
+		pgbuf = packet->cp_partial ? (*pb) +
+			packet->rmsg_pgcnt : (*pb);
 		ret = vmbus_sendpacket_pagebuffer_ctl(out_channel,
 						      pgbuf,
 						      packet->page_buf_cnt,
@@ -849,7 +851,8 @@ static inline int netvsc_send_pkt(
 
 int netvsc_send(struct hv_device *device,
 		struct hv_netvsc_packet *packet,
-		struct rndis_message *rndis_msg)
+		struct rndis_message *rndis_msg,
+		struct hv_page_buffer **pb)
 {
 	struct netvsc_device *net_device;
 	int ret = 0, m_ret = 0;
@@ -902,7 +905,7 @@ int netvsc_send(struct hv_device *device,
 	if (section_index != NETVSC_INVALID_INDEX) {
 		netvsc_copy_to_send_buf(net_device,
 					section_index, msd_len,
-					packet, rndis_msg);
+					packet, rndis_msg, pb);
 
 		packet->send_buf_index = section_index;
 
@@ -933,7 +936,7 @@ int netvsc_send(struct hv_device *device,
 	}
 
 	if (msd_send) {
-		m_ret = netvsc_send_pkt(msd_send, net_device);
+		m_ret = netvsc_send_pkt(msd_send, net_device, pb);
 
 		if (m_ret != 0) {
 			netvsc_free_send_slot(net_device,
@@ -943,7 +946,7 @@ int netvsc_send(struct hv_device *device,
 	}
 
 	if (cur_send)
-		ret = netvsc_send_pkt(cur_send, net_device);
+		ret = netvsc_send_pkt(cur_send, net_device, pb);
 
 	if (ret != 0 && section_index != NETVSC_INVALID_INDEX)
 		netvsc_free_send_slot(net_device, section_index);
