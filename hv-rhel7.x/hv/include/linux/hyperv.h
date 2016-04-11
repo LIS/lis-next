@@ -1406,21 +1406,14 @@ int vmbus_send_tl_connect_request(const uuid_le *shv_guest_servie_id,
 				  const uuid_le *shv_host_servie_id);
 struct vmpipe_proto_header {
 	u32 pkt_type;
-
-	union {
-		u32 data_size;
-		struct {
-			u16 data_size;
-			u16 offset;
-		} partial;
-	};
+	u32 data_size;
 } __packed;
-
-/* see hv_ringbuffer_read() and hv_ringbuffer_write() */
-#define PREV_INDICES_LEN	(sizeof(u64))
 
 #define HVSOCK_HEADER_LEN	(sizeof(struct vmpacket_descriptor) + \
 				 sizeof(struct vmpipe_proto_header))
+
+/* See 'prev_indices' hv_ringbuffer_read() and hv_ringbuffer_write() */
+#define PREV_INDICES_LEN	(sizeof(u64))
 
 #define HVSOCK_PKT_LEN(payload_len)	(HVSOCK_HEADER_LEN + \
 					ALIGN((payload_len), 8) + \
