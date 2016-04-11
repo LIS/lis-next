@@ -307,6 +307,10 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 			ndev->real_num_tx_queues;
 		skb_set_hash(skb, hash, PKT_HASH_TYPE_L3);
 	}
+	
+	if (!nvsc_dev->chn_table[q_idx])
+		q_idx = 0;
+	
 	return q_idx;
 }
 
