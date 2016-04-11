@@ -182,7 +182,7 @@ struct rndis_message;
 int netvsc_device_add(struct hv_device *device, void *additional_info);
 int netvsc_device_remove(struct hv_device *device);
 int netvsc_send(struct hv_device *device,
-		struct hv_netvsc_packet *packet);
+		struct hv_netvsc_packet *packet,
 		struct rndis_message *rndis_msg);
 void netvsc_linkstatus_callback(struct hv_device *device_obj,
 				struct rndis_message *resp);
