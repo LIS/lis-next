@@ -522,9 +522,9 @@ check_size:
 	packet->is_data_pkt = true;
 	packet->total_data_buflen = skb->len;
 
-	packet->rndis_msg = (struct rndis_message *)((unsigned long)packet +
+	rndis_msg = (struct rndis_message *)((unsigned long)packet +
 				sizeof(struct hv_netvsc_packet));
-	memset(packet->rndis_msg, 0, RNDIS_AND_PPI_SIZE);
+	memset(rndis_msg, 0, RNDIS_AND_PPI_SIZE);
 
 	/* Set the completion routine */
 	packet->send_completion = netvsc_xmit_completion;
