@@ -8,7 +8,7 @@
 #define CN_VSS_IDX	0xA
 #define CN_VSS_VAL	0x1
 
-#define HV_DRV_VERSION  "4.1.0-RC2"
+#define HV_DRV_VERSION  "4.1.0"
 
 #ifndef O_CLOEXEC
 #define O_CLOEXEC       02000000        /* set close_on_exec */
@@ -483,6 +483,35 @@ static inline void  netif_notify_peers(struct net_device *net)
 	rcu_read_unlock();
 }
 #endif
+
+/**
+ * memdup_user - duplicate memory region from user space
+ *
+ * @src: source address in user space
+ * @len: number of bytes to copy
+ *
+ * Returns an ERR_PTR() on failure.
+ */
+static inline void *memdup_user(const void __user *src, size_t len)
+{
+	void *p;
+
+	/*
+	 * Always use GFP_KERNEL, since copy_from_user() can sleep and
+	 * cause pagefault, which makes it pointless to use GFP_NOFS
+	 * or GFP_ATOMIC.
+	 */
+	p = kmalloc(len, GFP_KERNEL);
+	if (!p)
+		return ERR_PTR(-ENOMEM);
+
+	if (copy_from_user(p, src, len)) {
+		kfree(p);
+		return ERR_PTR(-EFAULT);
+	}
+
+	return p;
+}
 
 #endif
 #endif

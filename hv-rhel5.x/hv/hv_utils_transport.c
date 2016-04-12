@@ -27,9 +27,11 @@ static struct list_head hvt_list = LIST_HEAD_INIT(hvt_list);
 
 static void hvt_reset(struct hvutil_transport *hvt)
 {
+	mutex_lock(&hvt->outmsg_lock);
 	kfree(hvt->outmsg);
 	hvt->outmsg = NULL;
 	hvt->outmsg_len = 0;
+	mutex_unlock(&hvt->outmsg_lock);
 	if (hvt->on_reset)
 		hvt->on_reset();
 }
@@ -42,17 +44,10 @@ static ssize_t hvt_op_read(struct file *file, char __user *buf,
 
 	hvt = container_of(file->f_op, struct hvutil_transport, fops);
 
-	if (wait_event_interruptible(hvt->outmsg_q, hvt->outmsg_len > 0 ||
-				     hvt->mode != HVUTIL_TRANSPORT_CHARDEV))
+	if (wait_event_interruptible(hvt->outmsg_q, hvt->outmsg_len > 0))
 		return -EINTR;
 
-	mutex_lock(&hvt->lock);
-
-	if (hvt->mode == HVUTIL_TRANSPORT_DESTROY) {
-		ret = -EBADF;
-		goto out_unlock;
-	}
-
+	mutex_lock(&hvt->outmsg_lock);
 	if (!hvt->outmsg) {
 		ret = -EAGAIN;
 		goto out_unlock;
@@ -73,7 +68,7 @@ static ssize_t hvt_op_read(struct file *file, char __user *buf,
 	hvt->outmsg_len = 0;
 
 out_unlock:
-	mutex_unlock(&hvt->lock);
+	mutex_unlock(&hvt->outmsg_lock);
 	return ret;
 }
 
@@ -82,7 +77,6 @@ static ssize_t hvt_op_write(struct file *file, const char __user *buf,
 {
 	struct hvutil_transport *hvt;
 	u8 *inmsg;
-	int ret;
 
 	hvt = container_of(file->f_op, struct hvutil_transport, fops);
 
@@ -90,14 +84,11 @@ static ssize_t hvt_op_write(struct file *file, const char __user *buf,
 	if (IS_ERR(inmsg))
 		return PTR_ERR(inmsg);
 
-	if (hvt->mode == HVUTIL_TRANSPORT_DESTROY)
-		ret = -EBADF;
-	else
-		ret = hvt->on_msg(inmsg, count);
-
+	if (hvt->on_msg(inmsg, count))
+		return -EFAULT;
 	kfree(inmsg);
 
-	return ret ? ret : count;
+	return count;
 }
 
 static unsigned int hvt_op_poll(struct file *file, poll_table *wait)
@@ -107,10 +98,6 @@ static unsigned int hvt_op_poll(struct file *file, poll_table *wait)
 	hvt = container_of(file->f_op, struct hvutil_transport, fops);
 
 	poll_wait(file, &hvt->outmsg_q, wait);
-
-	if (hvt->mode == HVUTIL_TRANSPORT_DESTROY)
-		return POLLERR | POLLHUP;
-
 	if (hvt->outmsg_len > 0)
 		return POLLIN | POLLRDNORM;
 
@@ -120,75 +107,48 @@ static unsigned int hvt_op_poll(struct file *file, poll_table *wait)
 static int hvt_op_open(struct inode *inode, struct file *file)
 {
 	struct hvutil_transport *hvt;
-	int ret = 0;
-	bool issue_reset = false;
 
 	hvt = container_of(file->f_op, struct hvutil_transport, fops);
 
-	mutex_lock(&hvt->lock);
-
-	if (hvt->mode == HVUTIL_TRANSPORT_DESTROY) {
-		ret = -EBADF;
-	} else if (hvt->mode == HVUTIL_TRANSPORT_INIT) {
-		/*
-		 * Switching to CHARDEV mode. We switch bach to INIT when
-		 * device gets released.
-		 */
+	/*
+	 * Switching to CHARDEV mode. We switch bach to INIT when device
+	 * gets released.
+	 */
+	if (hvt->mode == HVUTIL_TRANSPORT_INIT)
 		hvt->mode = HVUTIL_TRANSPORT_CHARDEV;
-	}
 	else if (hvt->mode == HVUTIL_TRANSPORT_NETLINK) {
 		/*
 		 * We're switching from netlink communication to using char
 		 * device. Issue the reset first.
 		 */
-		issue_reset = true;
-		hvt->mode = HVUTIL_TRANSPORT_CHARDEV;
-	} else {
-		ret = -EBUSY;
-	}
-
-	if (issue_reset)
 		hvt_reset(hvt);
+		hvt->mode = HVUTIL_TRANSPORT_CHARDEV;
+	} else
+		return -EBUSY;
 
-	mutex_unlock(&hvt->lock);
-
-	return ret;
-}
-
-static void hvt_transport_free(struct hvutil_transport *hvt)
-{
-	misc_deregister(&hvt->mdev);
-	kfree(hvt->outmsg);
-	kfree(hvt);
+	return 0;
 }
 
 static int hvt_op_release(struct inode *inode, struct file *file)
 {
 	struct hvutil_transport *hvt;
-	int mode_old;
 
 	hvt = container_of(file->f_op, struct hvutil_transport, fops);
 
-	mutex_lock(&hvt->lock);
-	mode_old = hvt->mode;
-	if (hvt->mode != HVUTIL_TRANSPORT_DESTROY)
-		hvt->mode = HVUTIL_TRANSPORT_INIT;
+	hvt->mode = HVUTIL_TRANSPORT_INIT;
 	/*
 	 * Cleanup message buffers to avoid spurious messages when the daemon
 	 * connects back.
 	 */
 	hvt_reset(hvt);
-	mutex_unlock(&hvt->lock);
-
-	if (mode_old == HVUTIL_TRANSPORT_DESTROY)
-		hvt_transport_free(hvt);
 
 	return 0;
 }
 
-static void hvt_cn_callback(struct cn_msg *msg, struct netlink_skb_parms *nsp)
+static void hvt_cn_callback(void * data)
 {
 	struct hvutil_transport *hvt, *hvt_found = NULL;
+	struct cn_msg *msg = (struct cn_msg *)data;
 
 	spin_lock(&hvt_list_lock);
 	list_for_each_entry(hvt, &hvt_list, list) {
@@ -208,7 +168,6 @@ static void hvt_cn_callback(struct cn_msg *msg, struct netlink_skb_parms *nsp)
 	 * Switching to NETLINK mode. Switching to CHARDEV happens when someone
 	 * opens the device.
 	 */
-	mutex_lock(&hvt->lock);
 	if (hvt->mode == HVUTIL_TRANSPORT_INIT)
 		hvt->mode = HVUTIL_TRANSPORT_NETLINK;
 
@@ -216,7 +175,6 @@ static void hvt_cn_callback(struct cn_msg *msg, struct netlink_skb_parms *nsp)
 		hvt_found->on_msg(msg->data, msg->len);
 	else
 		pr_warn("hvt_cn_callback: unexpected netlink message!\n");
-	mutex_unlock(&hvt->lock);
 }
 
 int hvutil_transport_send(struct hvutil_transport *hvt, void *msg, int len)
@@ -224,8 +182,7 @@ int hvutil_transport_send(struct hvutil_transport *hvt, void *msg, int len)
 	struct cn_msg *cn_msg;
 	int ret = 0;
 
-	if (hvt->mode == HVUTIL_TRANSPORT_INIT ||
-	    hvt->mode == HVUTIL_TRANSPORT_DESTROY) {
+	if (hvt->mode == HVUTIL_TRANSPORT_INIT) {
 		return -EINVAL;
 	} else if (hvt->mode == HVUTIL_TRANSPORT_NETLINK) {
 		cn_msg = kzalloc(sizeof(*cn_msg) + len, GFP_ATOMIC);
@@ -240,12 +197,7 @@ int hvutil_transport_send(struct hvutil_transport *hvt, void *msg, int len)
 		return ret;
 	}
 	/* HVUTIL_TRANSPORT_CHARDEV */
-	mutex_lock(&hvt->lock);
-	if (hvt->mode != HVUTIL_TRANSPORT_CHARDEV) {
-		ret = -EINVAL;
-		goto out_unlock;
-	}
-
+	mutex_lock(&hvt->outmsg_lock);
 	if (hvt->outmsg) {
 		/* Previous message wasn't received */
 		ret = -EFAULT;
@@ -259,7 +211,7 @@ int hvutil_transport_send(struct hvutil_transport *hvt, void *msg, int len)
 	} else
 		ret = -ENOMEM;
 out_unlock:
-	mutex_unlock(&hvt->lock);
+	mutex_unlock(&hvt->outmsg_lock);
 	return ret;
 }
 
@@ -290,7 +242,7 @@ struct hvutil_transport *hvutil_transport_init(char *name,
 	hvt->mdev.fops = &hvt->fops;
 
 	init_waitqueue_head(&hvt->outmsg_q);
-	mutex_init(&hvt->lock);
+	mutex_init(&hvt->outmsg_lock);
 
 	spin_lock(&hvt_list_lock);
 	list_add(&hvt->list, &hvt_list);
@@ -319,25 +271,12 @@ err_free_hvt:
 
 void hvutil_transport_destroy(struct hvutil_transport *hvt)
 {
-	int mode_old;
-
-	mutex_lock(&hvt->lock);
-	mode_old = hvt->mode;
-	hvt->mode = HVUTIL_TRANSPORT_DESTROY;
-	wake_up_interruptible(&hvt->outmsg_q);
-	mutex_unlock(&hvt->lock);
-
-	/*
-	 * In case we were in 'chardev' mode we still have an open fd so we
-	 * have to defer freeing the device. Netlink interface can be freed
-	 * now.
-	 */
 	spin_lock(&hvt_list_lock);
 	list_del(&hvt->list);
 	spin_unlock(&hvt_list_lock);
 	if (hvt->cn_id.idx > 0 && hvt->cn_id.val > 0)
 		cn_del_callback(&hvt->cn_id);
-
-	if (mode_old != HVUTIL_TRANSPORT_CHARDEV)
-		hvt_transport_free(hvt);
+	misc_deregister(&hvt->mdev);
+	kfree(hvt->outmsg);
+	kfree(hvt);
 }

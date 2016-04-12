@@ -149,8 +149,6 @@ hv_get_ringbuffer_availbytes(struct hv_ring_buffer_info *rbi,
 {
 	u32 read_loc, write_loc, dsize;
 
-	smp_read_barrier_depends();
-
 	/* Capture the read/write indices before they changed */
 	read_loc = rbi->ring_buffer->read_index;
 	write_loc = rbi->ring_buffer->write_index;
@@ -1296,6 +1294,7 @@ u64 hv_do_hypercall(u64 control, void *input, void *output);
 
 struct hv_util_service {
 	u8 *recv_buffer;
+	void *channel;
 	void (*util_cb)(void *);
 	int (*util_init)(struct hv_util_service *);
 	void (*util_deinit)(void);

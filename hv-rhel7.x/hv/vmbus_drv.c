@@ -31,8 +31,8 @@
 #include <linux/slab.h>
 #include <linux/acpi.h>
 #include <linux/completion.h>
-#include <asm/mshyperv.h>
 #include "include/linux/hyperv.h"
+#include <asm/mshyperv.h>
 #include <linux/kernel_stat.h>
 #include <linux/clockchips.h>
 #include <linux/cpu.h>
@@ -43,10 +43,10 @@
 
 static struct acpi_device  *hv_acpi_dev;
 
-static struct tasklet_struct msg_dpc;
 static struct completion probe_event;
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 static int irq;
-
+#endif
 
 int hyperv_panic_event(struct notifier_block *nb,
                         unsigned long event, void *ptr)
@@ -494,9 +494,9 @@ static struct attribute *vmbus_attrs[] = {
 	&dev_attr_in_write_index.attr,
 	&dev_attr_in_read_bytes_avail.attr,
 	&dev_attr_in_write_bytes_avail.attr,
+	&dev_attr_channel_vp_mapping.attr,
 	&dev_attr_vendor.attr,
 	&dev_attr_device.attr,
-	&dev_attr_channel_vp_mapping.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(vmbus);
@@ -658,7 +658,7 @@ static struct bus_type  hv_bus = {
 	.dev_groups =		vmbus_groups,
 };
 
-#if (RHEL_RELEASE_CODE < 1794)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 static const char *driver_name = "hyperv";
 #endif
 
@@ -687,28 +687,10 @@ static void hv_process_timer_expiration(struct hv_message *msg, int cpu)
 	if (dev->event_handler)
 		dev->event_handler(dev);
 
-	msg->header.message_type = HVMSG_NONE;
-
-	/*
-	 * Make sure the write to MessageType (ie set to
-	 * HVMSG_NONE) happens before we read the
-	 * MessagePending and EOMing. Otherwise, the EOMing
-	 * will not deliver any more messages since there is
-	 * no empty slot
-	 */
-	mb();
-
-	if (msg->header.message_flags.msg_pending) {
-		/*
-		 * This will cause message queue rescan to
-		 * possibly deliver another msg from the
-		 * hypervisor
-		 */
-		wrmsrl(HV_X64_MSR_EOM, 0);
-	}
+	vmbus_signal_eom(msg);
 }
 
-static void vmbus_on_msg_dpc(unsigned long data)
+void vmbus_on_msg_dpc(unsigned long data)
 {
 	int cpu = smp_processor_id();
 	void *page_addr = hv_context.synic_message_page[cpu];
@@ -718,52 +700,36 @@ static void vmbus_on_msg_dpc(unsigned long data)
 	struct vmbus_channel_message_table_entry *entry;
 	struct onmessage_work_context *ctx;
 
-	while (1) {
-		if (msg->header.message_type == HVMSG_NONE)
-			/* no msg */
-			break;
-		hdr = (struct vmbus_channel_message_header *)msg->u.payload;
+	if (msg->header.message_type == HVMSG_NONE)
+		/* no msg */
+		return;
 
-		if (hdr->msgtype >= CHANNELMSG_COUNT) {
-			WARN_ONCE(1, "unknown msgtype=%d\n", hdr->msgtype);
-			goto msg_handled;
-		}
+	hdr = (struct vmbus_channel_message_header *)msg->u.payload;
 
-		entry = &channel_message_table[hdr->msgtype];
-		if (entry->handler_type	== VMHT_BLOCKING) {
-			ctx = kmalloc(sizeof(*ctx), GFP_ATOMIC);
-			if (ctx == NULL)
-				continue;
-			INIT_WORK(&ctx->work, vmbus_onmessage_work);
-			memcpy(&ctx->msg, msg, sizeof(*msg));
-			queue_work(vmbus_connection.work_queue, &ctx->work);
-		} else
-			entry->message_handler(hdr);
+	if (hdr->msgtype >= CHANNELMSG_COUNT) {
+		WARN_ONCE(1, "unknown msgtype=%d\n", hdr->msgtype);
+		goto msg_handled;
+	}
+
+	entry = &channel_message_table[hdr->msgtype];
+	if (entry->handler_type == VMHT_BLOCKING) {
+		ctx = kmalloc(sizeof(*ctx), GFP_ATOMIC);
+		if (ctx == NULL)
+			return;
+
+
+		INIT_WORK(&ctx->work, vmbus_onmessage_work);
+		memcpy(&ctx->msg, msg, sizeof(*msg));
+
+		queue_work(vmbus_connection.work_queue, &ctx->work);
+	} else
+		entry->message_handler(hdr);
 
 msg_handled:
-		msg->header.message_type = HVMSG_NONE;
-
-		/*
-		 * Make sure the write to MessageType (ie set to
-		 * HVMSG_NONE) happens before we read the
-		 * MessagePending and EOMing. Otherwise, the EOMing
-		 * will not deliver any more messages since there is
-		 * no empty slot
-		 */
-		mb();
-
-		if (msg->header.message_flags.msg_pending) {
-			/*
-			 * This will cause message queue rescan to
-			 * possibly deliver another msg from the
-			 * hypervisor
-			 */
-			wrmsrl(HV_X64_MSR_EOM, 0);
-		}
-	}
+	vmbus_signal_eom(msg);
 }
 
-#if (RHEL_RELEASE_CODE >=1794 ) /* KYS; we may have to tweak this */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) /* KYS; we may have to tweak this */
 static void vmbus_isr(void)
 #else
 static irqreturn_t vmbus_isr(int irq, void *dev_id)
@@ -777,7 +743,7 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id)
 
 	page_addr = hv_context.synic_event_page[cpu];
 	if (page_addr == NULL)
-#if (RHEL_RELEASE_CODE >=1794 ) /* KYS; we may have to tweak this */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) /* KYS; we may have to tweak this */
 		return;
 #else
 		return IRQ_NONE;
@@ -821,9 +787,9 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id)
 		if (msg->header.message_type == HVMSG_TIMER_EXPIRED)
 			hv_process_timer_expiration(msg, cpu);
 		else
-			tasklet_schedule(&msg_dpc);
+			tasklet_schedule(hv_context.msg_dpc[cpu]);
 	}
-#if (RHEL_RELEASE_CODE >=1794 ) /* KYS; we may have to tweak this */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) /* KYS; we may have to tweak this */
 	return;
 #else
 	if (handled)
@@ -868,7 +834,7 @@ static void hv_cpu_hotplug_quirk(bool vmbus_loaded)
 #endif
 
 
-#if (RHEL_RELEASE_CODE < 1794)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 /*
  * vmbus interrupt flow handler:
  * vmbus interrupts can concurrently occur on multiple CPUs and
@@ -891,7 +857,11 @@ static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc)
  *	- get the irq resource
  *	- retrieve the channel offers
  */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2))
+static int vmbus_bus_init(void)
+#else
 static int vmbus_bus_init(int irq)
+#endif
 {
 	int ret;
 
@@ -902,13 +872,11 @@ static int vmbus_bus_init(int irq)
 		return ret;
 	}
 
-	tasklet_init(&msg_dpc, vmbus_on_msg_dpc, 0);
-
 	ret = bus_register(&hv_bus);
 	if (ret)
 		goto err_cleanup;
 
-#if (RHEL_RELEASE_CODE >=1794 ) /* KYS; we may have to tweak this */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) /* KYS; we may have to tweak this */
 	hv_setup_vmbus_irq(vmbus_isr);
 
 #else
@@ -957,13 +925,13 @@ err_connect:
 	on_each_cpu(hv_synic_cleanup, NULL, 1);
 err_alloc:
 	hv_synic_free();
-#if (RHEL_RELEASE_CODE >=1794 ) /* KYS; we may have to tweak this */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) /* KYS; we may have to tweak this */
 	hv_remove_vmbus_irq();
 #else
 	free_irq(irq, hv_acpi_dev);
 #endif
 
-#if (RHEL_RELEASE_CODE < 1794)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 err_unregister:
 #endif
 	bus_unregister(&hv_bus);
@@ -1043,7 +1011,7 @@ struct hv_device *vmbus_device_create(const uuid_le *type,
 	memcpy(&child_device_obj->dev_type, type, sizeof(uuid_le));
 	memcpy(&child_device_obj->dev_instance, instance,
 	       sizeof(uuid_le));
-
+	child_device_obj->vendor_id = 0x1414; /* MSFT vendor ID */
 
 	return child_device_obj;
 }
@@ -1108,10 +1076,11 @@ static acpi_status vmbus_walk_resources(struct acpi_resource *res, void *ctx)
 	struct resource **prev_res = NULL;
 
 	switch (res->type) {
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 	case ACPI_RESOURCE_TYPE_IRQ:
 		irq = res->data.irq.interrupts[0];
 		return AE_OK;
-
+#endif
 	/*
 	 * "Address" descriptors are for bus windows. Ignore
 	 * "memory" descriptors, which are for registers on
@@ -1362,7 +1331,7 @@ static int __init hv_acpi_init(void)
 	init_completion(&probe_event);
 
 	/*
-	 * Get irq resources first.
+	 * Get ACPI/irq resources first.
 	 */
 	ret = acpi_bus_register_driver(&vmbus_acpi_driver);
 
@@ -1375,12 +1344,16 @@ static int __init hv_acpi_init(void)
 		goto cleanup;
 	}
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 	if (irq <= 0) {
 		ret = -ENODEV;
 		goto cleanup;
 	}
 
 	ret = vmbus_bus_init(irq);
+#else
+	ret = vmbus_bus_init();
+#endif
 	if (ret)
 		goto cleanup;
 
@@ -1401,7 +1374,8 @@ static void __exit vmbus_exit(void)
 #if (RHEL_RELEASE_CODE >=1800 ) /* KYS; we may have to tweak this */
 	hv_remove_vmbus_irq();
 #endif
-	tasklet_kill(&msg_dpc);
+	for_each_online_cpu(cpu)
+		tasklet_kill(hv_context.msg_dpc[cpu]);
 	vmbus_free_channels();
 	if (ms_hyperv.features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
 		atomic_notifier_chain_unregister(&panic_notifier_list,

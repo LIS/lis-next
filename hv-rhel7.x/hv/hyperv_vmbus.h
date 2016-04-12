@@ -71,10 +71,6 @@ enum hv_cpuid_function {
 /* Define the expected SynIC version. */
 #define HV_SYNIC_VERSION_1		(0x1)
 
-/* Define synthetic interrupt controller message constants. */
-#define HV_MESSAGE_SIZE			(256)
-#define HV_MESSAGE_PAYLOAD_BYTE_COUNT	(240)
-#define HV_MESSAGE_PAYLOAD_QWORD_COUNT	(30)
 #define HV_ANY_VP			(0xFFFFFFFF)
 
 /* Define synthetic interrupt controller flag constants. */
@@ -82,49 +78,9 @@ enum hv_cpuid_function {
 #define HV_EVENT_FLAGS_BYTE_COUNT	(256)
 #define HV_EVENT_FLAGS_DWORD_COUNT	(256 / sizeof(u32))
 
-/* Define hypervisor message types. */
-enum hv_message_type {
-	HVMSG_NONE			= 0x00000000,
-
-	/* Memory access messages. */
-	HVMSG_UNMAPPED_GPA		= 0x80000000,
-	HVMSG_GPA_INTERCEPT		= 0x80000001,
-
-	/* Timer notification messages. */
-	HVMSG_TIMER_EXPIRED			= 0x80000010,
-
-	/* Error messages. */
-	HVMSG_INVALID_VP_REGISTER_VALUE	= 0x80000020,
-	HVMSG_UNRECOVERABLE_EXCEPTION	= 0x80000021,
-	HVMSG_UNSUPPORTED_FEATURE		= 0x80000022,
-
-	/* Trace buffer complete messages. */
-	HVMSG_EVENTLOG_BUFFERCOMPLETE	= 0x80000040,
-
-	/* Platform-specific processor intercept messages. */
-	HVMSG_X64_IOPORT_INTERCEPT		= 0x80010000,
-	HVMSG_X64_MSR_INTERCEPT		= 0x80010001,
-	HVMSG_X64_CPUID_INTERCEPT		= 0x80010002,
-	HVMSG_X64_EXCEPTION_INTERCEPT	= 0x80010003,
-	HVMSG_X64_APIC_EOI			= 0x80010004,
-	HVMSG_X64_LEGACY_FP_ERROR		= 0x80010005
-};
-
-/* Define the number of synthetic interrupt sources. */
-#define HV_SYNIC_SINT_COUNT		(16)
-#define HV_SYNIC_STIMER_COUNT		(4)
 
 /* Define invalid partition identifier. */
 #define HV_PARTITION_ID_INVALID		((u64)0x0)
-
-/* Define port identifier type. */
-union hv_port_id {
-	u32 asu32;
-	struct {
-		u32 id:24;
-		u32 reserved:8;
-	} u ;
-};
 
 /* Define port type. */
 enum hv_port_type {
@@ -173,27 +129,6 @@ struct hv_connection_info {
 	};
 };
 
-/* Define synthetic interrupt controller message flags. */
-union hv_message_flags {
-	u8 asu8;
-	struct {
-		u8 msg_pending:1;
-		u8 reserved:7;
-	};
-};
-
-/* Define synthetic interrupt controller message header. */
-struct hv_message_header {
-	enum hv_message_type message_type;
-	u8 payload_size;
-	union hv_message_flags message_flags;
-	u8 reserved[2];
-	union {
-		u64 sender;
-		union hv_port_id port;
-	};
-};
-
 /*
  * Timer configuration register.
  */
@@ -210,30 +145,8 @@ union hv_timer_config {
 	};
 };
 
-
-/* Define timer message payload structure. */
-struct hv_timer_message_payload {
-	u32 timer_index;
-	u32 reserved;
-	u64 expiration_time;	/* When the timer expired */
-	u64 delivery_time;	/* When the message was delivered */
-};
-
-/* Define synthetic interrupt controller message format. */
-struct hv_message {
-	struct hv_message_header header;
-	union {
-		u64 payload[HV_MESSAGE_PAYLOAD_QWORD_COUNT];
-	} u ;
-};
-
 /* Define the number of message buffers associated with each port. */
 #define HV_PORT_MESSAGE_BUFFER_COUNT	(16)
-
-/* Define the synthetic interrupt message page layout. */
-struct hv_message_page {
-	struct hv_message sint_message[HV_SYNIC_SINT_COUNT];
-};
 
 /* Define the synthetic interrupt controller event flags format. */
 union hv_synic_event_flags {
@@ -347,17 +260,11 @@ struct hv_monitor_page {
 	u8 rsvdz4[1984];
 };
 
-/* Declare the various hypercall operations. */
-enum hv_call_code {
-	HVCALL_POST_MESSAGE	= 0x005c,
-	HVCALL_SIGNAL_EVENT	= 0x005d,
-};
-
 /* Definition of the hv_post_message hypercall input structure. */
 struct hv_input_post_message {
 	union hv_connection_id connectionid;
 	u32 reserved;
-	enum hv_message_type message_type;
+	u32 message_type;
 	u32 payload_size;
 	u64 payload[HV_MESSAGE_PAYLOAD_QWORD_COUNT];
 };
@@ -547,10 +454,11 @@ struct hv_context {
 	u32 vp_index[NR_CPUS];
 	/*
 	 * Starting with win8, we can take channel interrupts on any CPU;
-	 * we will manage the tasklet that handles events on a per CPU
+	 * we will manage the tasklet that handles events messages on a per CPU
 	 * basis.
 	 */
 	struct tasklet_struct *event_dpc[NR_CPUS];
+	struct tasklet_struct *msg_dpc[NR_CPUS];
 	/*
 	 * To optimize the mapping of relid to channel, maintain
 	 * per-cpu list of the channels based on their CPU affinity.
@@ -599,8 +507,6 @@ extern int hv_post_message(union hv_connection_id connection_id,
 			 enum hv_message_type message_type,
 			 void *payload, size_t payload_size);
 
-extern int hv_signal_event(void *con_id);
-
 extern int hv_synic_alloc(void);
 
 extern void hv_synic_free(void);
@@ -629,19 +535,15 @@ void hv_ringbuffer_cleanup(struct hv_ring_buffer_info *ring_info);
 
 int hv_ringbuffer_write(struct hv_ring_buffer_info *ring_info,
 		    struct kvec *kv_list,
-		    u32 kv_count, bool *signal);
-
-int hv_ringbuffer_peek(struct hv_ring_buffer_info *ring_info, void *buffer,
-		   u32 buflen);
+		    u32 kv_count, bool *signal, bool lock);
 
 void hv_get_ringbuffer_available_space(struct hv_ring_buffer_info *inring_info,
 				       u32 *bytes_avail_toread,
 				       u32 *bytes_avail_towrite);
 
-int hv_ringbuffer_read(struct hv_ring_buffer_info *ring_info,
-		   void *buffer,
-		   u32 buflen,
-		   u32 offset, bool *signal);
+int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info,
+		   void *buffer, u32 buflen, u32 *buffer_actual_len,
+		   u64 *requestid, bool *signal, bool raw);
 
 
 void hv_ringbuffer_get_debuginfo(struct hv_ring_buffer_info *ring_info,
@@ -733,6 +635,29 @@ struct vmbus_channel_message_table_entry {
 extern struct vmbus_channel_message_table_entry
 	channel_message_table[CHANNELMSG_COUNT];
 
+/* Free the message slot and signal end-of-message if required */
+static inline void vmbus_signal_eom(struct hv_message *msg)
+{
+	msg->header.message_type = HVMSG_NONE;
+
+	/*
+	 * Make sure the write to MessageType (ie set to
+	 * HVMSG_NONE) happens before we read the
+	 * MessagePending and EOMing. Otherwise, the EOMing
+	 * will not deliver any more messages since there is
+	 * no empty slot
+	 */
+	mb();
+
+	if (msg->header.message_flags.msg_pending) {
+		/*
+		 * This will cause message queue rescan to
+		 * possibly deliver another msg from the
+		 * hypervisor
+		 */
+		wrmsrl(HV_X64_MSR_EOM, 0);
+	}
+}
 
 /* General vmbus interface */
 
@@ -758,9 +683,10 @@ void vmbus_disconnect(void);
 
 int vmbus_post_msg(void *buffer, size_t buflen);
 
-int vmbus_set_event(struct vmbus_channel *channel);
+void vmbus_set_event(struct vmbus_channel *channel);
 
 void vmbus_on_event(unsigned long data);
+void vmbus_on_msg_dpc(unsigned long data);
 
 int hv_kvp_init(struct hv_util_service *);
 void hv_kvp_deinit(void);
@@ -774,7 +700,7 @@ int hv_fcopy_init(struct hv_util_service *);
 void hv_fcopy_deinit(void);
 void hv_fcopy_onchannelcallback(void *);
 
-void vmbus_initiate_unload(void);
+void vmbus_initiate_unload(bool crash);
 
 static inline void hv_poll_channel(struct vmbus_channel *channel,
 				   void (*cb)(void *))

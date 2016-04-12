@@ -705,6 +705,7 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id, struct pt_regs *regs)
 		return IRQ_NONE;
 }
 
+#ifdef NOTYET
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
 static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc)
 {
@@ -717,6 +718,7 @@ static void vmbus_flow_handler(unsigned int irq, struct irq_desc *desc, struct p
 	desc->action->handler(irq, desc->action->dev_id, NULL);
 }
 #endif
+#endif /* NOTYET */
 
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
 static cycle_t read_hv_clock(struct clocksource *arg)
@@ -824,7 +826,7 @@ static int vmbus_bus_init(int irq)
 	/*
 	 * Only register if the crash MSRs are available
 	 */
-	if (ms_hyperv.features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
+	if (ms_hyperv.misc_features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
 		atomic_notifier_chain_register(&panic_notifier_list,
 					       &hyperv_panic_block);
 	}
@@ -1090,7 +1092,9 @@ cleanup:
 
 static void __exit vmbus_exit(void)
 {
+#ifndef CONFIG_X86_32
 	int cpu;
+#endif
 
 	vmbus_connection.conn_state = DISCONNECTED;
 	hv_synic_clockevents_cleanup();

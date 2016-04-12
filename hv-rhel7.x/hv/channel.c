@@ -639,6 +639,7 @@ int vmbus_sendpacket_ctl(struct vmbus_channel *channel, void *buffer,
 	u64 aligned_data = 0;
 	int ret;
 	bool signal = false;
+	bool lock = channel->acquire_ring_lock;
 	int num_vecs = ((bufferlen != 0) ? 3 : 1);
 
 
@@ -658,7 +659,7 @@ int vmbus_sendpacket_ctl(struct vmbus_channel *channel, void *buffer,
 	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
 
 	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, num_vecs,
-				  &signal);
+				  &signal, lock);
 
 	/*
          * Signalling the host is conditional on many factors:
@@ -674,6 +675,9 @@ int vmbus_sendpacket_ctl(struct vmbus_channel *channel, void *buffer,
          * If we cannot write to the ring-buffer; signal the host
          * even if we may not have written anything. This is a rare
          * enough condition that it should not matter.
+         * NOTE: in this case, the hvsock channel is an exception, because
+         * it looks the host side's hvsock implementation has a throttling
+         * mechanism which can hurt the performance otherwise.
          */
 
 	if (channel->signal_policy)
@@ -681,7 +685,8 @@ int vmbus_sendpacket_ctl(struct vmbus_channel *channel, void *buffer,
 	else
 		kick_q = true;
 
-        if (((ret == 0) && kick_q && signal) || (ret))
+        if (((ret == 0) && kick_q && signal) ||
+	    (ret && !is_hvsock_channel(channel)))
                 vmbus_setevent(channel);
 
 	return ret;
@@ -735,6 +740,7 @@ int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
 	struct kvec bufferlist[3];
 	u64 aligned_data = 0;
 	bool signal = false;
+	bool lock = channel->acquire_ring_lock;
 
 	if (pagecount > MAX_PAGE_BUFFER_COUNT)
 		return -EINVAL;
@@ -771,7 +777,8 @@ int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
 	bufferlist[2].iov_base = &aligned_data;
 	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
 
-	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
+	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3,
+				  &signal, lock);
 
 	/*
          * Signalling the host is conditional on many factors:
@@ -814,6 +821,7 @@ int vmbus_sendpacket_hvsock(struct vmbus_channel *channel, void *buf, u32 len)
 	u32 packetlen;
 	u64 aligned_data = 0;
 	bool signal = false;
+	bool lock = channel->acquire_ring_lock;
 	int ret;
 
 	packetlen = HVSOCK_HEADER_LEN + len;
@@ -839,7 +847,8 @@ int vmbus_sendpacket_hvsock(struct vmbus_channel *channel, void *buf, u32 len)
 	bufferlist[3].iov_base = &aligned_data;
 	bufferlist[3].iov_len  = packetlen_aligned - packetlen;
 
-	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 4, &signal);
+	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 4,
+				  &signal, lock);
 
 	if (ret == 0 && signal)
 		vmbus_setevent(channel);
@@ -882,6 +891,7 @@ int vmbus_sendpacket_mpb_desc(struct vmbus_channel *channel,
 	struct kvec bufferlist[3];
 	u64 aligned_data = 0;
 	bool signal = false;
+	bool lock = channel->acquire_ring_lock;
 
 	packetlen = desc_size + bufferlen;
 	packetlen_aligned = ALIGN(packetlen, sizeof(u64));
@@ -901,7 +911,8 @@ int vmbus_sendpacket_mpb_desc(struct vmbus_channel *channel,
 	bufferlist[2].iov_base = &aligned_data;
 	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
 
-	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
+	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3,
+				  &signal, lock);
 
 	if (ret == 0 && signal)
 		vmbus_setevent(channel);
@@ -926,6 +937,7 @@ int vmbus_sendpacket_multipagebuffer(struct vmbus_channel *channel,
 	struct kvec bufferlist[3];
 	u64 aligned_data = 0;
 	bool signal = false;
+	bool lock = channel->acquire_ring_lock;
 	u32 pfncount = NUM_PAGES_SPANNED(multi_pagebuffer->offset,
 					 multi_pagebuffer->len);
 
@@ -964,7 +976,8 @@ int vmbus_sendpacket_multipagebuffer(struct vmbus_channel *channel,
 	bufferlist[2].iov_base = &aligned_data;
 	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
 
-	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3, &signal);
+	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3,
+				  &signal, lock);
 
 	if (ret == 0 && signal)
 		vmbus_setevent(channel);
@@ -986,46 +999,29 @@ EXPORT_SYMBOL_GPL(vmbus_sendpacket_multipagebuffer);
  *
  * Mainly used by Hyper-V drivers.
  */
-int vmbus_recvpacket(struct vmbus_channel *channel, void *buffer,
-			u32 bufferlen, u32 *buffer_actual_len, u64 *requestid)
+static inline int
+__vmbus_recvpacket(struct vmbus_channel *channel, void *buffer,
+		   u32 bufferlen, u32 *buffer_actual_len, u64 *requestid,
+		   bool raw)
 {
-	struct vmpacket_descriptor desc;
-	u32 packetlen;
-	u32 userlen;
 	int ret;
 	bool signal = false;
 
-	*buffer_actual_len = 0;
-	*requestid = 0;
-
-
-	ret = hv_ringbuffer_peek(&channel->inbound, &desc,
-			     sizeof(struct vmpacket_descriptor));
-	if (ret != 0)
-		return 0;
-
-	packetlen = desc.len8 << 3;
-	userlen = packetlen - (desc.offset8 << 3);
-
-	*buffer_actual_len = userlen;
-
-	if (userlen > bufferlen) {
-
-		pr_err("Buffer too small - got %d needs %d\n",
-			   bufferlen, userlen);
-		return -ETOOSMALL;
-	}
-
-	*requestid = desc.trans_id;
-
-	/* Copy over the packet to the user buffer */
-	ret = hv_ringbuffer_read(&channel->inbound, buffer, userlen,
-			     (desc.offset8 << 3), &signal);
+	ret = hv_ringbuffer_read(&channel->inbound, buffer, bufferlen,
+				 buffer_actual_len, requestid, &signal, raw);
 
 	if (signal)
 		vmbus_setevent(channel);
 
-	return 0;
+	return ret;
+}
+
+int vmbus_recvpacket(struct vmbus_channel *channel, void *buffer,
+		     u32 bufferlen, u32 *buffer_actual_len,
+		     u64 *requestid)
+{
+	return __vmbus_recvpacket(channel, buffer, bufferlen,
+				  buffer_actual_len, requestid, false);
 }
 EXPORT_SYMBOL(vmbus_recvpacket);
 
@@ -1036,124 +1032,8 @@ int vmbus_recvpacket_raw(struct vmbus_channel *channel, void *buffer,
 			      u32 bufferlen, u32 *buffer_actual_len,
 			      u64 *requestid)
 {
-	struct vmpacket_descriptor desc;
-	u32 packetlen;
-	int ret;
-	bool signal = false;
-
-	*buffer_actual_len = 0;
-	*requestid = 0;
-
-
-	ret = hv_ringbuffer_peek(&channel->inbound, &desc,
-			     sizeof(struct vmpacket_descriptor));
-	if (ret != 0)
-		return 0;
-
-
-	packetlen = desc.len8 << 3;
-
-	*buffer_actual_len = packetlen;
-
-	if (packetlen > bufferlen)
-		return -ENOBUFS;
-
-	*requestid = desc.trans_id;
-
-	/* Copy over the entire packet to the user buffer */
-	ret = hv_ringbuffer_read(&channel->inbound, buffer, packetlen, 0,
-				 &signal);
-
-	if (signal)
-		vmbus_setevent(channel);
-
-	return ret;
+	return __vmbus_recvpacket(channel, buffer, bufferlen,
+				  buffer_actual_len, requestid, true);
 }
 EXPORT_SYMBOL_GPL(vmbus_recvpacket_raw);
 
-/*
- * vmbus_recvpacket_hvsock - Receive the hvsock payload from the vmbus
- * ringbuffer into the 'buffer'.
- */
-int vmbus_recvpacket_hvsock(struct vmbus_channel *channel, void *buffer,
-			    u32 bufferlen, u32 *buffer_actual_len)
-{
-	struct vmpipe_proto_header *pipe_hdr;
-	struct vmpacket_descriptor *desc;
-	u32 packet_len, payload_len;
-	bool signal = false;
-	int ret;
-
-	*buffer_actual_len = 0;
-
-	if (bufferlen < HVSOCK_HEADER_LEN)
-		return -ENOBUFS;
-
-	ret = hv_ringbuffer_peek(&channel->inbound, buffer,
-				 HVSOCK_HEADER_LEN);
-	if (ret != 0)
-		return ret;
-
-	desc = (struct vmpacket_descriptor *)buffer;
-	packet_len = desc->len8 << 3;
-	if (desc->type != VM_PKT_DATA_INBAND ||
-	    desc->offset8 != (sizeof(*desc) / 8) ||
-	    packet_len < HVSOCK_HEADER_LEN)
-		return -EIO;
-
-	pipe_hdr = (struct vmpipe_proto_header *)(desc + 1);
-	payload_len = pipe_hdr->data_size;
-
-	if (pipe_hdr->pkt_type != 1 || payload_len == 0)
-		return -EIO;
-
-	if (HVSOCK_PKT_LEN(payload_len) != packet_len + PREV_INDICES_LEN)
-		return -EIO;
-
-	if (bufferlen < packet_len - HVSOCK_HEADER_LEN)
-		return -ENOBUFS;
-
-	/* Copy over the hvsock payload to the user buffer */
-	ret = hv_ringbuffer_read(&channel->inbound, buffer,
-				 packet_len - HVSOCK_HEADER_LEN,
-				 HVSOCK_HEADER_LEN, &signal);
-	if (ret != 0)
-		return ret;
-
-	*buffer_actual_len = payload_len;
-
-	if (signal)
-		vmbus_setevent(channel);
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(vmbus_recvpacket_hvsock);
-
-/*
- * vmbus_get_hvsock_rw_status - can the ringbuffer be read/written?
- */
-void vmbus_get_hvsock_rw_status(struct vmbus_channel *channel,
-				bool *can_read, bool *can_write)
-{
-	u32 avl_read_bytes, avl_write_bytes, dummy;
-
-	if (can_read != NULL) {
-		hv_get_ringbuffer_available_space(&channel->inbound,
-						  &avl_read_bytes,
-						  &dummy);
-		*can_read = avl_read_bytes >= HVSOCK_MIN_PKT_LEN;
-	}
-
-	/*
-	 * We write into the ringbuffer only when we're able to write a
-	 * a payload of 4096 bytes (the actual written payload's length may be
-	 * less than 4096).
-	 */
-	if (can_write != NULL) {
-		hv_get_ringbuffer_available_space(&channel->outbound,
-						  &dummy,
-						  &avl_write_bytes);
-		*can_write = avl_write_bytes > HVSOCK_PKT_LEN(PAGE_SIZE);
-	}
-}
-EXPORT_SYMBOL_GPL(vmbus_get_hvsock_rw_status);
