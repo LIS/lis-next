@@ -1,7 +1,7 @@
 /*
- * Hyper-V vSockets driver
+ * Hyper-V Socket driver
  *
- * Copyright(c) 2015, Microsoft Corporation. All rights reserved.
+ * Copyright(c) 2016, Microsoft Corporation. All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -372,8 +372,8 @@ static struct sock *__hvsock_create(struct net *net, struct socket *sock,
 
 	hvsk->peer_shutdown = 0;
 
-	hvsk->recv_data_len = 0;
-	hvsk->recv_data_offset = 0;
+	hvsk->recv.data_len = 0;
+	hvsk->recv.data_offset = 0;
 
 	return sk;
 }
@@ -465,6 +465,30 @@ static int hvsock_shutdown(struct socket *sock, int mode)
 	return 0;
 }
 
+static void get_ringbuffer_rw_status(struct vmbus_channel *channel,
+				     bool *can_read, bool *can_write)
+{
+	u32 avl_read_bytes, avl_write_bytes, dummy;
+
+	if (can_read) {
+		hv_get_ringbuffer_availbytes(&channel->inbound,
+					     &avl_read_bytes,
+					     &dummy);
+		*can_read = avl_read_bytes >= HVSOCK_MIN_PKT_LEN;
+	}
+
+	/* We write into the ringbuffer only when we're able to write a
+	 * a payload of 4096 bytes (the actual written payload's length may be
+	 * less than 4096).
+	 */
+	if (can_write) {
+		hv_get_ringbuffer_availbytes(&channel->outbound,
+					     &dummy,
+					     &avl_write_bytes);
+		*can_write = avl_write_bytes > HVSOCK_PKT_LEN(PAGE_SIZE);
+	}
+}
+
 static unsigned int hvsock_poll(struct file *file, struct socket *sock,
 				poll_table *wait)
 {
@@ -512,9 +536,9 @@ static unsigned int hvsock_poll(struct file *file, struct socket *sock,
 	channel = hvsk->channel;
 	if (channel) {
 		/* If there is something in the queue then we can read */
-		vmbus_get_hvsock_rw_status(channel, &can_read, &can_write);
+		get_ringbuffer_rw_status(channel, &can_read, &can_write);
 
-		if (!can_read && hvsk->recv_data_len > 0)
+		if (!can_read && hvsk->recv.data_len > 0)
 			can_read = true;
 
 		if (!(sk->sk_shutdown & RCV_SHUTDOWN) && can_read)
@@ -564,11 +588,11 @@ static void hvsock_on_channel_cb(void *ctx)
 	bool can_read, can_write;
 
 	if (!channel) {
-		WARN(1, "NULL channel! There is a programming bug.\n");
+		WARN_ONCE(1, "NULL channel! There is a programming bug.\n");
 		return;
 	}
 
-	vmbus_get_hvsock_rw_status(channel, &can_read, &can_write);
+	get_ringbuffer_rw_status(channel, &can_read, &can_write);
 
 	if (can_read)
 		sk->sk_data_ready(sk, 0);
@@ -602,19 +626,6 @@ out:
 	mutex_unlock(&hvsock_mutex);
 }
 
-static void hvsock_event_callback(struct vmbus_channel *channel,
-				  enum hvsock_event event)
-{
-	switch (event) {
-	case HVSOCK_RESCIND_OFFER:
-		hvsock_close_connection(channel);
-		break;
-	default:
-		WARN_ON_ONCE(1);
-		break;
-	}
-}
-
 static int hvsock_open_connection(struct vmbus_channel *channel)
 {
 	struct hvsock_sock *hvsk, *new_hvsk;
@@ -643,7 +654,8 @@ static int hvsock_open_connection(struct vmbus_channel *channel)
 		hvsk = sk_to_hvsock(sk);
 		hvsk->channel = channel;
 		set_channel_read_state(channel, false);
-		vmbus_set_hvsock_event_callback(channel, hvsock_event_callback);
+		vmbus_set_chn_rescind_callback(channel,
+					       hvsock_close_connection);
 		ret = vmbus_open(channel, VMBUS_RINGBUFFER_SIZE_HVSOCK_SEND,
 				 VMBUS_RINGBUFFER_SIZE_HVSOCK_RECV, NULL, 0,
 				 hvsock_on_channel_cb, sk);
@@ -689,7 +701,7 @@ static int hvsock_open_connection(struct vmbus_channel *channel)
 
 	set_channel_read_state(channel, false);
 	new_hvsk->channel = channel;
-	vmbus_set_hvsock_event_callback(channel, hvsock_event_callback);
+	vmbus_set_chn_rescind_callback(channel, hvsock_close_connection);
 	ret = vmbus_open(channel, VMBUS_RINGBUFFER_SIZE_HVSOCK_SEND,
 			 VMBUS_RINGBUFFER_SIZE_HVSOCK_RECV, NULL, 0,
 			 hvsock_on_channel_cb, new_sk);
@@ -831,23 +843,18 @@ static int hvsock_connect(struct socket *sock, struct sockaddr *addr,
 		prepare_to_wait(sk_sleep(sk), &wait, TASK_INTERRUPTIBLE);
 	}
 
-	if (sk->sk_err) {
-		ret = -sk->sk_err;
-		goto out_wait_error;
-	} else {
-		ret = 0;
-	}
+	ret = sk->sk_err ? -sk->sk_err : 0;
 
+out_wait_error:
+	if (ret < 0) {
+		sk->sk_state = SS_UNCONNECTED;
+		sock->state = SS_UNCONNECTED;
+	}
 out_wait:
 	finish_wait(sk_sleep(sk), &wait);
 out:
 	release_sock(sk);
 	return ret;
-
-out_wait_error:
-	sk->sk_state = SS_UNCONNECTED;
-	sock->state = SS_UNCONNECTED;
-	goto out_wait;
 }
 
 static
@@ -989,6 +996,17 @@ static int hvsock_getsockopt(struct socket *sock,
 	return -ENOPROTOOPT;
 }
 
+static int hvsock_send_data(struct vmbus_channel *channel,
+			    struct hvsock_sock *hvsk,
+			    size_t to_write)
+{
+	hvsk->send.hdr.pkt_type = 1;
+	hvsk->send.hdr.data_size = to_write;
+	return vmbus_sendpacket(channel, &hvsk->send.hdr,
+				sizeof(hvsk->send.hdr) + to_write,
+				0, VM_PKT_DATA_INBAND, 0);
+}
+
 static int hvsock_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg, size_t len)
 {
 	struct vmbus_channel *channel;
@@ -1048,10 +1066,10 @@ static int hvsock_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr
 	prepare_to_wait(sk_sleep(sk), &wait, TASK_INTERRUPTIBLE);
 
 	while (total_to_write > 0) {
-		u32 to_write;
+		size_t to_write;
 
 		while (1) {
-			vmbus_get_hvsock_rw_status(channel, NULL, &can_write);
+			get_ringbuffer_rw_status(channel, NULL, &can_write);
 
 			if (can_write || sk->sk_err != 0 ||
 			    (sk->sk_shutdown & SEND_SHUTDOWN) ||
@@ -1101,13 +1119,11 @@ static int hvsock_sendmsg(struct kiocb *iocb, struct socket *sock, struct msghdr
 		do {
 			to_write = min_t(size_t, HVSOCK_SND_BUF_SZ,
 					 total_to_write);
-			ret = memcpy_from_msg(hvsk->send_buf, msg, to_write);
+			ret = memcpy_from_msg(hvsk->send.buf, msg, to_write);
 			if (ret != 0)
 				goto out_wait;
 
-			ret = vmbus_sendpacket_hvsock(channel,
-						      hvsk->send_buf,
-						      to_write);
+			ret = hvsock_send_data(channel, hvsk, to_write);
 			if (ret != 0)
 				goto out_wait;
 
@@ -1128,6 +1144,25 @@ out:
 		WARN(1, "unexpected return value of 0\n");
 		ret = -EIO;
 	}
+
+	return ret;
+}
+
+static int hvsock_recv_data(struct vmbus_channel *channel,
+			    struct hvsock_sock *hvsk,
+			    size_t *payload_len)
+{
+	u32 buffer_actual_len;
+	u64 dummy_req_id;
+	int ret;
+
+	ret = vmbus_recvpacket(channel, &hvsk->recv.hdr,
+			       sizeof(hvsk->recv.hdr) + sizeof(hvsk->recv.buf),
+			       &buffer_actual_len, &dummy_req_id);
+	if (ret != 0 || buffer_actual_len <= sizeof(hvsk->recv.hdr))
+		*payload_len = 0;
+	else
+		*payload_len = hvsk->recv.hdr.data_size;
 
 	return ret;
 }
@@ -1199,55 +1234,53 @@ static int hvsock_recvmsg(struct kiocb *iocb, struct socket *sock, struct msghdr
 	prepare_to_wait(sk_sleep(sk), &wait, TASK_INTERRUPTIBLE);
 
 	while (1) {
-		bool need_refill = hvsk->recv_data_len == 0;
+		bool need_refill = hvsk->recv.data_len == 0;
 
 		if (need_refill)
-			vmbus_get_hvsock_rw_status(channel, &can_read, NULL);
+			get_ringbuffer_rw_status(channel, &can_read, NULL);
 		else
 			can_read = true;
 
 		if (can_read) {
-			u32 payload_len;
+			size_t payload_len;
 
 			if (need_refill) {
-				ret = vmbus_recvpacket_hvsock(channel,
-							      hvsk->recv_buf,
-							      HVSOCK_RCV_BUF_SZ,
-							      &payload_len);
+				ret = hvsock_recv_data(channel, hvsk,
+						       &payload_len);
 				if (ret != 0 || payload_len == 0 ||
 				    payload_len > HVSOCK_RCV_BUF_SZ) {
 					ret = -EIO;
 					goto out_wait;
 				}
 
-				hvsk->recv_data_len = payload_len;
-				hvsk->recv_data_offset = 0;
+				hvsk->recv.data_len = payload_len;
+				hvsk->recv.data_offset = 0;
 			}
 
-			if (hvsk->recv_data_len <= total_to_read) {
-				ret = memcpy_to_msg(msg, hvsk->recv_buf +
-						    hvsk->recv_data_offset,
-						    hvsk->recv_data_len);
+			if (hvsk->recv.data_len <= total_to_read) {
+				ret = memcpy_to_msg(msg, hvsk->recv.buf +
+						    hvsk->recv.data_offset,
+						    hvsk->recv.data_len);
 				if (ret != 0)
 					break;
 
-				copied += hvsk->recv_data_len;
-				total_to_read -= hvsk->recv_data_len;
-				hvsk->recv_data_len = 0;
-				hvsk->recv_data_offset = 0;
+				copied += hvsk->recv.data_len;
+				total_to_read -= hvsk->recv.data_len;
+				hvsk->recv.data_len = 0;
+				hvsk->recv.data_offset = 0;
 
 				if (total_to_read == 0)
 					break;
 			} else {
-				ret = memcpy_to_msg(msg, hvsk->recv_buf +
-						    hvsk->recv_data_offset,
+				ret = memcpy_to_msg(msg, hvsk->recv.buf +
+						    hvsk->recv.data_offset,
 						    total_to_read);
 				if (ret != 0)
 					break;
 
 				copied += total_to_read;
-				hvsk->recv_data_len -= total_to_read;
-				hvsk->recv_data_offset += total_to_read;
+				hvsk->recv.data_len -= total_to_read;
+				hvsk->recv.data_offset += total_to_read;
 				total_to_read = 0;
 				break;
 			}
@@ -1295,8 +1328,8 @@ static int hvsock_recvmsg(struct kiocb *iocb, struct socket *sock, struct msghdr
 		 * state.
 		 */
 		if ((hvsk->peer_shutdown & SEND_SHUTDOWN) &&
-		    hvsk->recv_data_len == 0) {
-			vmbus_get_hvsock_rw_status(channel, &can_read, NULL);
+		    hvsk->recv.data_len == 0) {
+			get_ringbuffer_rw_status(channel, &can_read, NULL);
 			if (!can_read) {
 				sk->sk_state = SS_UNCONNECTED;
 				sock_set_flag(sk, SOCK_DONE);
@@ -1409,7 +1442,7 @@ static int __init hvsock_init(void)
 	ret = vmbus_driver_register(&hvsock_drv);
 	if (ret) {
 		pr_err("failed to register hv_sock driver\n");
-		goto out;
+		return ret;
 	}
 
 	ret = proto_register(&hvsock_proto, 0);
@@ -1430,7 +1463,6 @@ unreg_proto:
 	proto_unregister(&hvsock_proto);
 unreg_hvsock_drv:
 	vmbus_driver_unregister(&hvsock_drv);
-out:
 	return ret;
 }
 
@@ -1444,6 +1476,5 @@ static void __exit hvsock_exit(void)
 module_init(hvsock_init);
 module_exit(hvsock_exit);
 
-MODULE_DESCRIPTION("Microsoft Hyper-V Virtual Socket Family");
-MODULE_VERSION(HV_DRV_VERSION);
-MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("Hyper-V Sockets");
+MODULE_LICENSE("Dual BSD/GPL");
