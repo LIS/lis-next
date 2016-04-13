@@ -367,6 +367,7 @@ err_free_chan:
 enum {
 	IDE = 0,
 	SCSI,
+	FC,
 	NIC,
 	ND_NIC,
 	PCIE,
@@ -383,6 +384,8 @@ static const struct hv_vmbus_device_id hp_devs[] = {
 	{ HV_IDE_GUID, },
 	/* Storage - SCSI */
 	{ HV_SCSI_GUID, },
+	/* Storage - FC */
+	{ HV_SYNTHFC_GUID, },
 	/* Network */
 	{ HV_NIC_GUID, },
 	/* NetworkDirect Guest RDMA */
