@@ -719,6 +719,9 @@ int vmbus_sendpacket_ctl(struct vmbus_channel *channel, void *buffer,
          * If we cannot write to the ring-buffer; signal the host
          * even if we may not have written anything. This is a rare
          * enough condition that it should not matter.
+         * NOTE: in this case, the hvsock channel is an exception, because
+         * it looks the host side's hvsock implementation has a throttling
+         * mechanism which can hurt the performance otherwise.
          */
 
 	if (channel->signal_policy)
@@ -726,8 +729,9 @@ int vmbus_sendpacket_ctl(struct vmbus_channel *channel, void *buffer,
 	else
 		kick_q = true;
 
-        if (((ret == 0) && kick_q && signal) || (ret))
-                vmbus_setevent(channel);
+        if (((ret == 0) && kick_q && signal) ||
+            (ret && !is_hvsock_channel(channel)))
+		vmbus_setevent(channel);
 
 	return ret;
 
