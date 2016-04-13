@@ -1036,37 +1036,11 @@ __vmbus_recvpacket(struct vmbus_channel *channel, void *buffer,
 		   u32 bufferlen, u32 *buffer_actual_len, u64 *requestid,
 		   bool raw)
 {
-	struct vmpacket_descriptor desc;
-	u32 packetlen;
-	u32 userlen;
 	int ret;
 	bool signal = false;
 
-	*buffer_actual_len = 0;
-	*requestid = 0;
-
-
-	ret = hv_ringbuffer_peek(&channel->inbound, &desc,
-			     sizeof(struct vmpacket_descriptor));
-	if (ret != 0)
-		return 0;
-
-	packetlen = desc.len8 << 3;
-	if (!raw)
-		userlen = packetlen - (desc.offset8 << 3);
-	else
-		userlen = packetlen;
-
-	*buffer_actual_len = userlen;
-
-	if (userlen > bufferlen)
-		return -ENOBUFS;
-
-	*requestid = desc.trans_id;
-
-	/* Copy over the packet to the user buffer */
-	ret = hv_ringbuffer_read(&channel->inbound, buffer, userlen,
-		 		 raw ? 0 : desc.offset8 << 3, &signal);
+	ret = hv_ringbuffer_read(&channel->inbound, buffer, bufferlen,
+		 		 buffer_actual_len, requestid, &signal, raw);
 
 	if (signal)
 		vmbus_setevent(channel);
@@ -1095,89 +1069,3 @@ int vmbus_recvpacket_raw(struct vmbus_channel *channel, void *buffer,
 }
 EXPORT_SYMBOL_GPL(vmbus_recvpacket_raw);
 
-/*
- * vmbus_recvpacket_hvsock - Receive the hvsock payload from the vmbus
- * ringbuffer into the 'buffer'.
- */
-int vmbus_recvpacket_hvsock(struct vmbus_channel *channel, void *buffer,
-			    u32 bufferlen, u32 *buffer_actual_len)
-{
-	struct vmpipe_proto_header *pipe_hdr;
-	struct vmpacket_descriptor *desc;
-	u32 packet_len, payload_len;
-	bool signal = false;
-	int ret;
-
-	*buffer_actual_len = 0;
-
-	if (bufferlen < HVSOCK_HEADER_LEN)
-		return -ENOBUFS;
-
-	ret = hv_ringbuffer_peek(&channel->inbound, buffer,
-				 HVSOCK_HEADER_LEN);
-	if (ret != 0)
-		return ret;
-
-	desc = (struct vmpacket_descriptor *)buffer;
-	packet_len = desc->len8 << 3;
-	if (desc->type != VM_PKT_DATA_INBAND ||
-	    desc->offset8 != (sizeof(*desc) / 8) ||
-	    packet_len < HVSOCK_HEADER_LEN)
-		return -EIO;
-
-	pipe_hdr = (struct vmpipe_proto_header *)(desc + 1);
-	payload_len = pipe_hdr->data_size;
-
-	if (pipe_hdr->pkt_type != 1 || payload_len == 0)
-		return -EIO;
-
-	if (HVSOCK_PKT_LEN(payload_len) != packet_len + PREV_INDICES_LEN)
-		return -EIO;
-
-	if (bufferlen < packet_len - HVSOCK_HEADER_LEN)
-		return -ENOBUFS;
-
-	/* Copy over the hvsock payload to the user buffer */
-	ret = hv_ringbuffer_read(&channel->inbound, buffer,
-				 packet_len - HVSOCK_HEADER_LEN,
-				 HVSOCK_HEADER_LEN, &signal);
-	if (ret != 0)
-		return ret;
-
-	*buffer_actual_len = payload_len;
-
-	if (signal)
-		vmbus_setevent(channel);
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(vmbus_recvpacket_hvsock);
-
-/*
- * vmbus_get_hvsock_rw_status - can the ringbuffer be read/written?
- */
-void vmbus_get_hvsock_rw_status(struct vmbus_channel *channel,
-				bool *can_read, bool *can_write)
-{
-	u32 avl_read_bytes, avl_write_bytes, dummy;
-
-	if (can_read != NULL) {
-		hv_get_ringbuffer_available_space(&channel->inbound,
-						  &avl_read_bytes,
-						  &dummy);
-		*can_read = avl_read_bytes >= HVSOCK_MIN_PKT_LEN;
-	}
-
-	/*
-	 * We write into the ringbuffer only when we're able to write a
-	 * a payload of 4096 bytes (the actual written payload's length may be
-	 * less than 4096).
-	 */
-	if (can_write != NULL) {
-		hv_get_ringbuffer_available_space(&channel->outbound,
-						  &dummy,
-						  &avl_write_bytes);
-		*can_write = avl_write_bytes > HVSOCK_PKT_LEN(PAGE_SIZE);
-	}
-}
-EXPORT_SYMBOL_GPL(vmbus_get_hvsock_rw_status);
