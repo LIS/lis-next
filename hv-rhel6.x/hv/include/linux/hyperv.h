@@ -671,6 +671,33 @@ enum hv_signal_policy {
 	HV_SIGNAL_POLICY_EXPLICIT,
 };
 
+enum vmbus_device_type {
+	HV_IDE = 0,
+	HV_SCSI,
+	HV_FC,
+	HV_NIC,
+	HV_ND,
+	HV_PCIE,
+	HV_FB,
+	HV_KBD,
+	HV_MOUSE,
+	HV_KVP,
+	HV_TS,
+	HV_HB,
+	HV_SHUTDOWN,
+	HV_FCOPY,
+	HV_BACKUP,
+	HV_DM,
+	HV_UNKOWN,
+};
+
+struct vmbus_device {
+	u16  dev_type;
+	/* deviation from upstream - NHM */
+	__u8 guid[16];
+	bool perf_device;
+};
+
 /* hvsock related definitions */
 enum hvsock_event {
 	/* The host application is close()-ing the connection */
@@ -681,6 +708,9 @@ enum hvsock_event {
 struct vmbus_channel {
 	/* Unique channel id */
 	int id;
+	u16 vendor_id;
+	u16 device_id;
+
 	struct list_head listentry;
 
 	struct hv_device *device_obj;
@@ -1211,6 +1241,16 @@ u64 hv_do_hypercall(u64 control, void *input, void *output);
 	.guid = { \
 			0x9e, 0xb6, 0xa8, 0xcf, 0x4a, 0x5b, 0xc0, 0x4c, \
 			0xb9, 0x8b, 0x8b, 0xa1, 0xa1, 0xf3, 0xf9, 0x5a \
+		}
+
+/*
+ * Keyboard GUID
+ * {f912ad6d-2b17-48ea-bd65-f927a61c7684}
+ */
+#define HV_KBD_GUID \
+	.guid = { \
+			0x6d, 0xad, 0x12, 0xf9, 0x17, 0x2b, 0xea, 0x48, \
+			0xbd, 0x65, 0xf9, 0x27, 0xa6, 0x1c, 0x76, 0x84 \
 		}
 
 /*
