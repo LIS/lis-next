@@ -756,7 +756,7 @@ static void vmbus_onoffer_rescind(struct vmbus_channel_message_header *hdr)
 	if (channel->device_obj) {
 		if (channel->chn_rescind_callback) {
 			channel->chn_rescind_callback(channel);
-			return;
+			goto out;
 		}
 		/*
 		 * We will have to unregister this device from the
