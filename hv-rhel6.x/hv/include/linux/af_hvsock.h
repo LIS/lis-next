@@ -2,8 +2,8 @@
 #define __AF_HVSOCK_H__
 
 #include <linux/kernel.h>
-#include <net/sock.h>
 #include "hyperv.h"
+#include <net/sock.h>
 
 #define VMBUS_RINGBUFFER_SIZE_HVSOCK_RECV (5 * PAGE_SIZE)
 #define VMBUS_RINGBUFFER_SIZE_HVSOCK_SEND (5 * PAGE_SIZE)
@@ -35,10 +35,17 @@ struct hvsock_sock {
 
 	struct vmbus_channel *channel;
 
-	char send_buf[HVSOCK_SND_BUF_SZ];
-	char recv_buf[HVSOCK_RCV_BUF_SZ];
-	unsigned int recv_data_len;
-	unsigned int recv_data_offset;
+	struct {
+		struct vmpipe_proto_header hdr;
+		char buf[HVSOCK_SND_BUF_SZ];
+	} __packed send;
+
+	struct {
+		struct vmpipe_proto_header hdr;
+		char buf[HVSOCK_RCV_BUF_SZ];
+		unsigned int data_len;
+		unsigned int data_offset;
+	} __packed recv;
 };
 
 static inline wait_queue_head_t *sk_sleep(struct sock *sk)
