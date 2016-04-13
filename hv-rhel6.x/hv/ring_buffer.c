@@ -438,7 +438,7 @@ int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info,
 						    sizeof(desc),
 						    next_read_location);
 
-	offset = raw ? 9 : (desc.offset8 << 3);
+	offset = raw ? 0 : (desc.offset8 << 3);
 	packetlen = (desc.len8 << 3) - offset;
 	*buffer_actual_len = packetlen;
 	*requestid = desc.trans_id;
