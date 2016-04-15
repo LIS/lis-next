@@ -140,9 +140,6 @@ struct hv_netvsc_packet {
  	u16 q_idx;
 	u32 send_buf_index;
 	u32 total_data_buflen;
-	u32 pad1;
-
-	u64 send_completion_tid;
 	void *send_completion_ctx;
 };
 
@@ -182,10 +179,10 @@ int netvsc_device_remove(struct hv_device *device);
 int netvsc_send(struct hv_device *device,
 		struct hv_netvsc_packet *packet,
 		struct rndis_message *rndis_msg,
-		struct hv_page_buffer **page_buffer);
+		struct hv_page_buffer **page_buffer,
+		struct sk_buff *skb);
 void netvsc_linkstatus_callback(struct hv_device *device_obj,
 				struct rndis_message *resp);
-void netvsc_xmit_completion(void *context);
 int netvsc_recv_callback(struct hv_device *device_obj,
 			struct hv_netvsc_packet *packet,
 			void **data,
