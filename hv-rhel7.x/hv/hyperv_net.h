@@ -129,7 +129,6 @@ struct hv_netvsc_packet {
 	/* Bookkeeping stuff */
 
 	u8 status;
-	u8 is_data_pkt;
 	u8 xmit_more; /* from skb */
 	u8 cp_partial; /* partial copy into send buffer */	
 	u8 rmsg_size; /* RNDIS header and PPI size */
