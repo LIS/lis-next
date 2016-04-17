@@ -505,8 +505,6 @@ check_size:
 	/* Use the headroom for building up the packet */
 	packet = (struct hv_netvsc_packet *)skb->head;
 
-	packet->status = 0;
-
 	/* TODO: This will likely evaluate to false, since RH7 and
 	 * below kernels will set next pointer to NULL before calling
 	 * into here. Should find another way to set this flag.
@@ -738,8 +736,7 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 
 	net = ((struct netvsc_device *)hv_get_drvdata(device_obj))->ndev;
 	if (!net || net->reg_state != NETREG_REGISTERED) {
-		packet->status = NVSP_STAT_FAIL;
-		return 0;
+		return NVSP_STAT_FAIL;
 	}
 	net_device_ctx = netdev_priv(net);
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
@@ -750,8 +747,7 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 	skb = netdev_alloc_skb_ip_align(net, packet->total_data_buflen);
 	if (unlikely(!skb)) {
 		++net->stats.rx_dropped;
-		packet->status = NVSP_STAT_FAIL;
-		return 0;
+		return NVSP_STAT_FAIL;
 	}
 
 	/*
