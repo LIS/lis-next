@@ -652,6 +652,8 @@ do_send:
 	packet->total_data_buflen = rndis_msg->msg_len;
 	packet->page_buf_cnt = init_page_array(rndis_msg, rndis_msg_size,
 					       skb, packet, &pb);
+	/* timestamp packet in software */
+	skb_tx_timestamp(skb);
 
 	ret = netvsc_send(net_device_ctx->device_ctx, packet,
 			  rndis_msg, &pb, skb);
@@ -1041,6 +1043,7 @@ static const struct ethtool_ops ethtool_ops = {
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
 	.get_channels   = netvsc_get_channels,
 	.set_channels   = netvsc_set_channels,
+	.get_ts_info	= ethtool_op_get_ts_info,
 #endif
 };
 
