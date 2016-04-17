@@ -163,72 +163,6 @@ static void *init_ppi_data(struct rndis_message *msg, u32 ppi_size,
 	return ppi;
 }
 
-union sub_key {
-	u64 k;
-	struct {
-		u8 pad[3];
-		u8 kb;
-		u32 ka;
-	};
-};
-
-#ifdef NOTYET
-/* Toeplitz hash function
- * data: network byte order
- * return: host byte order
- */
-static u32 comp_hash(u8 *key, int klen, void *data, int dlen)
-{
-	union sub_key subk;
-	int k_next = 4;
-	u8 dt;
-	int i, j;
-	u32 ret = 0;
-
-	subk.k = 0;
-	subk.ka = ntohl(*(u32 *)key);
-
-	for (i = 0; i < dlen; i++) {
-		subk.kb = key[k_next];
-		k_next = (k_next + 1) % klen;
-		dt = ((u8 *)data)[i];
-		for (j = 0; j < 8; j++) {
-			if (dt & 0x80)
-				ret ^= subk.ka;
-			dt <<= 1;
-			subk.k <<= 1;
-		}
-	}
-
-	return ret;
-}
-
-bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
-{
-	struct iphdr *iphdr;
-	int data_len;
-	bool ret = false;
-
-	skb_reset_mac_header(skb);
-
-	if (eth_hdr(skb)->h_proto != htons(ETH_P_IP))
-		return false;
-
-	iphdr = ip_hdr(skb);
-
-	if (iphdr->version == 4) {
-		if (iphdr->protocol == IPPROTO_TCP)
-			data_len = 12;
-		else
-			data_len = 8;
-		*hash = comp_hash(netvsc_hash_key, HASH_KEYLEN,
-				  (u8 *)&iphdr->saddr, data_len);
-		ret = true;
-	}
-
-	return ret;
-}
-
 static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 {
 	struct net_device_context *net_device_ctx = netdev_priv(ndev);
@@ -240,12 +174,12 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 	if (nvsc_dev == NULL || ndev->real_num_tx_queues <= 1)
 		return 0;
 
-	if (netvsc_set_hash(&hash, skb)) {
-		q_idx = nvsc_dev->send_table[hash % VRSS_SEND_TAB_SIZE] %
-			ndev->real_num_tx_queues;
+	hash = skb_get_hash(skb);
+	q_idx = nvsc_dev->send_table[hash % VRSS_SEND_TAB_SIZE] %
+		ndev->real_num_tx_queues;
 
-		skb_set_hash(skb, hash, 0);
-	}
+	if (!nvsc_dev->chn_table[q_idx])
+		 q_idx = 0;
 
 	return q_idx;
 }
