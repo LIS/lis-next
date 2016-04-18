@@ -839,6 +839,18 @@ static inline int netvsc_send_pkt(
 	return ret;
 }
 
+/* Move packet out of multi send data (msd), and clear msd */
+static inline void move_pkt_msd(struct hv_netvsc_packet **msd_send,
+				struct sk_buff **msd_skb,
+				struct multi_send_data *msdp)
+{
+	*msd_skb = msdp->skb;
+	*msd_send = msdp->pkt;
+	msdp->skb = NULL;
+	msdp->pkt = NULL;
+	msdp->count = 0;
+}
+
 int netvsc_send(struct hv_device *device,
 		struct hv_netvsc_packet *packet,
 		struct rndis_message *rndis_msg,
@@ -853,6 +865,7 @@ int netvsc_send(struct hv_device *device,
 	unsigned int section_index = NETVSC_INVALID_INDEX;
 	struct multi_send_data *msdp;
 	struct hv_netvsc_packet *msd_send = NULL, *cur_send = NULL;
+	struct sk_buff *msd_skb = NULL;
 	bool try_batch;
 
 	net_device = get_outbound_net_device(device);
@@ -863,6 +876,14 @@ int netvsc_send(struct hv_device *device,
 
 	packet->send_buf_index = NETVSC_INVALID_INDEX;
 	packet->cp_partial = false;
+
+	/* Send control message directly without accessing msd (Multi-Send
+	 * Data) field which may be changed during data packet processing.
+	 */
+	if (!skb) {
+		cur_send = packet;
+		goto send_now;
+	}
 
 	msdp = &net_device->msd[q_idx];
 
@@ -886,10 +907,8 @@ int netvsc_send(struct hv_device *device,
 		   net_device->send_section_size) {
 		section_index = netvsc_get_next_send_section(net_device);
 		if (section_index != NETVSC_INVALID_INDEX) {
-				msd_send = msdp->pkt;
-				msdp->pkt = NULL;
-				msdp->count = 0;
-				msd_len = 0;
+			move_pkt_msd(&msd_send, &msd_skb, msdp);
+			msd_len = 0;
 		}
 	}
 
@@ -908,34 +927,35 @@ int netvsc_send(struct hv_device *device,
 			packet->total_data_buflen += msd_len;
 		}
 
-		if (msdp->pkt)
-			dev_kfree_skb_any(skb);
+		if (msdp->skb)
+			dev_kfree_skb_any(msdp->skb);
 
 		if (packet->xmit_more && !packet->cp_partial) {
+			msdp->skb = skb;
 			msdp->pkt = packet;
 			msdp->count++;
 		} else {
 			cur_send = packet;
+			msdp->skb = NULL;
 			msdp->pkt = NULL;
 			msdp->count = 0;
 		}
 	} else {
-		msd_send = msdp->pkt;
-		msdp->pkt = NULL;
-		msdp->count = 0;
+		move_pkt_msd(&msd_send, &msd_skb, msdp);
 		cur_send = packet;
 	}
 
 	if (msd_send) {
-		m_ret = netvsc_send_pkt(msd_send, net_device, pb, skb);
+		m_ret = netvsc_send_pkt(msd_send, net_device, NULL, msd_skb);
 
 		if (m_ret != 0) {
 			netvsc_free_send_slot(net_device,
 					      msd_send->send_buf_index);
-			dev_kfree_skb_any(skb);
+			dev_kfree_skb_any(msd_skb);
 		}
 	}
 
+send_now:
 	if (cur_send)
 		ret = netvsc_send_pkt(cur_send, net_device, pb, skb);
 
@@ -1042,17 +1062,15 @@ static void netvsc_receive(struct netvsc_device *net_device,
 	/* Each range represents 1 RNDIS pkt that contains 1 ethernet frame */
 	for (i = 0; i < count; i++) {
 		/* Initialize the netvsc packet */
-		netvsc_packet->status = NVSP_STAT_SUCCESS;
 		data = (void *)((unsigned long)net_device->
 			recv_buf + vmxferpage_packet->ranges[i].byte_offset);
 		netvsc_packet->total_data_buflen =
 					vmxferpage_packet->ranges[i].byte_count;
 
 		/* Pass it to the upper layer */
-		rndis_filter_receive(device, netvsc_packet, &data, channel);
+		status = rndis_filter_receive(device, netvsc_packet, &data,
+					      channel);
 
-		if (netvsc_packet->status != NVSP_STAT_SUCCESS)
-			status = NVSP_STAT_FAIL;
 	}
 
 	netvsc_send_recv_completion(device, channel, net_device,

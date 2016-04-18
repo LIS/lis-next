@@ -40,7 +40,6 @@
 
 #include "hyperv_net.h"
 
-
 #define RING_SIZE_MIN 64
 #define LINKCHANGE_INT (2 * HZ)
 #define NETVSC_HW_FEATURES	(NETIF_F_RXCSUM | \
@@ -502,16 +501,12 @@ check_size:
 	/* Use the headroom for building up the packet */
 	packet = (struct hv_netvsc_packet *)skb->head;
 
-	packet->status = 0;
-
 	/* TODO: This will likely evaluate to false, since RH7 and
 	 * below kernels will set next pointer to NULL before calling
 	 * into here. Should find another way to set this flag.
 	 */
 	packet->xmit_more = (skb->next != NULL);
 	
-	packet->vlan_tci = skb->vlan_tci;
-
 	packet->q_idx = skb_get_queue_mapping(skb);
 
 	packet->total_data_buflen = skb->len;
@@ -522,7 +517,7 @@ check_size:
 
 	packet->send_completion_ctx = packet;
 
-	isvlan = packet->vlan_tci & VLAN_TAG_PRESENT;
+	isvlan = skb->vlan_tci & VLAN_TAG_PRESENT;
 
 	/* Add the rndis header */
 	rndis_msg->ndis_msg_type = RNDIS_MSG_PACKET;
@@ -555,8 +550,8 @@ check_size:
 					IEEE_8021Q_INFO);
 		vlan = (struct ndis_pkt_8021q_info *)((void *)ppi +
 						ppi->ppi_offset);
-		vlan->vlanid = packet->vlan_tci & VLAN_VID_MASK;
-		vlan->pri = (packet->vlan_tci & VLAN_PRIO_MASK) >>
+		vlan->vlanid = skb->vlan_tci & VLAN_VID_MASK;
+		vlan->pri = (skb->vlan_tci & VLAN_PRIO_MASK) >>
 				VLAN_PRIO_SHIFT;
 	}
 
@@ -653,6 +648,9 @@ do_send:
 	packet->page_buf_cnt = init_page_array(rndis_msg, rndis_msg_size,
 					       skb, packet, &pb);
 
+	/* timestamp packet in software */
+	skb_tx_timestamp(skb);
+
 	ret = netvsc_send(net_device_ctx->device_ctx, packet,
 			  rndis_msg, &pb, skb);
 
@@ -719,7 +717,8 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 				struct hv_netvsc_packet *packet,
 				void **data,
 				struct ndis_tcp_ip_checksum_info *csum_info,
-				struct vmbus_channel *channel)
+				struct vmbus_channel *channel,
+				u16 vlan_tci)
 
 {
 	struct net_device *net;
@@ -729,8 +728,7 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 
 	net = ((struct netvsc_device *)hv_get_drvdata(device_obj))->ndev;
 	if (!net || net->reg_state != NETREG_REGISTERED) {
-		packet->status = NVSP_STAT_FAIL;
-		return 0;
+		return NVSP_STAT_FAIL;
 	}
 	net_device_ctx = netdev_priv(net);
 	rx_stats = this_cpu_ptr(net_device_ctx->rx_stats);
@@ -739,8 +737,7 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 	skb = netdev_alloc_skb_ip_align(net, packet->total_data_buflen);
 	if (unlikely(!skb)) {
 		++net->stats.rx_dropped;
-		packet->status = NVSP_STAT_FAIL;
-		return 0;
+		return NVSP_STAT_FAIL;
 	}
 
 	/*
@@ -762,9 +759,9 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 			skb->ip_summed = CHECKSUM_NONE;
 	}
 
-	if (packet->vlan_tci & VLAN_TAG_PRESENT)
+	if (vlan_tci & VLAN_TAG_PRESENT)
 		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q),
-				       packet->vlan_tci);
+				       vlan_tci);
 
 	skb_record_rx_queue(skb, channel->
 			    offermsg.offer.sub_channel_index);
@@ -909,6 +906,7 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 	struct netvsc_device *nvdev = hv_get_drvdata(hdev);
 	struct netvsc_device_info device_info;
 	int limit = ETH_DATA_LEN;
+	u32 num_chn;
 	int ret = 0;
 
 	if (nvdev == NULL || nvdev->destroy)
@@ -924,6 +922,8 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 	if (ret)
 		goto out;
 
+	num_chn = nvdev->num_chn;
+
 	nvdev->start_remove = true;
 	rndis_filter_device_remove(hdev);
 
@@ -934,7 +934,7 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 
 	memset(&device_info, 0, sizeof(device_info));
 	device_info.ring_size = ring_size;
-	device_info.num_chn = nvdev->num_chn;
+	device_info.num_chn = num_chn;
 	device_info.max_num_vrss_chns = max_num_vrss_chns;
 	rndis_filter_device_add(hdev, &device_info);
 
@@ -1025,6 +1025,7 @@ static const struct ethtool_ops ethtool_ops = {
 	.get_link	= ethtool_op_get_link,
 	.get_channels   = netvsc_get_channels,
 	.set_channels   = netvsc_set_channels,
+	.get_ts_info	= ethtool_op_get_ts_info,
 };
 
 static const struct net_device_ops device_ops = {

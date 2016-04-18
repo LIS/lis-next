@@ -128,13 +128,11 @@ struct ndis_tcp_ip_checksum_info;
 struct hv_netvsc_packet {
 	/* Bookkeeping stuff */
 
-	u8 status;
 	u8 xmit_more; /* from skb */
 	u8 cp_partial; /* partial copy into send buffer */	
 	u8 rmsg_size; /* RNDIS header and PPI size */
 	u8 rmsg_pgcnt; /* page count of RNDIS header and PPI */
 	u8 page_buf_cnt;
-	u16 vlan_tci;
  	u16 q_idx;
 	u32 send_buf_index;
 	u32 total_data_buflen;
@@ -185,7 +183,8 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 			struct hv_netvsc_packet *packet,
 			void **data,
 			struct ndis_tcp_ip_checksum_info *csum_info,
-			struct vmbus_channel *channel);
+			struct vmbus_channel *channel,
+			u16 vlan_tci);
 void netvsc_channel_cb(void *context);
 int rndis_filter_open(struct hv_device *dev);
 int rndis_filter_close(struct hv_device *dev);
@@ -617,11 +616,13 @@ struct nvsp_message {
 #define NETVSC_PACKET_SIZE                      4096
 
 #define VRSS_SEND_TAB_SIZE 16
+#define VRSS_CHANNEL_MAX 64
 
 #define RNDIS_MAX_PKT_DEFAULT 8
 #define RNDIS_PKT_ALIGN_DEFAULT 8
 
 struct multi_send_data {
+	struct sk_buff *skb; /* skb containing the pkt */
 	struct hv_netvsc_packet *pkt; /* netvsc pkt pending */
 	u32 count; /* counter of batched packets */
 };
@@ -693,13 +694,13 @@ struct netvsc_device {
 
 	struct net_device *ndev;
 
-	struct vmbus_channel *chn_table[NR_CPUS];
+	struct vmbus_channel *chn_table[VRSS_CHANNEL_MAX];
 	u32 send_table[VRSS_SEND_TAB_SIZE];
 	u32 max_chn;
 	u32 num_chn;
 	spinlock_t sc_lock; /* Protects num_sc_offered variable */
 	u32 num_sc_offered;
-	atomic_t queue_sends[NR_CPUS];
+	atomic_t queue_sends[VRSS_CHANNEL_MAX];
 
 	/* Holds rndis device info */
 	void *extension;
@@ -711,7 +712,7 @@ struct netvsc_device {
 	/* The sub channel callback buffer */
 	unsigned char *sub_cb_buf;
 
-	struct multi_send_data msd[NR_CPUS];
+	struct multi_send_data msd[VRSS_CHANNEL_MAX];
 	u32 max_pkt; /* max number of pkt in one send, e.g. 8 */
 	u32 pkt_align; /* alignment bytes, e.g. 8 */
 

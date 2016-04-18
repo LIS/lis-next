@@ -344,7 +344,7 @@ static inline void *rndis_get_ppi(struct rndis_packet *rpkt, u32 type)
 	return NULL;
 }
 
-static void rndis_filter_receive_data(struct rndis_device *dev,
+static int rndis_filter_receive_data(struct rndis_device *dev,
 				   struct rndis_message *msg,
 				   struct hv_netvsc_packet *pkt,
 				   void **data,
@@ -354,6 +354,7 @@ static void rndis_filter_receive_data(struct rndis_device *dev,
 	u32 data_offset;
 	struct ndis_pkt_8021q_info *vlan;
 	struct ndis_tcp_ip_checksum_info *csum_info;
+	u16 vlan_tci = 0;
 
 	rndis_pkt = &msg->msg.pkt;
 
@@ -371,7 +372,7 @@ static void rndis_filter_receive_data(struct rndis_device *dev,
 			   "overflow detected (got %u, min %u)"
 			   "...dropping this message!\n",
 			   pkt->total_data_buflen, rndis_pkt->data_len);
-		return;
+		return NVSP_STAT_FAIL;
 	}
 
 	/*
@@ -384,14 +385,13 @@ static void rndis_filter_receive_data(struct rndis_device *dev,
 
 	vlan = rndis_get_ppi(rndis_pkt, IEEE_8021Q_INFO);
 	if (vlan) {
-		pkt->vlan_tci = VLAN_TAG_PRESENT | vlan->vlanid |
+		vlan_tci = VLAN_TAG_PRESENT | vlan->vlanid |
 			(vlan->pri << VLAN_PRIO_SHIFT);
-	} else {
-		pkt->vlan_tci = 0;
 	}
 
 	csum_info = rndis_get_ppi(rndis_pkt, TCPIP_CHKSUM_PKTINFO);
-	netvsc_recv_callback(dev->net_dev->dev, pkt, data, csum_info, channel);
+	return netvsc_recv_callback(dev->net_dev->dev, pkt, data,
+				    csum_info, channel, vlan_tci);
 }
 
 int rndis_filter_receive(struct hv_device *dev,
@@ -406,7 +406,7 @@ int rndis_filter_receive(struct hv_device *dev,
 	int ret = 0;
 
 	if (!net_dev) {
-		ret = -EINVAL;
+		ret = NVSP_STAT_FAIL;
 		goto exit;
 	}
 
@@ -416,7 +416,7 @@ int rndis_filter_receive(struct hv_device *dev,
 	if (!net_dev->extension) {
 		netdev_err(ndev, "got rndis message but no rndis device - "
 			  "dropping this message!\n");
-		ret = -ENODEV;
+		ret = NVSP_STAT_FAIL;
 		goto exit;
 	}
 
@@ -424,7 +424,7 @@ int rndis_filter_receive(struct hv_device *dev,
 	if (rndis_dev->state == RNDIS_DEV_UNINITIALIZED) {
 		netdev_err(ndev, "got rndis message but rndis device "
 			   "uninitialized...dropping this message!\n");
-		ret = -ENODEV;
+		ret = NVSP_STAT_FAIL;
 		goto exit;
 	}
 
@@ -436,8 +436,8 @@ int rndis_filter_receive(struct hv_device *dev,
 	switch (rndis_msg->ndis_msg_type) {
 	case RNDIS_MSG_PACKET:
 		/* data msg */
-		rndis_filter_receive_data(rndis_dev, rndis_msg, pkt,
-					  data, channel);
+		ret = rndis_filter_receive_data(rndis_dev, rndis_msg, pkt,
+						data, channel);
 		break;
 
 	case RNDIS_MSG_INIT_C:
@@ -460,9 +460,6 @@ int rndis_filter_receive(struct hv_device *dev,
 	}
 
 exit:
-	if (ret != 0)
-		pkt->status = NVSP_STAT_FAIL;
-
 	return ret;
 }
 
@@ -989,11 +986,6 @@ static void netvsc_sc_open(struct vmbus_channel *new_sc)
 
 	nvscdev = hv_get_drvdata(new_sc->primary_channel->device_obj);
 
-	spin_lock_irqsave(&nvscdev->sc_lock, flags);
-	nvscdev->num_sc_offered--;
-	spin_unlock_irqrestore(&nvscdev->sc_lock, flags);
-	if (nvscdev->num_sc_offered == 0)
-		complete(&nvscdev->channel_init_wait);
 
 	if (chn_index >= nvscdev->num_chn)
 		return;
@@ -1007,6 +999,14 @@ static void netvsc_sc_open(struct vmbus_channel *new_sc)
 
 	if (ret == 0)
 		nvscdev->chn_table[chn_index] = new_sc;
+
+	spin_lock_irqsave(&nvscdev->sc_lock, flags);
+        nvscdev->num_sc_offered--;
+        spin_unlock_irqrestore(&nvscdev->sc_lock, flags);
+        if (nvscdev->num_sc_offered == 0)
+                complete(&nvscdev->channel_init_wait);
+
+
 }
 
 int rndis_filter_device_add(struct hv_device *dev,
@@ -1116,9 +1116,9 @@ int rndis_filter_device_add(struct hv_device *dev,
 	if (ret || rsscap.num_recv_que < 2)
 		goto out;
 
-	num_rss_qs = min(device_info->max_num_vrss_chns, rsscap.num_recv_que);
+	net_device->max_chn = min_t(u32, VRSS_CHANNEL_MAX, rsscap.num_recv_que);
 
-	net_device->max_chn = rsscap.num_recv_que;
+	num_rss_qs = min(device_info->max_num_vrss_chns, net_device->max_chn);
 
 	/*
 	 * We will limit the VRSS channels to the number CPUs in the NUMA node
