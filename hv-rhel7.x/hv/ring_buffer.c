@@ -73,7 +73,7 @@ u32 hv_end_read(struct hv_ring_buffer_info *rbi)
 static bool hv_need_to_signal(u32 old_write, struct hv_ring_buffer_info *rbi)
 {
 	mb();
-	if (rbi->ring_buffer->interrupt_mask)
+	if (READ_ONCE(rbi->ring_buffer->interrupt_mask))
 		return false;
 
 	/* check interrupt_mask before read_index */
@@ -82,7 +82,7 @@ static bool hv_need_to_signal(u32 old_write, struct hv_ring_buffer_info *rbi)
 	 * This is the only case we need to signal when the
 	 * ring transitions from being empty to non-empty.
 	 */
-	if (old_write == rbi->ring_buffer->read_index)
+	if (old_write == READ_ONCE(rbi->ring_buffer->read_index))
 		return true;
 
 	return false;
@@ -110,7 +110,7 @@ static bool hv_need_to_signal_on_read(u32 prev_write_sz,
 	u32 r_size;
 	u32 write_loc = rbi->ring_buffer->write_index;
 	u32 read_loc = rbi->ring_buffer->read_index;
-	u32 pending_sz = rbi->ring_buffer->pending_send_sz;
+	u32 pending_sz = READ_ONCE(rbi->ring_buffer->pending_send_sz);
 
 	/* If the other end is not blocked on write don't bother. */
 	if (pending_sz == 0)
