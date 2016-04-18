@@ -203,87 +203,6 @@ static void *init_ppi_data(struct rndis_message *msg, u32 ppi_size,
 	return ppi;
 }
 
-union sub_key {
-	u64 k;
-	struct {
-		u8 pad[3];
-		u8 kb;
-		u32 ka;
-	};
-};
-
-/* Toeplitz hash function
- * data: network byte order
- * return: host byte order
- */
-static u32 comp_hash(u8 *key, int klen, void *data, int dlen)
-{
-	union sub_key subk;
-	int k_next = 4;
-	u8 dt;
-	int i, j;
-	u32 ret = 0;
-
-	subk.k = 0;
-	subk.ka = ntohl(*(u32 *)key);
-
-	for (i = 0; i < dlen; i++) {
-		subk.kb = key[k_next];
-		k_next = (k_next + 1) % klen;
-		dt = ((u8 *)data)[i];
-		for (j = 0; j < 8; j++) {
-			if (dt & 0x80)
-				ret ^= subk.ka;
-			dt <<= 1;
-			subk.k <<= 1;
-		}
-	}
-
-	return ret;
-}
-
-bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
-{
-	struct iphdr *iphdr;
-	struct ipv6hdr *ipv6hdr;
-	__be32 dbuf[9];
-	int data_len;
-
-	skb_reset_mac_header(skb);
-
-	if (eth_hdr(skb)->h_proto != htons(ETH_P_IP) &&
-	    eth_hdr(skb)->h_proto != htons(ETH_P_IPV6))
-		return false;
-
-	iphdr = ip_hdr(skb);
-	ipv6hdr = ipv6_hdr(skb);
-
-	if (iphdr->version == 4) {
-		dbuf[0] = iphdr->saddr;
-		dbuf[1] = iphdr->daddr;
-		if (iphdr->protocol == IPPROTO_TCP) {
-			dbuf[2] = *(__be32 *)&tcp_hdr(skb)->source;
-			data_len = 12;
-		} else {
-			data_len = 8;
-		}
-	} else if (ipv6hdr->version == 6) {
-		memcpy(dbuf, &ipv6hdr->saddr, 32);
-		if (ipv6hdr->nexthdr == IPPROTO_TCP) {
-			dbuf[8] = *(__be32 *)&tcp_hdr(skb)->source;
-			data_len = 36;
-		} else {
-			data_len = 32;
-		}
-	} else {
-		return false;
-	}
-
-	*hash = comp_hash(netvsc_hash_key, HASH_KEYLEN, dbuf, data_len);
-
-	return true;
-}
-
 #ifdef NOTYET
 // Divergence from upstream commit:
 // 5b54dac856cb5bd6f33f4159012773e4a33704f7
@@ -301,24 +220,16 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 	if (nvsc_dev == NULL || ndev->real_num_tx_queues <= 1)
 		return 0;
 
-	if (netvsc_set_hash(&hash, skb)) {
-		q_idx = nvsc_dev->send_table[hash % VRSS_SEND_TAB_SIZE] %
-			ndev->real_num_tx_queues;
+	hash = skb_get_hash(skb);
+	q_idx = nvsc_dev->send_table[hash % VRSS_SEND_TAB_SIZE] %
+		ndev->real_num_tx_queues;
 
-		skb_set_hash(skb, hash, 0);
-	}
+	if (!nvsc_dev->chn_table[q_idx])
+		q_idx = 0;
 
+	if (!nvsc_dev->chn_table[q_idx])
+		q_idx = 0;
 	return q_idx;
-}
-
-void netvsc_xmit_completion(void *context)
-{
-	struct hv_netvsc_packet *packet = (struct hv_netvsc_packet *)context;
-	struct sk_buff *skb = (struct sk_buff *)
-		(unsigned long)packet->send_completion_tid;
-
-	if (skb)
-		dev_kfree_skb_any(skb);
 }
 
 static u32 fill_pg_buf(struct page *page, u32 offset, u32 len,
@@ -356,9 +267,10 @@ static u32 fill_pg_buf(struct page *page, u32 offset, u32 len,
 }
 
 static u32 init_page_array(void *hdr, u32 len, struct sk_buff *skb,
-			   struct hv_netvsc_packet *packet)
+			   struct hv_netvsc_packet *packet,
+			   struct hv_page_buffer **page_buf)
 {
-	struct hv_page_buffer *pb = packet->page_buf;
+	struct hv_page_buffer *pb = *page_buf;
 	u32 slots_used = 0;
 	char *data = skb->data;
 	int frags = skb_shinfo(skb)->nr_frags;
@@ -472,6 +384,7 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	u32 skb_length;
 	u32 pkt_sz;
 	struct hv_page_buffer page_buf[MAX_PAGE_BUFFER_COUNT];
+	struct hv_page_buffer *pb = page_buf;
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
 	struct netvsc_stats *tx_stats = this_cpu_ptr(net_device_ctx->tx_stats);
 #endif
@@ -511,35 +424,26 @@ check_size:
 	/* Use the headroom for building up the packet */
 	packet = (struct hv_netvsc_packet *)skb->head;
 
-	packet->status = 0;
-
 	/* TODO: This will likely evaluate to false, since RH7 and
 	 * below kernels will set next pointer to NULL before calling
 	 * into here. Should find another way to set this flag.
 	 */
 	packet->xmit_more = (skb->next != NULL);
 
-	packet->vlan_tci = skb->vlan_tci;
-	packet->page_buf = page_buf;
 
 	packet->q_idx = skb_get_queue_mapping(skb);
 
-	packet->is_data_pkt = true;
 	packet->total_data_buflen = skb->len;
 
-	packet->rndis_msg = (struct rndis_message *)((unsigned long)packet +
+	rndis_msg = (struct rndis_message *)((unsigned long)packet +
 				sizeof(struct hv_netvsc_packet));
-	memset(packet->rndis_msg, 0, RNDIS_AND_PPI_SIZE);
+	memset(rndis_msg, 0, RNDIS_AND_PPI_SIZE);
 
-	/* Set the completion routine */
-	packet->send_completion = netvsc_xmit_completion;
 	packet->send_completion_ctx = packet;
-	packet->send_completion_tid = (unsigned long)skb;
 
-	isvlan = packet->vlan_tci & VLAN_TAG_PRESENT;
+	isvlan = skb->vlan_tci & VLAN_TAG_PRESENT;
 
 	/* Add the rndis header */
-	rndis_msg = packet->rndis_msg;
 	rndis_msg->ndis_msg_type = RNDIS_MSG_PACKET;
 	rndis_msg->msg_len = packet->total_data_buflen;
 	rndis_pkt = &rndis_msg->msg.pkt;
@@ -570,8 +474,8 @@ check_size:
 					IEEE_8021Q_INFO);
 		vlan = (struct ndis_pkt_8021q_info *)((void *)ppi +
 						ppi->ppi_offset);
-		vlan->vlanid = packet->vlan_tci & VLAN_VID_MASK;
-		vlan->pri = (packet->vlan_tci & VLAN_PRIO_MASK) >>
+		vlan->vlanid = skb->vlan_tci & VLAN_VID_MASK;
+		vlan->pri = (skb->vlan_tci & VLAN_PRIO_MASK) >>
 				VLAN_PRIO_SHIFT;
 	}
 
@@ -666,9 +570,12 @@ do_send:
 	rndis_msg->msg_len += rndis_msg_size;
 	packet->total_data_buflen = rndis_msg->msg_len;
 	packet->page_buf_cnt = init_page_array(rndis_msg, rndis_msg_size,
-					       skb, packet);
+					       skb, packet, &pb);
+	/* timestamp packet in software */
+	skb_tx_timestamp(skb);
 
-	ret = netvsc_send(net_device_ctx->device_ctx, packet);
+	ret = netvsc_send(net_device_ctx->device_ctx, packet,
+			  rndis_msg, &pb, skb);
 
 drop:
 	if (ret == 0) {
@@ -736,7 +643,10 @@ void netvsc_linkstatus_callback(struct hv_device *device_obj,
  */
 int netvsc_recv_callback(struct hv_device *device_obj,
 				struct hv_netvsc_packet *packet,
-				struct ndis_tcp_ip_checksum_info *csum_info)
+				void **data,
+				struct ndis_tcp_ip_checksum_info *csum_info,
+				struct vmbus_channel *channel,
+				u16 vlan_tci)
 {
 	struct net_device *net;
 	struct net_device_context *net_device_ctx;
@@ -747,8 +657,7 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 
 	net = ((struct netvsc_device *)hv_get_drvdata(device_obj))->ndev;
 	if (!net || net->reg_state != NETREG_REGISTERED) {
-		packet->status = NVSP_STAT_FAIL;
-		return 0;
+		return NVSP_STAT_FAIL;
 	}
 	net_device_ctx = netdev_priv(net);
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
@@ -759,15 +668,14 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 	skb = netdev_alloc_skb_ip_align(net, packet->total_data_buflen);
 	if (unlikely(!skb)) {
 		++net->stats.rx_dropped;
-		packet->status = NVSP_STAT_FAIL;
-		return 0;
+		return NVSP_STAT_FAIL;
 	}
 
 	/*
 	 * Copy to skb. This copy is needed here since the memory pointed by
 	 * hv_netvsc_packet cannot be deallocated
 	 */
-	memcpy(skb_put(skb, packet->total_data_buflen), packet->data,
+	memcpy(skb_put(skb, packet->total_data_buflen), *data,
 		packet->total_data_buflen);
 
 	skb->protocol = eth_type_trans(skb, net);
@@ -782,10 +690,10 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 			skb->ip_summed = CHECKSUM_NONE;
 	}
 
-	if (packet->vlan_tci & VLAN_TAG_PRESENT)
-		__vlan_hwaccel_put_tag(skb, packet->vlan_tci);
+	if (vlan_tci & VLAN_TAG_PRESENT)
+		__vlan_hwaccel_put_tag(skb, vlan_tci);
 
-	skb_record_rx_queue(skb, packet->channel->
+	skb_record_rx_queue(skb, channel->
 			    offermsg.offer.sub_channel_index);
 
 #if defined(RHEL_RELEASE_CODE) && (RHEL_RELEASE_CODE >= 1792)
@@ -935,6 +843,7 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 	struct netvsc_device *nvdev = hv_get_drvdata(hdev);
 	struct netvsc_device_info device_info;
 	int limit = ETH_DATA_LEN;
+	u32 num_chn;
 	int ret = 0;
 
 	if (nvdev == NULL || nvdev->destroy)
@@ -950,6 +859,8 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 	if (ret)
 		goto out;
 
+	num_chn = nvdev->num_chn;
+
 	nvdev->start_remove = true;
 	rndis_filter_device_remove(hdev);
 
@@ -960,7 +871,7 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 
 	memset(&device_info, 0, sizeof(device_info));
 	device_info.ring_size = ring_size;
-	device_info.num_chn = nvdev->num_chn;
+	device_info.num_chn = num_chn;
 	device_info.max_num_vrss_chns = max_num_vrss_chns;
 	rndis_filter_device_add(hdev, &device_info);
 
@@ -1054,6 +965,7 @@ static const struct ethtool_ops ethtool_ops = {
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
 	.get_channels   = netvsc_get_channels,
 	.set_channels   = netvsc_set_channels,
+	.get_ts_info	= ethtool_op_get_ts_info,
 #endif
 };
 
