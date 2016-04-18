@@ -1431,6 +1431,9 @@ extern __u32 vmbus_proto_version;
 
 int vmbus_send_tl_connect_request(const uuid_le *shv_guest_servie_id,
 				  const uuid_le *shv_host_servie_id);
+
+void vmbus_set_event(struct vmbus_channel *channel);
+
 struct vmpipe_proto_header {
 	u32 pkt_type;
 	u32 data_size;
