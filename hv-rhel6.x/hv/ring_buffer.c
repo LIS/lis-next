@@ -103,8 +103,7 @@ static bool hv_need_to_signal(u32 old_write, struct hv_ring_buffer_info *rbi)
  *    there is room for the producer to send the pending packet.
  */
 
-static bool hv_need_to_signal_on_read(u32 prev_write_sz,
-				      struct hv_ring_buffer_info *rbi)
+static bool hv_need_to_signal_on_read(struct hv_ring_buffer_info *rbi)
 {
 	u32 cur_write_sz;
 	u32 r_size;
@@ -470,7 +469,7 @@ int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info,
 	/* Update the read index */
 	hv_set_next_read_location(inring_info, next_read_location);
 
-	*signal = hv_need_to_signal_on_read(bytes_avail_towrite, inring_info);
+	*signal = hv_need_to_signal_on_read(inring_info);
 
 	return ret;
 }
