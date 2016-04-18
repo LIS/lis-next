@@ -340,6 +340,7 @@ struct mlx4_ib_alloc_ucontext_resp {
  * The following READ_ONCE macro is included from
  * tools/include/linux/compiler.h from upstream.
  */
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 
 #define __READ_ONCE_SIZE                                                \
 ({                                                                      \
@@ -385,7 +386,7 @@ void __read_once_size(const volatile void *p, void *res, int size)
 
 #define READ_ONCE(x) \
         ({ union { typeof(x) __val; char __c[1]; } __u; __read_once_size(&(x), __u.__c, sizeof(x)); __u.__val; })
-
+#endif
 
 /*
  * Define VMSock driver dependencies here
