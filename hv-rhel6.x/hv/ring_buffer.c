@@ -38,8 +38,6 @@ void hv_begin_read(struct hv_ring_buffer_info *rbi)
 
 u32 hv_end_read(struct hv_ring_buffer_info *rbi)
 {
-	u32 read;
-	u32 write;
 
 	rbi->ring_buffer->interrupt_mask = 0;
 	mb();
@@ -49,9 +47,7 @@ u32 hv_end_read(struct hv_ring_buffer_info *rbi)
 	 * If it is not, we raced and we need to process new
 	 * incoming messages.
 	 */
-	hv_get_ringbuffer_availbytes(rbi, &read, &write);
-
-	return read;
+	return hv_get_bytes_to_read(rbi);
 }
 
 /*
@@ -73,7 +69,7 @@ u32 hv_end_read(struct hv_ring_buffer_info *rbi)
 static bool hv_need_to_signal(u32 old_write, struct hv_ring_buffer_info *rbi)
 {
 	mb();
-	if (rbi->ring_buffer->interrupt_mask)
+	if (READ_ONCE(rbi->ring_buffer->interrupt_mask))
 		return false;
 
 	/* check interrupt_mask before read_index */
@@ -82,45 +78,7 @@ static bool hv_need_to_signal(u32 old_write, struct hv_ring_buffer_info *rbi)
 	 * This is the only case we need to signal when the
 	 * ring transitions from being empty to non-empty.
 	 */
-	if (old_write == rbi->ring_buffer->read_index)
-		return true;
-
-	return false;
-}
-
-/*
- * To optimize the flow management on the send-side,
- * when the sender is blocked because of lack of
- * sufficient space in the ring buffer, potential the
- * consumer of the ring buffer can signal the producer.
- * This is controlled by the following parameters:
- *
- * 1. pending_send_sz: This is the size in bytes that the
- *    producer is trying to send.
- * 2. The feature bit feat_pending_send_sz set to indicate if
- *    the consumer of the ring will signal when the ring
- *    state transitions from being full to a state where
- *    there is room for the producer to send the pending packet.
- */
-
-static bool hv_need_to_signal_on_read(u32 prev_write_sz,
-				      struct hv_ring_buffer_info *rbi)
-{
-	u32 cur_write_sz;
-	u32 r_size;
-	u32 write_loc = rbi->ring_buffer->write_index;
-	u32 read_loc = rbi->ring_buffer->read_index;
-	u32 pending_sz = rbi->ring_buffer->pending_send_sz;
-
-	/* If the other end is not blocked on write don't bother. */
-	if (pending_sz == 0)
-		return false;
-
-	r_size = rbi->ring_datasize;
-	cur_write_sz = write_loc >= read_loc ? r_size - (write_loc - read_loc) :
-			read_loc - write_loc;
-
-	if (cur_write_sz >= pending_sz)
+	if (old_write == READ_ONCE(rbi->ring_buffer->read_index))
 		return true;
 
 	return false;
@@ -174,16 +132,8 @@ hv_set_next_read_location(struct hv_ring_buffer_info *ring_info,
 		    u32 next_read_location)
 {
 	ring_info->ring_buffer->read_index = next_read_location;
+	ring_info->priv_read_index = next_read_location;
 }
-
-
-/* Get the start of the ring buffer */
-static inline void *
-hv_get_ring_buffer(struct hv_ring_buffer_info *ring_info)
-{
-	return (void *)ring_info->ring_buffer->buffer;
-}
-
 
 /* Get the size of the ring buffer */
 static inline u32
@@ -321,7 +271,6 @@ int hv_ringbuffer_write(struct hv_ring_buffer_info *outring_info,
 {
 	int i = 0;
 	u32 bytes_avail_towrite;
-	u32 bytes_avail_toread;
 	u32 totalbytes_towrite = 0;
 
 	u32 next_write_location;
@@ -337,9 +286,7 @@ int hv_ringbuffer_write(struct hv_ring_buffer_info *outring_info,
 	if (lock)
 		spin_lock_irqsave(&outring_info->ring_lock, flags);
 
-	hv_get_ringbuffer_availbytes(outring_info,
-				&bytes_avail_toread,
-				&bytes_avail_towrite);
+	bytes_avail_towrite = hv_get_bytes_to_write(outring_info);
 
 	/*
 	 * If there is only room for the packet, assume it is full.
@@ -404,7 +351,6 @@ int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info,
 				     void *buffer, u32 buflen, u32 *buffer_actual_len,
 				     u64 *requestid, bool *signal, bool raw)
 {
-	u32 bytes_avail_towrite;
 	u32 bytes_avail_toread;
 	u32 next_read_location = 0;
 	u64 prev_indices = 0;
@@ -419,9 +365,7 @@ int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info,
 	*buffer_actual_len = 0;
 	*requestid = 0;
 
-	hv_get_ringbuffer_availbytes(inring_info,
-				&bytes_avail_toread,
-				&bytes_avail_towrite);
+	bytes_avail_toread = hv_get_bytes_to_read(inring_info);
 
 	/* Make sure there is something to read */
 	if (bytes_avail_toread < sizeof(desc)) {
@@ -470,7 +414,7 @@ int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info,
 	/* Update the read index */
 	hv_set_next_read_location(inring_info, next_read_location);
 
-	*signal = hv_need_to_signal_on_read(bytes_avail_towrite, inring_info);
+	*signal = hv_need_to_signal_on_read(inring_info);
 
 	return ret;
 }

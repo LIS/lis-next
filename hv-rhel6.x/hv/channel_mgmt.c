@@ -612,7 +612,7 @@ static void vmbus_wait_for_unload(void)
 	bool unloaded = false;
 
 	while (1) {
-		if (msg->header.message_type == HVMSG_NONE) {
+		if (READ_ONCE(msg->header.message_type) == HVMSG_NONE) {
 			mdelay(10);
 			continue;
 		}
