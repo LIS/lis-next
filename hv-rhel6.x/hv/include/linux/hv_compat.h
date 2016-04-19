@@ -132,7 +132,7 @@ bool netvsc_set_hash(u32 *hash, struct sk_buff *skb);
 static inline __u32
 skb_get_hash(struct sk_buff *skb)
 {
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1543)
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,8))
         return skb->hash;
 #else
 	__u32 hash;
@@ -160,11 +160,12 @@ static inline int kstrtouint(const char *s, unsigned int base, unsigned int *res
 
 #define PTE_SHIFT ilog2(PTRS_PER_PTE)
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,8))
 static inline void reinit_completion(struct completion *x)
 {
 	x->done = 0;
 }
-
+#endif
 
 static inline int page_level_shift(int level)
 {
@@ -368,7 +369,7 @@ struct mlx4_ib_alloc_ucontext_resp {
  * The following READ_ONCE macro is included from  
  * tools/include/linux/compiler.h from upstream.  
  */  
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0))  
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,8))  
 
 #define __READ_ONCE_SIZE                                                \
 ({                                                                      \
