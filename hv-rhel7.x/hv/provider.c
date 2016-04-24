@@ -842,11 +842,11 @@ static int hvnd_ib_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 	enum ib_qp_state cur_state, new_state;
 	int ret = 0;
 
-
-	cur_state = attr_mask & IB_QP_CUR_STATE ? attr->cur_qp_state : qp->qp_state;
-	new_state = attr_mask & IB_QP_STATE ? attr->qp_state : cur_state;
-
 	if (attr != NULL) {
+
+	        cur_state = attr_mask & IB_QP_CUR_STATE ? attr->cur_qp_state : qp->qp_state;
+	   	new_state = attr_mask & IB_QP_STATE ? attr->qp_state : cur_state;
+
 		hvnd_debug("qp->qp_state is %d new state is %d\n", qp->qp_state, new_state);
 		hvnd_debug("current qp state is %d\n", cur_state);
 		if (attr_mask & IB_QP_STATE) {
