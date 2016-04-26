@@ -1615,10 +1615,13 @@ static int hvnd_accept_cr(struct iw_cm_id *cm_id,
 	 */
 	cm_id->add_ref(cm_id);
 	connector->cm_id = cm_id;
-	if (conn_param != NULL) {
-		connector->ord = conn_param->ord;
-		connector->ird = conn_param->ird;
-	}
+        if (conn_param == NULL) {
+                hvnd_error("NULL conn_param!\n");
+                return -EINVAL;
+        }
+
+        connector->ord = conn_param->ord;
+        connector->ird = conn_param->ird;
 
 	if (!ep_add_work_pending(connector))
 		goto error;
