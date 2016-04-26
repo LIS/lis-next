@@ -1571,13 +1571,14 @@ static int hvnd_accept_cr(struct iw_cm_id *cm_id,
 
 	connector = (struct hvnd_ep_obj *)cm_id->provider_data;
 	qp->connector = connector;
-	connector->cq = qp->recv_cq;
 
 	if (connector == NULL) {
 		hvnd_error("NULL connector!\n");
 		return -EINVAL;
 	}
 	hvnd_debug("connector's cm_id is %p caller cm_id=%p\n", connector->cm_id, cm_id);
+
+	connector->cq = qp->recv_cq;
 
 
 	/*
