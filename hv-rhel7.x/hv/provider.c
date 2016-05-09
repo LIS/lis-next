@@ -722,6 +722,24 @@ static int hvnd_get_mib(struct ib_device *ibdev,
 	return 0;
 }
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+static int hvnd_get_port_immutable(struct ib_device *ibdev, u8 port_num, struct ib_port_immutable *immutable)
+{
+	struct ib_port_attr attr;
+	int err;
+
+	err = hvnd_query_port(ibdev, port_num, &attr);
+	if (err)
+		return err;
+
+	immutable->pkey_tbl_len = attr.pkey_tbl_len;
+	immutable->gid_tbl_len = attr.gid_tbl_len;
+	immutable->core_cap_flags = RDMA_CORE_PORT_IWARP;
+
+	return 0;
+}
+#endif
+
 static struct ib_qp *hvnd_ib_create_qp(struct ib_pd *pd, struct ib_qp_init_attr *attrs,
 			     struct ib_udata *udata)
 {
@@ -2662,6 +2680,10 @@ int hvnd_register_device(struct hvnd_dev *dev)
 	dev->ibdev.post_recv = hvnd_post_receive;
 	dev->ibdev.get_protocol_stats = hvnd_get_mib;
 	dev->ibdev.uverbs_abi_ver = MLX4_IB_UVERBS_ABI_VERSION;
+
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+	dev->ibdev.get_port_immutable = hvnd_get_port_immutable;
+#endif
 
 	//DMA ops for mapping all possible addresses
 	dev->ibdev.dma_device->archdata.dma_ops = &vmbus_dma_ops;
