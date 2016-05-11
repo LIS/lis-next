@@ -1654,7 +1654,7 @@ static int storvsc_device_configure(struct scsi_device *sdevice)
 
 	blk_queue_rq_timeout(sdevice->request_queue, (storvsc_timeout * HZ));
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 	sdevice->no_write_same = 1;
 #endif
 
@@ -1683,7 +1683,7 @@ static int storvsc_device_configure(struct scsi_device *sdevice)
 			break;
 		}
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 		if (vmstor_proto_version >= VMSTOR_PROTO_VERSION_WIN10)
 			sdevice->no_write_same = 0;
 #endif

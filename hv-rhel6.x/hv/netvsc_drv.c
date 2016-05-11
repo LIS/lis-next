@@ -466,7 +466,7 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	u32 pkt_sz;
 	struct hv_page_buffer page_buf[MAX_PAGE_BUFFER_COUNT];
 	struct hv_page_buffer *pb = page_buf;
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 	struct netvsc_stats *tx_stats = this_cpu_ptr(net_device_ctx->tx_stats);
 #endif
 
@@ -663,7 +663,7 @@ do_send:
 
 drop:
 	if (ret == 0) {
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 		u64_stats_update_begin(&tx_stats->syncp);
 		tx_stats->packets++;
 		tx_stats->bytes += skb_length;
@@ -735,7 +735,7 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 	struct net_device *net;
 	struct net_device_context *net_device_ctx;
 	struct sk_buff *skb;
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 	struct netvsc_stats *rx_stats;
 #endif
 
@@ -744,7 +744,7 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 		return NVSP_STAT_FAIL;
 	}
 	net_device_ctx = netdev_priv(net);
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 	rx_stats = this_cpu_ptr(net_device_ctx->rx_stats);
 #endif
 
@@ -780,7 +780,7 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 	skb_record_rx_queue(skb, channel->
 			    offermsg.offer.sub_channel_index);
 
-#if defined(RHEL_RELEASE_CODE) && (RHEL_RELEASE_CODE >= 1792)
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 	u64_stats_update_begin(&rx_stats->syncp);
 	rx_stats->packets++;
 	rx_stats->bytes += packet->total_data_buflen;
@@ -807,7 +807,7 @@ static void netvsc_get_drvinfo(struct net_device *net,
 	strlcpy(info->fw_version, "N/A", sizeof(info->fw_version));
 }
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 static void netvsc_get_channels(struct net_device *net,
 				struct ethtool_channels *channel)
 {
@@ -965,7 +965,7 @@ out:
 	return ret;
 }
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 static struct rtnl_link_stats64 *netvsc_get_stats64(struct net_device *net,
 						    struct rtnl_link_stats64 *t)
 {
@@ -1046,7 +1046,7 @@ static void netvsc_poll_controller(struct net_device *net)
 static const struct ethtool_ops ethtool_ops = {
 	.get_drvinfo	= netvsc_get_drvinfo,
 	.get_link	= ethtool_op_get_link,
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 	.get_channels   = netvsc_get_channels,
 	.set_channels   = netvsc_set_channels,
 	.get_ts_info	= ethtool_op_get_ts_info,
@@ -1062,7 +1062,7 @@ static const struct net_device_ops device_ops = {
 	.ndo_validate_addr =		eth_validate_addr,
 	.ndo_set_mac_address =		netvsc_set_mac_addr,
 	.ndo_select_queue =		netvsc_select_queue,
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 	.ndo_get_stats64 =		netvsc_get_stats64,
 #endif
 #ifdef CONFIG_NET_POLL_CONTROLLER
@@ -1168,7 +1168,7 @@ static void netvsc_link_change(struct work_struct *w)
 
 static void netvsc_free_netdev(struct net_device *netdev)
 {
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 	struct net_device_context *net_device_ctx = netdev_priv(netdev);
 
 	free_percpu(net_device_ctx->tx_stats);
@@ -1203,7 +1203,7 @@ static int netvsc_probe(struct hv_device *dev,
 		netdev_dbg(net, "netvsc msg_enable: %d\n",
 			net_device_ctx->msg_enable);
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 	net_device_ctx->tx_stats = netdev_alloc_pcpu_stats(struct netvsc_stats);
 	if (!net_device_ctx->tx_stats) {
 		free_netdev(net);
