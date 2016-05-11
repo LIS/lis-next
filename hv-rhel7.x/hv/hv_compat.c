@@ -1,7 +1,7 @@
 #include <linux/timex.h>
 #include <linux/hv_compat.h>
 
-#if (RHEL_RELEASE_CODE < 1288)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(5,8))
 static inline u64 div_u64_rem(u64 dividend, u32 divisor, u32 *remainder)
 {
 	union {

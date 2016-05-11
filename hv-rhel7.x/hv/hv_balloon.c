@@ -1119,7 +1119,7 @@ static unsigned int alloc_balloon_pages(struct hv_dynmem_device *dm,
 		 * can free them in any order we get.
 		 */
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1540)
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,4))
 		if (alloc_unit != 1)
 			split_page(pg, get_order(alloc_unit << PAGE_SHIFT));
 #endif
@@ -1156,7 +1156,7 @@ static void balloon_up(struct work_struct *dummy)
 	 * We will attempt 2M allocations. However, if we fail to
 	 * allocate 2M chunks, we will go back to 4k allocations.
 	 */
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1540)
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,4))
 	alloc_unit = 512;
 #else
 	alloc_unit = 1;
