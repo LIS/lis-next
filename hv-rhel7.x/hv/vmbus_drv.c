@@ -1371,7 +1371,7 @@ static void __exit vmbus_exit(void)
 	vmbus_connection.conn_state = DISCONNECTED;
 //	hv_synic_clockevents_cleanup();  will comment this for time being till clockevents_unbind showed up in distro code
 	vmbus_disconnect();
-#if (RHEL_RELEASE_CODE >=1800 ) /* KYS; we may have to tweak this */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8,0)) /* KYS; we may have to tweak this */
 	hv_remove_vmbus_irq();
 #endif
 	for_each_online_cpu(cpu)
