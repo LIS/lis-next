@@ -1232,6 +1232,9 @@ int rndis_filter_open(struct hv_device *dev)
 	if (!net_device)
 		return -EINVAL;
 
+	if (atomic_inc_return(&net_device->open_cnt) != 1)
+		return 0;
+
 	return rndis_filter_open_device(net_device->extension);
 }
 
@@ -1241,6 +1244,9 @@ int rndis_filter_close(struct hv_device *dev)
 
 	if (!nvdev)
 		return -EINVAL;
+
+	if (atomic_dec_return(&nvdev->open_cnt) != 0)
+		return 0;
 
 	return rndis_filter_close_device(nvdev->extension);
 }
