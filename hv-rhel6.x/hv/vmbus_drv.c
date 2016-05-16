@@ -42,6 +42,7 @@
 #include <linux/notifier.h>
 #include <linux/ptrace.h>
 #include <linux/semaphore.h>
+#include <linux/efi.h>
 #include "hyperv_vmbus.h"
 
 #if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(6,5))
@@ -120,7 +121,8 @@ static struct notifier_block hyperv_panic_block = {
         .notifier_call = hyperv_panic_event,
 };
 
-
+static const char *fb_mmio_name = "fb_range";
+static struct resource *fb_mmio;
 struct resource *hyperv_mmio;
 struct semaphore hyperv_mmio_lock;
 
@@ -1020,7 +1022,6 @@ static acpi_status vmbus_walk_resources(struct acpi_resource *res, void *ctx)
 	new_res->end = end;
 
 	/*
-	 * Stick ranges from higher in address space at the front of the list.
 	 * If two ranges are adjacent, merge them.
 	 */
 	do {
@@ -1041,7 +1042,7 @@ static acpi_status vmbus_walk_resources(struct acpi_resource *res, void *ctx)
 			break;
 		}
 
-		if ((*old_res)->end < new_res->start) {
+		if ((*old_res)->start > new_res->end) {
 			new_res->sibling = *old_res;
 			if (prev_res)
 				(*prev_res)->sibling = new_res;
@@ -1063,6 +1064,12 @@ static int vmbus_acpi_remove(struct acpi_device *device, int type)
 	struct resource *next_res;
 
 	if (hyperv_mmio) {
+		if (fb_mmio) {
+			__release_region(hyperv_mmio, fb_mmio->start,
+					 resource_size(fb_mmio));
+			fb_mmio = NULL;
+		}
+
 		for (cur_res = hyperv_mmio; cur_res; cur_res = next_res) {
 			next_res = cur_res->sibling;
 			kfree(cur_res);
@@ -1070,6 +1077,30 @@ static int vmbus_acpi_remove(struct acpi_device *device, int type)
 	}
 
 	return 0;
+}
+
+static void vmbus_reserve_fb(void)
+{
+	int size;
+	/*
+	 * Make a claim for the frame buffer in the resource tree under the
+	 * first node, which will be the one below 4GB.  The length seems to
+	 * be underreported, particularly in a Generation 1 VM.  So start out
+	 * reserving a larger area and make it smaller until it succeeds.
+	 */
+
+	if (screen_info.lfb_base) {
+		if (efi_enabled)
+			size = max_t(__u32, screen_info.lfb_size, 0x800000);
+		else
+			size = max_t(__u32, screen_info.lfb_size, 0x4000000);
+
+		for (; !fb_mmio && (size >= 0x100000); size >>= 1) {
+			fb_mmio = __request_region(hyperv_mmio,
+						   screen_info.lfb_base, size,
+						   fb_mmio_name, 0);
+		}
+	}
 }
 
 /**
@@ -1100,14 +1131,33 @@ int vmbus_allocate_mmio(struct resource **new, struct hv_device *device_obj,
 			resource_size_t size, resource_size_t align,
 			bool fb_overlap_ok)
 {
-	struct resource *iter;
-	resource_size_t range_min, range_max, start, local_min, local_max;
+	struct resource *iter, *shadow;
+	resource_size_t range_min, range_max, start;
 	const char *dev_n = dev_name(&device_obj->device);
-	u32 fb_end = screen_info.lfb_base + (screen_info.lfb_size << 1);
-	int i, retval;
+	int retval;
 
 	retval = -ENXIO;
 	down(&hyperv_mmio_lock);
+
+	/*
+	 * If overlaps with frame buffers are allowed, then first attempt to
+	 * make the allocation from within the reserved region.  Because it
+	 * is already reserved, no shadow allocation is necessary.
+	 */
+	if (fb_overlap_ok && fb_mmio && !(min > fb_mmio->end) &&
+	    !(max < fb_mmio->start)) {
+
+		range_min = fb_mmio->start;
+		range_max = fb_mmio->end;
+		start = (range_min + align - 1) & ~(align - 1);
+		for (; start + size - 1 <= range_max; start += align) {
+			*new = request_mem_region_exclusive(start, size, dev_n);
+			if (*new) {
+				retval = 0;
+				goto exit;
+			}
+		}
+	}
 
 	for (iter = hyperv_mmio; iter; iter = iter->sibling) {
 		if ((iter->start >= max) || (iter->end <= min))
@@ -1116,39 +1166,20 @@ int vmbus_allocate_mmio(struct resource **new, struct hv_device *device_obj,
 		range_min = iter->start;
 		range_max = iter->end;
 
-		/* If this range overlaps the frame buffer, split it into
-		   two tries. */
-		for (i = 0; i < 2; i++) {
-			local_min = range_min;
-			local_max = range_max;
-			if (fb_overlap_ok || (range_min >= fb_end) ||
-			    (range_max <= screen_info.lfb_base)) {
-				i++;
-			} else {
-				if ((range_min <= screen_info.lfb_base) &&
-				    (range_max >= screen_info.lfb_base)) {
-					/*
-					 * The frame buffer is in this window,
-					 * so trim this into the part that
-					 * preceeds the frame buffer.
-					 */
-					local_max = screen_info.lfb_base - 1;
-					range_min = fb_end;
-				} else {
-					range_min = fb_end;
-					continue;
-				}
-			}
+		start = (range_min + align - 1) & ~(align - 1);
+		for (; start + size - 1 <= range_max; start += align) {
+			shadow = __request_region(iter, start, size, NULL,
+						  IORESOURCE_BUSY);
+			if (!shadow)
+				continue;
 
-			start = (local_min + align - 1) & ~(align - 1);
-			for (; start + size - 1 <= local_max; start += align) {
-				*new = request_mem_region_exclusive(start, size,
-								    dev_n);
-				if (*new) {
-					retval = 0;
-					goto exit;
-				}
+			*new = request_mem_region_exclusive(start, size, dev_n);
+			if (*new) {
+				shadow->name = (char *)*new;
+				retval = 0;
+				goto exit;
 			}
+			__release_region(iter, start, size);
 		}
 	}
 
@@ -1158,6 +1189,30 @@ exit:
 
 }
 EXPORT_SYMBOL_GPL(vmbus_allocate_mmio);
+
+/**
+ * vmbus_free_mmio() - Free a memory-mapped I/O range.
+ * @start:		Base address of region to release.
+ * @size:		Size of the range to be allocated
+ *
+ * This function releases anything requested by
+ * vmbus_mmio_allocate().
+ */
+void vmbus_free_mmio(resource_size_t start, resource_size_t size)
+{
+	struct resource *iter;
+
+	down(&hyperv_mmio_lock);
+	for (iter = hyperv_mmio; iter; iter = iter->sibling) {
+		if ((iter->start >= start + size) || (iter->end <= start))
+			continue;
+
+		__release_region(iter, start, size);
+	}
+	release_mem_region(start, size);
+	up(&hyperv_mmio_lock);
+}
+EXPORT_SYMBOL_GPL(vmbus_free_mmio);
 
 /**
  * vmbus_cpu_number_to_vp_number() - Map CPU to VP.
@@ -1199,8 +1254,10 @@ static int vmbus_acpi_add(struct acpi_device *device)
 
 		if (ACPI_FAILURE(result))
 			continue;
-		if (hyperv_mmio)
+		if (hyperv_mmio) {
+			vmbus_reserve_fb();
 			break;
+		}
 	}
 	ret_val = 0;
 
