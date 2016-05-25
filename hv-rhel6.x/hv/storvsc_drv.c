@@ -1534,6 +1534,30 @@ static int storvsc_dev_remove(struct hv_device *device)
 	return 0;
 }
 
+static struct vmbus_channel *get_og_chn(struct vmbus_channel *primary,
+                                       int chn_num)
+{
+	int next_channel = 1;
+	struct list_head *cur, *tmp;
+	struct vmbus_channel *cur_channel;
+
+	if ((chn_num == 0) || (list_empty(&primary->sc_list)))
+	return primary;
+
+
+	list_for_each_safe(cur, tmp, &primary->sc_list) {
+	cur_channel = list_entry(cur, struct vmbus_channel, sc_list);
+		if (cur_channel->state != CHANNEL_OPENED_STATE)
+			continue;
+
+		if (next_channel == chn_num)
+			return cur_channel;
+		next_channel++;
+	}
+
+	return primary;
+}
+
 static int storvsc_do_io(struct hv_device *device,
 			 struct storvsc_cmd_request *request)
 {
@@ -1541,6 +1565,7 @@ static int storvsc_do_io(struct hv_device *device,
 	struct vstor_packet *vstor_packet;
 	struct vmbus_channel *outgoing_channel;
 	int ret = 0;
+	int chn_num;
 
 	vstor_packet = &request->vstor_packet;
 	stor_device = get_out_stor_device(device);
@@ -1552,10 +1577,11 @@ static int storvsc_do_io(struct hv_device *device,
 	request->device  = device;
 	/*
 	 * Select an an appropriate channel to send the request out.
+	 * We will base the request based on the CPU that is presenting
+	 * the I/O request.
 	 */
-
-	outgoing_channel = vmbus_get_outgoing_channel(device->channel);
-
+	chn_num = smp_processor_id() % (device->channel->num_sc + 1);
+	outgoing_channel = get_og_chn(device->channel, chn_num);
 
 	vstor_packet->flags |= REQUEST_COMPLETION_FLAG;
 
