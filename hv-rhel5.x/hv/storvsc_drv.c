@@ -1768,6 +1768,12 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 		(SRB_FLAGS_QUEUE_ACTION_ENABLE |
 		SRB_FLAGS_DISABLE_SYNCH_TRANSFER);
 
+	if(scmnd->device->tagged_supported) {
+		vm_srb->win8_extension.srb_flags |= (SRB_FLAGS_QUEUE_ACTION_ENABLE | SRB_FLAGS_NO_QUEUE_FREEZE);
+		vm_srb->win8_extension.queue_tag = 0xff;        // #define SP_UNTAGGED ((UCHAR) ~0)
+		vm_srb->win8_extension.queue_action = 0x20;     // #define SRB_SIMPLE_TAG_REQUEST              0x20
+	}
+
 	/* Build the SRB */
 	switch (scmnd->sc_data_direction) {
 	case DMA_TO_DEVICE:
