@@ -1548,8 +1548,6 @@ static void storvsc_device_destroy(struct scsi_device *sdevice)
 static int storvsc_device_configure(struct scsi_device *sdevice)
 {
 
-	blk_queue_max_segment_size(sdevice->request_queue, PAGE_SIZE);
-
 	blk_queue_bounce_limit(sdevice->request_queue, BLK_BOUNCE_ANY);
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1291)
