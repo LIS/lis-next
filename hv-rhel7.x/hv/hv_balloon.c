@@ -714,7 +714,7 @@ static bool pfn_covered(unsigned long start_pfn, unsigned long pfn_cnt)
 		 * If the pfn range we are dealing with is not in the current
 		 * "hot add block", move on.
 		 */
-		if ((start_pfn >= has->end_pfn))
+		if (start_pfn < has->start_pfn || start_pfn >= has->end_pfn)
 			continue;
 		/*
 		 * If the current hot add-request extends beyond
@@ -768,7 +768,7 @@ static unsigned long handle_pg_range(unsigned long pg_start,
 		 * If the pfn range we are dealing with is not in the current
 		 * "hot add block", move on.
 		 */
-		if ((start_pfn >= has->end_pfn))
+		if (start_pfn < has->start_pfn || start_pfn >= has->end_pfn)
 			continue;
 
 		old_covered_state = has->covered_end_pfn;
@@ -1119,7 +1119,7 @@ static unsigned int alloc_balloon_pages(struct hv_dynmem_device *dm,
 		 * can free them in any order we get.
 		 */
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1540)
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,4))
 		if (alloc_unit != 1)
 			split_page(pg, get_order(alloc_unit << PAGE_SHIFT));
 #endif
@@ -1156,7 +1156,7 @@ static void balloon_up(struct work_struct *dummy)
 	 * We will attempt 2M allocations. However, if we fail to
 	 * allocate 2M chunks, we will go back to 4k allocations.
 	 */
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1540)
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,4))
 	alloc_unit = 512;
 #else
 	alloc_unit = 1;
@@ -1406,6 +1406,7 @@ static void balloon_onchannelcallback(void *context)
 				 * This is a normal hot-add request specifying
 				 * hot-add memory.
 				 */
+				dm->host_specified_ha_region = false;
 				ha_pg_range = &ha_msg->range;
 				dm->ha_wrk.ha_page_range = *ha_pg_range;
 				dm->ha_wrk.ha_region_range.page_range = 0;

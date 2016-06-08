@@ -823,11 +823,11 @@ static int hvnd_ib_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 	enum ib_qp_state cur_state, new_state;
 	int ret = 0;
 
-
-	cur_state = attr_mask & IB_QP_CUR_STATE ? attr->cur_qp_state : qp->qp_state;
-	new_state = attr_mask & IB_QP_STATE ? attr->qp_state : cur_state;
-
 	if (attr != NULL) {
+
+        	cur_state = attr_mask & IB_QP_CUR_STATE ? attr->cur_qp_state : qp->qp_state;
+        	new_state = attr_mask & IB_QP_STATE ? attr->qp_state : cur_state;
+
 		hvnd_debug("qp->qp_state is %d new state is %d\n", qp->qp_state, new_state);
 		hvnd_debug("current qp state is %d\n", cur_state);
 		if (attr_mask & IB_QP_STATE) {
@@ -1571,7 +1571,6 @@ static int hvnd_accept_cr(struct iw_cm_id *cm_id,
 
 	connector = (struct hvnd_ep_obj *)cm_id->provider_data;
 	qp->connector = connector;
-	connector->cq = qp->recv_cq;
 
 	if (connector == NULL) {
 		hvnd_error("NULL connector!\n");
@@ -1579,16 +1578,21 @@ static int hvnd_accept_cr(struct iw_cm_id *cm_id,
 	}
 	hvnd_debug("connector's cm_id is %p caller cm_id=%p\n", connector->cm_id, cm_id);
 
+	connector->cq = qp->recv_cq;
+
 
 	/*
 	 * Setup state for the accepted connection.
 	 */
 	cm_id->add_ref(cm_id);
 	connector->cm_id = cm_id;
-	if (conn_param != NULL) {
-		connector->ord = conn_param->ord;
-		connector->ird = conn_param->ird;
+	if (conn_param == NULL) {
+		hvnd_error("NULL conn_param!\n");
+		return -EINVAL;
 	}
+
+        connector->ord = conn_param->ord;
+        connector->ird = conn_param->ird;
 
 	if (!ep_add_work_pending(connector))
 		goto error;
