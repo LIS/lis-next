@@ -264,6 +264,9 @@ bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 		if (iphdr->protocol == IPPROTO_TCP) {
 			dbuf[2] = *(__be32 *)&tcp_hdr(skb)->source;
 			data_len = 12;
+		} else if (iphdr->protocol == IPPROTO_UDP) {
+			dbuf[2] = *(__be32 *)&udp_hdr(skb)->source;
+			data_len = 12;
 		} else {
 			data_len = 8;
 		}
@@ -271,6 +274,9 @@ bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 		memcpy(dbuf, &ipv6hdr->saddr, 32);
 		if (ipv6hdr->nexthdr == IPPROTO_TCP) {
 			dbuf[8] = *(__be32 *)&tcp_hdr(skb)->source;
+			data_len = 36;
+		} else if (ipv6hdr->nexthdr == IPPROTO_UDP) {
+			dbuf[8] = *(__be32 *)&udp_hdr(skb)->source;
 			data_len = 36;
 		} else {
 			data_len = 32;
