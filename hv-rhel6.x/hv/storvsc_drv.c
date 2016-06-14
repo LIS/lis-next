@@ -1293,19 +1293,27 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request,
 		cmd_request->payload->range.len -
 		vm_srb->data_transfer_length);
 
-	/* if this is an INQUIRY when SCSI is trying to probe a LUN, return a proper SCSI level to trigger REPORT_LUNS
-	 * note: on probing LUN0, SCSI sets all the fields  to zero except for the length at[4]
+	/* If this is an INQUIRY when SCSI is trying to probe a LUN, return a proper 
+	 * SCSI level and vendor/device names to trigger REPORT_LUNS scan
+	 * note: on probing LUN0, SCSI sets all the fields  to zero except for the length at [4]
+	 * the SCSI layer expects at least 36 bytes returned on INQUIRY response
 	 */
 	if (scmnd->cmnd[0] == INQUIRY
-			&& !(scmnd->cmnd[1] || scmnd->cmnd[2] || scmnd->cmnd[3] || scmnd->cmnd[5])
-			&& scsi_bufflen(scmnd) > 2) {
+	    && !(scmnd->cmnd[1] | scmnd->cmnd[2] | scmnd->cmnd[3] | scmnd->cmnd[5])
+	    && scsi_bufflen(scmnd) >= 32) {
 
 		struct scatterlist *sgl = scsi_sglist(scmnd);
 		char *data = (char *) (sg_kmap_atomic(sgl) + sgl->offset);
 
-		/* if host doesn't return SCSI level, set to SCSI_2 minimal required for REPORT_LUNS */
-		if (!data[2])
-			data[2] = SCSI_2;
+		/* if the host doesn't return any data (0 length), set them properly */
+		if (!data[4]) {
+			/* if host doesn't return SCSI level, set to SCSI_2 minimal required for REPORT_LUNS */
+			if (!data[2])
+				data[2] = SCSI_2;
+
+			sprintf(&data[8], "MSFT"); 	// vendor name, max 8 bytes
+			sprintf(&data[16], "LUN");	// device name, max 16 bytes
+		}
 
 		sg_kunmap_atomic((unsigned long)data - sgl->offset);
 	}
@@ -1673,6 +1681,12 @@ static void storvsc_device_destroy(struct scsi_device *sdevice)
 
 static int storvsc_device_configure(struct scsi_device *sdevice)
 {
+	struct hv_host_device *host_dev = shost_priv(sdevice->host);
+	struct storvsc_device *stor_device = get_out_stor_device(host_dev->dev);
+	unsigned int max_transfer_sectors = stor_device->max_transfer_bytes >> 9;
+
+	blk_queue_max_hw_sectors(sdevice->request_queue, max_transfer_sectors);
+	sdevice->request_queue->limits.max_sectors = max_transfer_sectors;
 
 	blk_queue_bounce_limit(sdevice->request_queue, BLK_BOUNCE_ANY);
 
@@ -1897,6 +1911,12 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 
 	vm_srb->win8_extension.srb_flags |=
 		SRB_FLAGS_DISABLE_SYNCH_TRANSFER;
+
+	if(scmnd->device->tagged_supported) {
+		vm_srb->win8_extension.srb_flags |= (SRB_FLAGS_QUEUE_ACTION_ENABLE | SRB_FLAGS_NO_QUEUE_FREEZE);
+		vm_srb->win8_extension.queue_tag = 0xff;        // #define SP_UNTAGGED ((UCHAR) ~0)
+		vm_srb->win8_extension.queue_action = 0x20;     // #define SRB_SIMPLE_TAG_REQUEST              0x20
+	}
 
 	/* Build the SRB */
 	switch (scmnd->sc_data_direction) {
