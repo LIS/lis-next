@@ -1573,12 +1573,6 @@ static void storvsc_device_destroy(struct scsi_device *sdevice)
 
 static int storvsc_device_configure(struct scsi_device *sdevice)
 {
-	struct hv_host_device *host_dev = shost_priv(sdevice->host);
-	struct storvsc_device *stor_device = get_out_stor_device(host_dev->dev);
-	unsigned int max_transfer_sectors = stor_device->max_transfer_bytes >> 9;
-
-	blk_queue_max_hw_sectors(sdevice->request_queue, max_transfer_sectors);
-	sdevice->request_queue->limits.max_sectors = max_transfer_sectors;
 
 	blk_queue_bounce_limit(sdevice->request_queue, BLK_BOUNCE_ANY);
 
