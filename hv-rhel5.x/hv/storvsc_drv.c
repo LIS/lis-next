@@ -1182,19 +1182,27 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request)
 		cmd_request->payload->range.len -
 		vm_srb->data_transfer_length);
 
-        /* if this is an INQUIRY when SCSI is trying to probe a LUN, return a proper SCSI level to trigger REPORT_LUNS
-         * note: on probing LUN0, SCSI sets all the fields  to zero except for the length at[4]
-         */
-        if (scmnd->cmnd[0] == INQUIRY
-			&& !(scmnd->cmnd[1] || scmnd->cmnd[2] || scmnd->cmnd[3] || scmnd->cmnd[5])
-			&& scsi_bufflen(scmnd) > 2) {
+	/* If this is an INQUIRY when SCSI is trying to probe a LUN, return a proper 
+	 * SCSI level and vendor/device names to trigger REPORT_LUNS scan
+	 * note: on probing LUN0, SCSI sets all the fields  to zero except for the length at [4]
+	 * the SCSI layer expects at least 36 bytes returned on INQUIRY response
+	 */
+	if (scmnd->cmnd[0] == INQUIRY
+	    && !(scmnd->cmnd[1] | scmnd->cmnd[2] | scmnd->cmnd[3] | scmnd->cmnd[5])
+	    && scsi_bufflen(scmnd) >= 32) {
 
 		struct scatterlist *sgl = scsi_sglist(scmnd);
 		char *data = (char *) (sg_kmap_atomic(sgl) + sgl->offset);
 
-		/* if host doesn't return SCSI level, set to SCSI_2 minimal required for REPORT_LUNS */
-		if (!data[2])
-			data[2] = SCSI_2;
+		/* if the host doesn't return any data (0 length), set them properly */
+		if (!data[4]) {
+			/* if host doesn't return SCSI level, set to SCSI_2 minimal required for REPORT_LUNS */
+			if (!data[2])
+				data[2] = SCSI_2;
+
+			sprintf(&data[8], "MSFT"); 	// vendor name, max 8 bytes
+			sprintf(&data[16], "LUN");	// device name, max 16 bytes
+		}
 
 		sg_kunmap_atomic((unsigned long)data - sgl->offset);
         }
@@ -1426,6 +1434,30 @@ static int storvsc_dev_remove(struct hv_device *device)
 	return 0;
 }
 
+static struct vmbus_channel *get_og_chn(struct vmbus_channel *primary,
+					int chn_num)
+{
+	int next_channel = 1;
+	struct list_head *cur, *tmp;
+	struct vmbus_channel *cur_channel;
+
+	if ((chn_num == 0) || (list_empty(&primary->sc_list)))
+		return primary;
+
+
+	list_for_each_safe(cur, tmp, &primary->sc_list) {
+		cur_channel = list_entry(cur, struct vmbus_channel, sc_list);
+		if (cur_channel->state != CHANNEL_OPENED_STATE)
+			continue;
+
+		if (next_channel == chn_num)
+			return cur_channel;
+		next_channel++;
+	}
+
+	return primary;
+}
+
 static int storvsc_do_io(struct hv_device *device,
 			 struct storvsc_cmd_request *request)
 {
@@ -1433,6 +1465,7 @@ static int storvsc_do_io(struct hv_device *device,
 	struct vstor_packet *vstor_packet;
 	struct vmbus_channel *outgoing_channel;
 	int ret = 0;
+	int chn_num;
 
 	vstor_packet = &request->vstor_packet;
 	stor_device = get_out_stor_device(device);
@@ -1444,10 +1477,11 @@ static int storvsc_do_io(struct hv_device *device,
 	request->device  = device;
 	/*
 	 * Select an an appropriate channel to send the request out.
+	 * We will base the request based on the CPU that is presenting
+	 * the I/O request.
 	 */
-
-	outgoing_channel = vmbus_get_outgoing_channel(device->channel);
-
+	chn_num = smp_processor_id() % (device->channel->num_sc + 1);
+	outgoing_channel = get_og_chn(device->channel, chn_num);
 
 	vstor_packet->flags |= REQUEST_COMPLETION_FLAG;
 
@@ -1539,8 +1573,12 @@ static void storvsc_device_destroy(struct scsi_device *sdevice)
 
 static int storvsc_device_configure(struct scsi_device *sdevice)
 {
+	struct hv_host_device *host_dev = shost_priv(sdevice->host);
+	struct storvsc_device *stor_device = get_out_stor_device(host_dev->dev);
+	unsigned int max_transfer_sectors = stor_device->max_transfer_bytes >> 9;
 
-	blk_queue_max_segment_size(sdevice->request_queue, PAGE_SIZE);
+	blk_queue_max_hw_sectors(sdevice->request_queue, max_transfer_sectors);
+	sdevice->request_queue->limits.max_sectors = max_transfer_sectors;
 
 	blk_queue_bounce_limit(sdevice->request_queue, BLK_BOUNCE_ANY);
 
@@ -1759,6 +1797,12 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 	vm_srb->win8_extension.srb_flags |=
 		(SRB_FLAGS_QUEUE_ACTION_ENABLE |
 		SRB_FLAGS_DISABLE_SYNCH_TRANSFER);
+
+	if(scmnd->device->tagged_supported) {
+		vm_srb->win8_extension.srb_flags |= (SRB_FLAGS_QUEUE_ACTION_ENABLE | SRB_FLAGS_NO_QUEUE_FREEZE);
+		vm_srb->win8_extension.queue_tag = 0xff;        // #define SP_UNTAGGED ((UCHAR) ~0)
+		vm_srb->win8_extension.queue_action = 0x20;     // #define SRB_SIMPLE_TAG_REQUEST              0x20
+	}
 
 	/* Build the SRB */
 	switch (scmnd->sc_data_direction) {
