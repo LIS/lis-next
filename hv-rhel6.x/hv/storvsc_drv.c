@@ -1543,18 +1543,18 @@ static int storvsc_dev_remove(struct hv_device *device)
 }
 
 static struct vmbus_channel *get_og_chn(struct vmbus_channel *primary,
-                                       int chn_num)
+					int chn_num)
 {
 	int next_channel = 1;
 	struct list_head *cur, *tmp;
 	struct vmbus_channel *cur_channel;
 
 	if ((chn_num == 0) || (list_empty(&primary->sc_list)))
-	return primary;
+		return primary;
 
 
 	list_for_each_safe(cur, tmp, &primary->sc_list) {
-	cur_channel = list_entry(cur, struct vmbus_channel, sc_list);
+		cur_channel = list_entry(cur, struct vmbus_channel, sc_list);
 		if (cur_channel->state != CHANNEL_OPENED_STATE)
 			continue;
 
