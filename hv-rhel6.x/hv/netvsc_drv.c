@@ -246,8 +246,9 @@ bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 {
 	struct iphdr *iphdr;
 	struct ipv6hdr *ipv6hdr;
+	struct udphdr *udphdr;
 	__be32 dbuf[9];
-	int data_len;
+	int data_len = 0;
 
 	skb_reset_mac_header(skb);
 
@@ -265,8 +266,11 @@ bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 			dbuf[2] = *(__be32 *)&tcp_hdr(skb)->source;
 			data_len = 12;
 		} else if (iphdr->protocol == IPPROTO_UDP) {
-			dbuf[2] = *(__be32 *)&udp_hdr(skb)->source;
-			data_len = 12;
+			udphdr = udp_hdr(skb);
+			if (udphdr != NULL) {
+				dbuf[2] = *(__be32 *)&udp_hdr(skb)->source;
+				data_len = 12;
+			}
 		} else {
 			data_len = 8;
 		}
@@ -276,8 +280,11 @@ bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 			dbuf[8] = *(__be32 *)&tcp_hdr(skb)->source;
 			data_len = 36;
 		} else if (ipv6hdr->nexthdr == IPPROTO_UDP) {
-			dbuf[8] = *(__be32 *)&udp_hdr(skb)->source;
-			data_len = 36;
+			udphdr = udp_hdr(skb);
+			if (udphdr != NULL) {
+				dbuf[8] = *(__be32 *)&udp_hdr(skb)->source;
+				data_len = 36;
+			}
 		} else {
 			data_len = 32;
 		}
