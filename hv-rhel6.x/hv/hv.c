@@ -206,7 +206,7 @@ static struct clocksource hyperv_cs_tsc = {
 #endif
                .mask           = CLOCKSOURCE_MASK(64),
                .flags          = CLOCK_SOURCE_IS_CONTINUOUS,
-#if (RHEL_RELEASE_CODE < 1539)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,3))
 	       .mult           = (100 << HV_CLOCK_SHIFT),
 	       .shift          = HV_CLOCK_SHIFT,
 #endif
@@ -290,7 +290,7 @@ int hv_init(void)
                tsc_msr.guest_physical_address = vmalloc_to_pfn(va_tsc);
 
                wrmsrl(HV_X64_MSR_REFERENCE_TSC, tsc_msr.as_uint64);
-        #if  (RHEL_RELEASE_CODE < 1539)
+        #if  (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,3))
                 clocksource_register(&hyperv_cs_tsc);
         #else
                clocksource_register_hz(&hyperv_cs_tsc, NSEC_PER_SEC/100);
@@ -303,7 +303,7 @@ int hv_init(void)
         */
        if (ms_hyperv.features & HV_X64_MSR_TIME_REF_COUNT_AVAILABLE) {
                hyperv_cs_tsc.read = read_hv_clock_msr;
-	 #if  (RHEL_RELEASE_CODE < 1539)
+	 #if  (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,3))
                 clocksource_register(&hyperv_cs_tsc);
         #else
                clocksource_register_hz(&hyperv_cs_tsc, NSEC_PER_SEC/100);
@@ -397,22 +397,6 @@ int hv_post_message(union hv_connection_id connection_id,
 
 	put_cpu();
 	return status &0xFFFF;
-}
-
-
-/*
- * hv_signal_event -
- * Signal an event on the specified connection using the hypervisor event IPC.
- *
- * This involves a hypercall.
- */
-int hv_signal_event(void *con_id)
-{
-	u64 status;
-
-	status = hv_do_hypercall(HVCALL_SIGNAL_EVENT, con_id, NULL);
-
-	return status & 0xFFFF;
 }
 
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)

@@ -1247,7 +1247,7 @@ int hid_input_report(struct hid_device *hid, int type, u8 *data, int size, int i
 
 	/* dump the report */
 	snprintf(buf, HID_DEBUG_BUFSIZE - 1,
-			"\nreport (size %u) (%snumbered) = ", size, report_enum->numbered ? "" : "un");
+			"\nreport (size %d) (%snumbered) = ", size, report_enum->numbered ? "" : "un");
 	hid_debug_event(hid, buf);
 
 	for (i = 0; i < size; i++) {

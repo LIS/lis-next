@@ -36,9 +36,9 @@
 #define CN_VSS_IDX	0xA
 #define CN_VSS_VAL	0x1
 
-#define HV_DRV_VERSION	"4.1.0"
+#define HV_DRV_VERSION	"4.1.2"
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1540)
+#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(6,4))
 #ifdef CONFIG_MEMORY_HOTPLUG
 #undef CONFIG_MEMORY_HOTPLUG
 #endif
@@ -65,7 +65,7 @@
 #endif
 
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1539)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,3))
 static inline struct page *skb_frag_page(const skb_frag_t *frag)
 {
 	return frag->page;
@@ -77,7 +77,7 @@ static inline unsigned int skb_frag_size(const skb_frag_t *frag)
 }
 #endif
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
 #define hid_err(x, y)
 #endif
 
@@ -85,7 +85,7 @@ static inline unsigned int skb_frag_size(const skb_frag_t *frag)
 
 extern bool using_null_legacy_pic;
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1536)
+#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(6,0))
 static inline void *vzalloc(unsigned long size)
 {
 	void *ptr;
@@ -94,15 +94,15 @@ static inline void *vzalloc(unsigned long size)
 	return ptr;
 }
 #endif
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1538)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,2))
 #define NETIF_F_RXCSUM 0
 #endif
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1542)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,6))
 static inline void
 skb_set_hash(struct sk_buff *skb, __u32 hash, int type)
 {
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1542)
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,6))
         skb->rxhash = hash;
 #endif
 }
@@ -111,11 +111,11 @@ skb_set_hash(struct sk_buff *skb, __u32 hash, int type)
 bool netvsc_set_hash(u32 *hash, struct sk_buff *skb);
 
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1793) // 1542)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,1))
 static inline __u32
 skb_get_hash(struct sk_buff *skb)
 {
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1792) // 1542)
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,0))
         return skb->hash;
 #else
 	__u32 hash;
@@ -126,13 +126,13 @@ skb_get_hash(struct sk_buff *skb)
 }
 #endif
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1792)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0))
 static inline void pm_wakeup_event(struct device *dev, unsigned int msec)
 {
 }
 #endif
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
 static inline int kstrtouint(const char *s, unsigned int base, unsigned int *res)
 {
 	int result;
@@ -146,14 +146,14 @@ static inline int kstrtouint(const char *s, unsigned int base, unsigned int *res
 
 #define PTE_SHIFT ilog2(PTRS_PER_PTE)
 
-#if defined (RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1793)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,1))
 static inline void reinit_completion(struct completion *x)
 {
 	x->done = 0;
 }
 #endif
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1792)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0))
 static inline int page_level_shift(int level)
 {
         return (PAGE_SHIFT - PTE_SHIFT) + level * PTE_SHIFT;
@@ -161,21 +161,21 @@ static inline int page_level_shift(int level)
 #endif
 
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1792)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0))
 static inline unsigned long page_level_size(int level)
 {
 	return 1UL << page_level_shift(level);
 }
 #endif
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1792)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0))
 static inline unsigned long page_level_mask(int level)
 {
 	return ~(page_level_size(level) - 1);
 }
 #endif
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1792)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0))
 static inline phys_addr_t slow_virt_to_phys(void *__virt_addr)
 {
 	unsigned long virt_addr = (unsigned long)__virt_addr;
@@ -196,7 +196,7 @@ static inline phys_addr_t slow_virt_to_phys(void *__virt_addr)
 }
 #endif
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1540)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
 /*
  * For Hyper-V devices we use the device guid as the id.
  * This was introduced in Linux 3.2 (/include/linux/mod_devicetable.h)
@@ -234,7 +234,7 @@ static inline void netdev_err(struct net_device *net, const char *fmt, ...)
 #endif
 
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE == 1536) && \
+#if (RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(6,0)) && \
 LINUX_VERSION_CODE <= KERNEL_VERSION(2, 6, 32)
 static inline void  netif_notify_peers(struct net_device *net)
 {
@@ -261,7 +261,7 @@ static inline void  netif_notify_peers(struct net_device *net)
  *    * - UP 32bit must disable irqs.
  *     * - 64bit have no problem atomically reading u64 values, irq safe.
  *      */
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < 1794)
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 static inline unsigned int u64_stats_fetch_begin_irq(const struct u64_stats_sync *syncp)
 {
 #if BITS_PER_LONG==32 && defined(CONFIG_SMP)
@@ -288,7 +288,7 @@ static inline bool u64_stats_fetch_retry_irq(const struct u64_stats_sync *syncp,
 }
 #endif
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE <= 1792)
+#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,0))
 static inline void u64_stats_init(struct u64_stats_sync *syncp)
 {
 #if BITS_PER_LONG == 32 && defined(CONFIG_SMP)
@@ -336,6 +336,57 @@ struct mlx4_ib_alloc_ucontext_resp {
 	__u32	cqe_size;
 };
 
+/*
+ * The following READ_ONCE macro is included from
+ * tools/include/linux/compiler.h from upstream.
+ */
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
+
+#define __READ_ONCE_SIZE                                                \
+({                                                                      \
+        switch (size) {                                                 \
+        case 1: *(__u8 *)res = *(volatile __u8 *)p; break;              \
+        case 2: *(__u16 *)res = *(volatile __u16 *)p; break;            \
+        case 4: *(__u32 *)res = *(volatile __u32 *)p; break;            \
+        case 8: *(__u64 *)res = *(volatile __u64 *)p; break;            \
+        default:                                                        \
+                barrier();                                              \
+                __builtin_memcpy((void *)res, (const void *)p, size);   \
+                barrier();                                              \
+        }                                                               \
+})
+
+static __always_inline
+void __read_once_size(const volatile void *p, void *res, int size)
+{
+        __READ_ONCE_SIZE;
+}
+
+/*
+ *  *  * Prevent the compiler from merging or refetching reads or writes. The
+ *   *   * compiler is also forbidden from reordering successive instances of
+ *    *    * READ_ONCE, WRITE_ONCE and ACCESS_ONCE (see below), but only when the
+ *     *     * compiler is aware of some particular ordering.  One way to make the
+ *      *      * compiler aware of ordering is to put the two invocations of READ_ONCE,
+ *       *       * WRITE_ONCE or ACCESS_ONCE() in different C statements.
+ *        *        *
+ *         *         * In contrast to ACCESS_ONCE these two macros will also work on aggregate
+ *          *          * data types like structs or unions. If the size of the accessed data
+ *           *           * type exceeds the word size of the machine (e.g., 32 bits or 64 bits)
+ *            *            * READ_ONCE() and WRITE_ONCE()  will fall back to memcpy and print a
+ *             *             * compile-time warning.
+ *              *              *
+ *               *               * Their two major use cases are: (1) Mediating communication between
+ *                *                * process-level code and irq/NMI handlers, all running on the same CPU,
+ *                 *                 * and (2) Ensuring that the compiler does not  fold, spindle, or otherwise
+ *                  *                  * mutilate accesses that either do not require ordering or that interact
+ *                   *                   * with an explicit memory barrier or atomic instruction that provides the
+ *                    *                    * required ordering.
+ *                     *                     */
+
+#define READ_ONCE(x) \
+        ({ union { typeof(x) __val; char __c[1]; } __u; __read_once_size(&(x), __u.__c, sizeof(x)); __u.__val; })
+#endif
 
 /*
  * Define VMSock driver dependencies here

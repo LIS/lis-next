@@ -31,14 +31,15 @@
 #include <linux/slab.h>
 #include <linux/acpi.h>
 #include <linux/completion.h>
-#include <asm/mshyperv.h>
 #include "include/linux/hyperv.h"
+#include <asm/mshyperv.h>
 #include <linux/kernel_stat.h>
 #include <linux/clockchips.h>
 #include <linux/cpu.h>
 #include "include/asm/hyperv.h"
 #include <asm/hypervisor.h>
 #include <linux/screen_info.h>
+#include <linux/efi.h>
 #include "hyperv_vmbus.h"
 
 static struct acpi_device  *hv_acpi_dev;
@@ -72,8 +73,10 @@ static struct notifier_block hyperv_panic_block = {
         .notifier_call = hyperv_panic_event,
 };
 
-
+static const char *fb_mmio_name = "fb_range";
+static struct resource *fb_mmio;
 struct resource *hyperv_mmio;
+DEFINE_SEMAPHORE(hyperv_mmio_lock);
 
 static int vmbus_exists(void)
 {
@@ -494,9 +497,9 @@ static struct attribute *vmbus_attrs[] = {
 	&dev_attr_in_write_index.attr,
 	&dev_attr_in_read_bytes_avail.attr,
 	&dev_attr_in_write_bytes_avail.attr,
+	&dev_attr_channel_vp_mapping.attr,
 	&dev_attr_vendor.attr,
 	&dev_attr_device.attr,
-	&dev_attr_channel_vp_mapping.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(vmbus);
@@ -687,25 +690,7 @@ static void hv_process_timer_expiration(struct hv_message *msg, int cpu)
 	if (dev->event_handler)
 		dev->event_handler(dev);
 
-	msg->header.message_type = HVMSG_NONE;
-
-	/*
-	 * Make sure the write to MessageType (ie set to
-	 * HVMSG_NONE) happens before we read the
-	 * MessagePending and EOMing. Otherwise, the EOMing
-	 * will not deliver any more messages since there is
-	 * no empty slot
-	 */
-	mb();
-
-	if (msg->header.message_flags.msg_pending) {
-		/*
-		 * This will cause message queue rescan to
-		 * possibly deliver another msg from the
-		 * hypervisor
-		 */
-		wrmsrl(HV_X64_MSR_EOM, 0);
-	}
+	vmbus_signal_eom(msg, HVMSG_TIMER_EXPIRED);
 }
 
 void vmbus_on_msg_dpc(unsigned long data)
@@ -717,50 +702,35 @@ void vmbus_on_msg_dpc(unsigned long data)
 	struct vmbus_channel_message_header *hdr;
 	struct vmbus_channel_message_table_entry *entry;
 	struct onmessage_work_context *ctx;
+	u32 message_type = msg->header.message_type;
 
-	while (1) {
-		if (msg->header.message_type == HVMSG_NONE)
-			/* no msg */
-			break;
-		hdr = (struct vmbus_channel_message_header *)msg->u.payload;
+	if (message_type == HVMSG_NONE)
+		/* no msg */
+		return;
 
-		if (hdr->msgtype >= CHANNELMSG_COUNT) {
-			WARN_ONCE(1, "unknown msgtype=%d\n", hdr->msgtype);
-			goto msg_handled;
-		}
+	hdr = (struct vmbus_channel_message_header *)msg->u.payload;
 
-		entry = &channel_message_table[hdr->msgtype];
-		if (entry->handler_type	== VMHT_BLOCKING) {
-			ctx = kmalloc(sizeof(*ctx), GFP_ATOMIC);
-			if (ctx == NULL)
-				continue;
-			INIT_WORK(&ctx->work, vmbus_onmessage_work);
-			memcpy(&ctx->msg, msg, sizeof(*msg));
-			queue_work(vmbus_connection.work_queue, &ctx->work);
-		} else
-			entry->message_handler(hdr);
+	if (hdr->msgtype >= CHANNELMSG_COUNT) {
+		WARN_ONCE(1, "unknown msgtype=%d\n", hdr->msgtype);
+		goto msg_handled;
+	}
+
+	entry = &channel_message_table[hdr->msgtype];
+	if (entry->handler_type == VMHT_BLOCKING) {
+		ctx = kmalloc(sizeof(*ctx), GFP_ATOMIC);
+		if (ctx == NULL)
+			return;
+
+
+		INIT_WORK(&ctx->work, vmbus_onmessage_work);
+		memcpy(&ctx->msg, msg, sizeof(*msg));
+
+		queue_work(vmbus_connection.work_queue, &ctx->work);
+	} else
+		entry->message_handler(hdr);
 
 msg_handled:
-		msg->header.message_type = HVMSG_NONE;
-
-		/*
-		 * Make sure the write to MessageType (ie set to
-		 * HVMSG_NONE) happens before we read the
-		 * MessagePending and EOMing. Otherwise, the EOMing
-		 * will not deliver any more messages since there is
-		 * no empty slot
-		 */
-		mb();
-
-		if (msg->header.message_flags.msg_pending) {
-			/*
-			 * This will cause message queue rescan to
-			 * possibly deliver another msg from the
-			 * hypervisor
-			 */
-			wrmsrl(HV_X64_MSR_EOM, 0);
-		}
-	}
+	vmbus_signal_eom(msg, message_type);
 }
 
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) /* KYS; we may have to tweak this */
@@ -1045,7 +1015,7 @@ struct hv_device *vmbus_device_create(const uuid_le *type,
 	memcpy(&child_device_obj->dev_type, type, sizeof(uuid_le));
 	memcpy(&child_device_obj->dev_instance, instance,
 	       sizeof(uuid_le));
-
+	child_device_obj->vendor_id = 0x1414; /* MSFT vendor ID */
 
 	return child_device_obj;
 }
@@ -1156,7 +1126,6 @@ static acpi_status vmbus_walk_resources(struct acpi_resource *res, void *ctx)
 	new_res->end = end;
 
 	/*
-	 * Stick ranges from higher in address space at the front of the list.
 	 * If two ranges are adjacent, merget them.
 	 */
 	do {
@@ -1177,7 +1146,7 @@ static acpi_status vmbus_walk_resources(struct acpi_resource *res, void *ctx)
 			break;
 		}
 
-		if ((*old_res)->end < new_res->start) {
+		if ((*old_res)->start > new_res->end) {
 			new_res->sibling = *old_res;
 			if (prev_res)
 				(*prev_res)->sibling = new_res;
@@ -1199,6 +1168,12 @@ static int vmbus_acpi_remove(struct acpi_device *device)
 	struct resource *next_res;
 
 	if (hyperv_mmio) {
+		if (fb_mmio) {
+			__release_region(hyperv_mmio, fb_mmio->start,
+					 resource_size(fb_mmio));
+			fb_mmio = NULL;
+		}
+
 		for (cur_res = hyperv_mmio; cur_res; cur_res = next_res) {
 			next_res = cur_res->sibling;
 			kfree(cur_res);
@@ -1206,6 +1181,30 @@ static int vmbus_acpi_remove(struct acpi_device *device)
 	}
 
 	return 0;
+}
+
+static void vmbus_reserve_fb(void)
+{
+	int size;
+	/*
+	 * Make a claim for the frame buffer in the resource tree under the
+	 * first node, which will be the one below 4GB.  The length seems to
+	 * be underreported, particularly in a Generation 1 VM.  So start out
+	 * reserving a larger area and make it smaller until it succeeds.
+	 */
+
+	if (screen_info.lfb_base) {
+		if (efi_enabled(EFI_BOOT))
+			size = max_t(__u32, screen_info.lfb_size, 0x800000);
+		else
+			size = max_t(__u32, screen_info.lfb_size, 0x4000000);
+
+		for (; !fb_mmio && (size >= 0x100000); size >>= 1) {
+			fb_mmio = __request_region(hyperv_mmio,
+						   screen_info.lfb_base, size,
+						   fb_mmio_name, 0);
+		}
+	}
 }
 
 /**
@@ -1236,11 +1235,33 @@ int vmbus_allocate_mmio(struct resource **new, struct hv_device *device_obj,
 			resource_size_t size, resource_size_t align,
 			bool fb_overlap_ok)
 {
-	struct resource *iter;
-	resource_size_t range_min, range_max, start, local_min, local_max;
+	struct resource *iter, *shadow;
+	resource_size_t range_min, range_max, start;
 	const char *dev_n = dev_name(&device_obj->device);
-	u32 fb_end = screen_info.lfb_base + (screen_info.lfb_size << 1);
-	int i;
+	int retval;
+
+	retval = -ENXIO;
+	down(&hyperv_mmio_lock);
+
+	/*
+	 * If overlaps with frame buffers are allowed, then first attempt to
+	 * make the allocation from within the reserved region.  Because it
+	 * is already reserved, no shadow allocation is necessary.
+	 */
+	if (fb_overlap_ok && fb_mmio && !(min > fb_mmio->end) &&
+	    !(max < fb_mmio->start)) {
+
+		range_min = fb_mmio->start;
+		range_max = fb_mmio->end;
+		start = (range_min + align - 1) & ~(align - 1);
+		for (; start + size - 1 <= range_max; start += align) {
+			*new = request_mem_region_exclusive(start, size, dev_n);
+			if (*new) {
+				retval = 0;
+				goto exit;
+			}
+		}
+	}
 
 	for (iter = hyperv_mmio; iter; iter = iter->sibling) {
 		if ((iter->start >= max) || (iter->end <= min))
@@ -1249,43 +1270,52 @@ int vmbus_allocate_mmio(struct resource **new, struct hv_device *device_obj,
 		range_min = iter->start;
 		range_max = iter->end;
 
-		/* If this range overlaps the frame buffer, split it into
-		   two tries. */
-		for (i = 0; i < 2; i++) {
-			local_min = range_min;
-			local_max = range_max;
-			if (fb_overlap_ok || (range_min >= fb_end) ||
-			    (range_max <= screen_info.lfb_base)) {
-				i++;
-			} else {
-				if ((range_min <= screen_info.lfb_base) &&
-				    (range_max >= screen_info.lfb_base)) {
-					/*
-					 * The frame buffer is in this window,
-					 * so trim this into the part that
-					 * preceeds the frame buffer.
-					 */
-					local_max = screen_info.lfb_base - 1;
-					range_min = fb_end;
-				} else {
-					range_min = fb_end;
-					continue;
-				}
-			}
+		start = (range_min + align - 1) & ~(align - 1);
+		for (; start + size - 1 <= range_max; start += align) {
+			shadow = __request_region(iter, start, size, NULL,
+						  IORESOURCE_BUSY);
+			if (!shadow)
+				continue;
 
-			start = (local_min + align - 1) & ~(align - 1);
-			for (; start + size - 1 <= local_max; start += align) {
-				*new = request_mem_region_exclusive(start, size,
-								    dev_n);
-				if (*new)
-					return 0;
+			*new = request_mem_region_exclusive(start, size, dev_n);
+			if (*new) {
+				shadow->name = (char *)*new;
+				retval = 0;
+				goto exit;
 			}
+			__release_region(iter, start, size);
 		}
 	}
 
-	return -ENXIO;
+exit:
+	up(&hyperv_mmio_lock);
+	return retval;
 }
 EXPORT_SYMBOL_GPL(vmbus_allocate_mmio);
+
+/**
+ * vmbus_free_mmio() - Free a memory-mapped I/O range.
+ * @start:		Base address of region to release.
+ * @size:		Size of the range to be allocated
+ *
+ * This function releases anything requested by
+ * vmbus_mmio_allocate().
+ */
+void vmbus_free_mmio(resource_size_t start, resource_size_t size)
+{
+	struct resource *iter;
+
+	down(&hyperv_mmio_lock);
+	for (iter = hyperv_mmio; iter; iter = iter->sibling) {
+		if ((iter->start >= start + size) || (iter->end <= start))
+			continue;
+
+		__release_region(iter, start, size);
+	}
+	release_mem_region(start, size);
+	up(&hyperv_mmio_lock);
+}
+EXPORT_SYMBOL_GPL(vmbus_free_mmio);
 
 /**
  * vmbus_cpu_number_to_vp_number() - Map CPU to VP.
@@ -1327,8 +1357,10 @@ static int vmbus_acpi_add(struct acpi_device *device)
 
 		if (ACPI_FAILURE(result))
 			continue;
-		if (hyperv_mmio)
+		if (hyperv_mmio) {
+			vmbus_reserve_fb();
 			break;
+		}
 	}
 	ret_val = 0;
 
@@ -1405,7 +1437,7 @@ static void __exit vmbus_exit(void)
 	vmbus_connection.conn_state = DISCONNECTED;
 //	hv_synic_clockevents_cleanup();  will comment this for time being till clockevents_unbind showed up in distro code
 	vmbus_disconnect();
-#if (RHEL_RELEASE_CODE >=1800 ) /* KYS; we may have to tweak this */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8,0)) /* KYS; we may have to tweak this */
 	hv_remove_vmbus_irq();
 #endif
 	for_each_online_cpu(cpu)

@@ -171,26 +171,25 @@ static int sense_buffer_size = PRE_WIN8_STORVSC_SENSE_BUFFER_SIZE;
 */
 static int vmstor_proto_version;
 
-/*
- * Divergence from upstream:
- * This logging should be added to upstream.
- */
-#define STORVSC_LOGGING_NONE   0
-#define STORVSC_LOGGING_ERROR  1
-#define STORVSC_LOGGING_WARN   2
+#define STORVSC_LOGGING_NONE	0
+#define STORVSC_LOGGING_ERROR	1
+#define STORVSC_LOGGING_WARN	2
 
 static int logging_level = STORVSC_LOGGING_ERROR;
 module_param(logging_level, int, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(logging_level,
-	"Logging level, "
-	"0 - None, "
-	"1 - Error (default), "
-	"2 - Warning.");
+	"Logging level, 0 - None, 1 - Error (default), 2 - Warning.");
 
-inline static bool do_logging(int level)
+static inline bool do_logging(int level)
 {
-	return (logging_level >= level) ? true : false;
+	return logging_level >= level;
 }
+
+#define storvsc_log(dev, level, fmt, ...)			\
+do {								\
+	if (do_logging(level))					\
+		dev_warn(&(dev)->device, fmt, ##__VA_ARGS__);	\
+} while (0)
 
 struct vmscsi_win8_extension {
 	/*
@@ -406,7 +405,7 @@ module_param(storvsc_ringbuffer_size, int, S_IRUGO);
 MODULE_PARM_DESC(storvsc_ringbuffer_size, "Ring buffer size (bytes)");
 
 module_param(storvsc_vcpus_per_sub_channel, int, S_IRUGO);
-MODULE_PARM_DESC(vcpus_per_sub_channel, "Ratio of VCPUs to subchannels");
+MODULE_PARM_DESC(storvsc_vcpus_per_sub_channel, "Ratio of VCPUs to subchannels");
 /*
  * Timeout in seconds for all devices managed by this driver.
  */
@@ -521,13 +520,11 @@ struct storvsc_scan_work {
 static void storvsc_device_scan(struct work_struct *work)
 {
 	struct storvsc_scan_work *wrk;
-	uint lun;
 	struct scsi_device *sdev;
 
 	wrk = container_of(work, struct storvsc_scan_work, work);
-	lun = wrk->lun;
 
-	sdev = scsi_device_lookup(wrk->host, 0, wrk->tgt_id, lun);
+	sdev = scsi_device_lookup(wrk->host, 0, wrk->tgt_id, wrk->lun);
 	if (!sdev)
 		goto done;
 	scsi_rescan_device(&sdev->sdev_gendev);
@@ -1215,8 +1212,9 @@ static void storvsc_handle_error(struct vmscsi_request *vm_srb,
 		do_work = true;
 		process_err_fn = storvsc_remove_lun;
 		break;
-	case (SRB_STATUS_ABORTED | SRB_STATUS_AUTOSENSE_VALID):
-		if ((asc == 0x2a) && (ascq == 0x9)) {
+	case SRB_STATUS_ABORTED:
+		if (vm_srb->srb_status & SRB_STATUS_AUTOSENSE_VALID &&
+		    (asc == 0x2a) && (ascq == 0x9)) {
 			do_work = true;
 			process_err_fn = storvsc_device_scan;
 			/*
@@ -1274,9 +1272,10 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request,
 
 	scmnd->result = vm_srb->scsi_status;
 
-	if (scmnd->result && do_logging(STORVSC_LOGGING_ERROR)) {
+	if (scmnd->result) {
 		if (scsi_normalize_sense(scmnd->sense_buffer,
-				SCSI_SENSE_BUFFERSIZE, &sense_hdr))
+				SCSI_SENSE_BUFFERSIZE, &sense_hdr) &&
+		    do_logging(STORVSC_LOGGING_ERROR))
 #ifdef NOTYET
 			// Divergence from upstream commit:
 			// d811b848ebb78a1135658aa20a80e31994df47f7
@@ -1294,19 +1293,27 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request,
 		cmd_request->payload->range.len -
 		vm_srb->data_transfer_length);
 
-	/* if this is an INQUIRY when SCSI is trying to probe a LUN, return a proper SCSI level to trigger REPORT_LUNS
-	 * note: on probing LUN0, SCSI sets all the fields  to zero except for the length at[4]
+	/* If this is an INQUIRY when SCSI is trying to probe a LUN, return a proper 
+	 * SCSI level and vendor/device names to trigger REPORT_LUNS scan
+	 * note: on probing LUN0, SCSI sets all the fields  to zero except for the length at [4]
+	 * the SCSI layer expects at least 36 bytes returned on INQUIRY response
 	 */
 	if (scmnd->cmnd[0] == INQUIRY
-			&& !(scmnd->cmnd[1] || scmnd->cmnd[2] || scmnd->cmnd[3] || scmnd->cmnd[5])
-			&& scsi_bufflen(scmnd) > 2) {
+	    && !(scmnd->cmnd[1] | scmnd->cmnd[2] | scmnd->cmnd[3] | scmnd->cmnd[5])
+	    && scsi_bufflen(scmnd) >= 32) {
 
 		struct scatterlist *sgl = scsi_sglist(scmnd);
 		char *data = (char *) (sg_kmap_atomic(sgl) + sgl->offset);
 
-		/* if host doesn't return SCSI level, set to SCSI_2 minimal required for REPORT_LUNS */
-		if (!data[2])
-			data[2] = SCSI_2;
+		/* if the host doesn't return any data (0 length), set them properly */
+		if (!data[4]) {
+			/* if host doesn't return SCSI level, set to SCSI_2 minimal required for REPORT_LUNS */
+			if (!data[2])
+				data[2] = SCSI_2;
+
+			sprintf(&data[8], "MSFT"); 	// vendor name, max 8 bytes
+			sprintf(&data[16], "LUN");	// device name, max 16 bytes
+		}
 
 		sg_kunmap_atomic((unsigned long)data - sgl->offset);
 	}
@@ -1330,7 +1337,7 @@ static void storvsc_on_io_completion(struct storvsc_device *stor_device,
 				  struct storvsc_cmd_request *request)
 {
 	struct vstor_packet *stor_pkt;
-	//struct hv_device *device = stor_device->device;
+	struct hv_device *device = stor_device->device;
 
 	stor_pkt = &request->vstor_packet;
 
@@ -1358,6 +1365,13 @@ static void storvsc_on_io_completion(struct storvsc_device *stor_device,
 	stor_pkt->vm_srb.sense_info_length =
 	vstor_packet->vm_srb.sense_info_length;
 
+	if (vstor_packet->vm_srb.scsi_status != 0 ||
+	    vstor_packet->vm_srb.srb_status != SRB_STATUS_SUCCESS)
+		storvsc_log(device, STORVSC_LOGGING_WARN,
+			"cmd 0x%x scsi status 0x%x srb status 0x%x\n",
+			stor_pkt->vm_srb.cdb[0],
+			vstor_packet->vm_srb.scsi_status,
+			vstor_packet->vm_srb.srb_status);
 
 	if ((vstor_packet->vm_srb.scsi_status & 0xFF) == 0x02) {
 		/* CHECK_CONDITION */
@@ -1365,6 +1379,9 @@ static void storvsc_on_io_completion(struct storvsc_device *stor_device,
 			SRB_STATUS_AUTOSENSE_VALID) {
 			/* autosense data available */
 
+			storvsc_log(device, STORVSC_LOGGING_WARN,
+				"stor pkt %p autosense data valid - len %d\n",
+				request, vstor_packet->vm_srb.sense_info_length);
 			memcpy(request->sense_buffer,
 			       vstor_packet->vm_srb.sense_data,
 			       vstor_packet->vm_srb.sense_info_length);
@@ -1525,6 +1542,30 @@ static int storvsc_dev_remove(struct hv_device *device)
 	return 0;
 }
 
+static struct vmbus_channel *get_og_chn(struct vmbus_channel *primary,
+					int chn_num)
+{
+	int next_channel = 1;
+	struct list_head *cur, *tmp;
+	struct vmbus_channel *cur_channel;
+
+	if ((chn_num == 0) || (list_empty(&primary->sc_list)))
+		return primary;
+
+
+	list_for_each_safe(cur, tmp, &primary->sc_list) {
+		cur_channel = list_entry(cur, struct vmbus_channel, sc_list);
+		if (cur_channel->state != CHANNEL_OPENED_STATE)
+			continue;
+
+		if (next_channel == chn_num)
+			return cur_channel;
+		next_channel++;
+	}
+
+	return primary;
+}
+
 static int storvsc_do_io(struct hv_device *device,
 			 struct storvsc_cmd_request *request)
 {
@@ -1532,6 +1573,7 @@ static int storvsc_do_io(struct hv_device *device,
 	struct vstor_packet *vstor_packet;
 	struct vmbus_channel *outgoing_channel;
 	int ret = 0;
+	int chn_num;
 
 	vstor_packet = &request->vstor_packet;
 	stor_device = get_out_stor_device(device);
@@ -1543,10 +1585,11 @@ static int storvsc_do_io(struct hv_device *device,
 	request->device  = device;
 	/*
 	 * Select an an appropriate channel to send the request out.
+	 * We will base the request based on the CPU that is presenting
+	 * the I/O request.
 	 */
-
-	outgoing_channel = vmbus_get_outgoing_channel(device->channel);
-
+	chn_num = smp_processor_id() % (device->channel->num_sc + 1);
+	outgoing_channel = get_og_chn(device->channel, chn_num);
 
 	vstor_packet->flags |= REQUEST_COMPLETION_FLAG;
 
@@ -1638,14 +1681,18 @@ static void storvsc_device_destroy(struct scsi_device *sdevice)
 
 static int storvsc_device_configure(struct scsi_device *sdevice)
 {
+	struct hv_host_device *host_dev = shost_priv(sdevice->host);
+	struct storvsc_device *stor_device = get_out_stor_device(host_dev->dev);
+	unsigned int max_transfer_sectors = stor_device->max_transfer_bytes >> 9;
 
-	blk_queue_max_segment_size(sdevice->request_queue, PAGE_SIZE);
+	blk_queue_max_hw_sectors(sdevice->request_queue, max_transfer_sectors);
+	sdevice->request_queue->limits.max_sectors = max_transfer_sectors;
 
 	blk_queue_bounce_limit(sdevice->request_queue, BLK_BOUNCE_ANY);
 
 	blk_queue_rq_timeout(sdevice->request_queue, (storvsc_timeout * HZ));
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 	sdevice->no_write_same = 1;
 #endif
 
@@ -1674,7 +1721,7 @@ static int storvsc_device_configure(struct scsi_device *sdevice)
 			break;
 		}
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= 1792)
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 		if (vmstor_proto_version >= VMSTOR_PROTO_VERSION_WIN10)
 			sdevice->no_write_same = 0;
 #endif
@@ -1864,6 +1911,12 @@ static int storvsc_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *scmnd)
 
 	vm_srb->win8_extension.srb_flags |=
 		SRB_FLAGS_DISABLE_SYNCH_TRANSFER;
+
+	if(scmnd->device->tagged_supported) {
+		vm_srb->win8_extension.srb_flags |= (SRB_FLAGS_QUEUE_ACTION_ENABLE | SRB_FLAGS_NO_QUEUE_FREEZE);
+		vm_srb->win8_extension.queue_tag = 0xff;        // #define SP_UNTAGGED ((UCHAR) ~0)
+		vm_srb->win8_extension.queue_action = 0x20;     // #define SRB_SIMPLE_TAG_REQUEST              0x20
+	}
 
 	/* Build the SRB */
 	switch (scmnd->sc_data_direction) {

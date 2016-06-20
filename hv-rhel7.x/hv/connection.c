@@ -88,10 +88,9 @@ static int vmbus_negotiate_version(struct vmbus_channel_msginfo *msginfo,
          * For Win8 and below, we want all channel messages to be delivered
          * on CPU 0. This is not a perf issue and having all channel messages
          * delivered on CPU 0 would be OK.
-         *
-         * For Win 8.1 and above, we want messages delivered on current
-         * CPU, as this is necessary when a connection already exists.
-         * For example, in the case of a crash kernel coming up.
+         * For post win8 hosts, we support receiving channel messages on
+         * all the CPUs. This is needed for kexec to work correctly where
+         * the CPU attempting to connect may not be CPU 0.
          */
         if (version >= VERSION_WIN8_1) {
                 msg->target_vcpu = hv_context.vp_index[get_cpu()];
@@ -245,7 +244,7 @@ void vmbus_disconnect(void)
 	/*
 	 * First send the unload request to the host.
 	 */
-	vmbus_initiate_unload();
+	vmbus_initiate_unload(false);
 
 	if (vmbus_connection.work_queue) {
 		drain_workqueue(vmbus_connection.work_queue);
@@ -485,7 +484,7 @@ int vmbus_post_msg(void *buffer, size_t buflen)
 /*
  * vmbus_set_event - Send an event notification to the parent
  */
-int vmbus_set_event(struct vmbus_channel *channel)
+void vmbus_set_event(struct vmbus_channel *channel)
 {
 	u32 child_relid = channel->offermsg.child_relid;
 
@@ -496,5 +495,6 @@ int vmbus_set_event(struct vmbus_channel *channel)
 			(child_relid >> 5));
 	}
 
-	return hv_signal_event(channel->sig_event);
+	hv_do_hypercall(HVCALL_SIGNAL_EVENT, channel->sig_event, NULL);
 }
+EXPORT_SYMBOL_GPL(vmbus_set_event);

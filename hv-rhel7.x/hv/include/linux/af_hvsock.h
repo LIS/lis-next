@@ -34,11 +34,17 @@ struct hvsock_sock {
 	u32 peer_shutdown;
 
 	struct vmbus_channel *channel;
+	struct {
+		struct vmpipe_proto_header hdr;
+		char buf[HVSOCK_SND_BUF_SZ];
+	} __packed send;
 
-	char send_buf[HVSOCK_SND_BUF_SZ];
-	char recv_buf[HVSOCK_RCV_BUF_SZ];
-	unsigned int recv_data_len;
-	unsigned int recv_data_offset;
+	struct {
+		struct vmpipe_proto_header hdr;
+		char buf[HVSOCK_RCV_BUF_SZ];
+		unsigned int data_len;
+		unsigned int data_offset;
+	} __packed recv;
 };
 
 #endif /* __AF_HVSOCK_H__ */

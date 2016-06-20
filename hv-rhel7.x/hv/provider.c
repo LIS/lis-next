@@ -722,6 +722,24 @@ static int hvnd_get_mib(struct ib_device *ibdev,
 	return 0;
 }
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+static int hvnd_get_port_immutable(struct ib_device *ibdev, u8 port_num, struct ib_port_immutable *immutable)
+{
+	struct ib_port_attr attr;
+	int err;
+
+	err = hvnd_query_port(ibdev, port_num, &attr);
+	if (err)
+		return err;
+
+	immutable->pkey_tbl_len = attr.pkey_tbl_len;
+	immutable->gid_tbl_len = attr.gid_tbl_len;
+	immutable->core_cap_flags = RDMA_CORE_PORT_IWARP;
+
+	return 0;
+}
+#endif
+
 static struct ib_qp *hvnd_ib_create_qp(struct ib_pd *pd, struct ib_qp_init_attr *attrs,
 			     struct ib_udata *udata)
 {
@@ -842,11 +860,11 @@ static int hvnd_ib_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 	enum ib_qp_state cur_state, new_state;
 	int ret = 0;
 
-
-	cur_state = attr_mask & IB_QP_CUR_STATE ? attr->cur_qp_state : qp->qp_state;
-	new_state = attr_mask & IB_QP_STATE ? attr->qp_state : cur_state;
-
 	if (attr != NULL) {
+
+	        cur_state = attr_mask & IB_QP_CUR_STATE ? attr->cur_qp_state : qp->qp_state;
+	   	new_state = attr_mask & IB_QP_STATE ? attr->qp_state : cur_state;
+
 		hvnd_debug("qp->qp_state is %d new state is %d\n", qp->qp_state, new_state);
 		hvnd_debug("current qp state is %d\n", cur_state);
 		if (attr_mask & IB_QP_STATE) {
@@ -1600,7 +1618,6 @@ static int hvnd_accept_cr(struct iw_cm_id *cm_id,
 
 	connector = (struct hvnd_ep_obj *)cm_id->provider_data;
 	qp->connector = connector;
-	connector->cq = qp->recv_cq;
 
 	if (connector == NULL) {
 		hvnd_error("NULL connector!\n");
@@ -1608,16 +1625,21 @@ static int hvnd_accept_cr(struct iw_cm_id *cm_id,
 	}
 	hvnd_debug("connector's cm_id is %p caller cm_id=%p\n", connector->cm_id, cm_id);
 
+	connector->cq = qp->recv_cq;
+
 
 	/*
 	 * Setup state for the accepted connection.
 	 */
 	cm_id->add_ref(cm_id);
 	connector->cm_id = cm_id;
-	if (conn_param != NULL) {
-		connector->ord = conn_param->ord;
-		connector->ird = conn_param->ird;
-	}
+        if (conn_param == NULL) {
+                hvnd_error("NULL conn_param!\n");
+                return -EINVAL;
+        }
+
+        connector->ord = conn_param->ord;
+        connector->ird = conn_param->ird;
 
 	if (!ep_add_work_pending(connector))
 		goto error;
@@ -2658,6 +2680,10 @@ int hvnd_register_device(struct hvnd_dev *dev)
 	dev->ibdev.post_recv = hvnd_post_receive;
 	dev->ibdev.get_protocol_stats = hvnd_get_mib;
 	dev->ibdev.uverbs_abi_ver = MLX4_IB_UVERBS_ABI_VERSION;
+
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+	dev->ibdev.get_port_immutable = hvnd_get_port_immutable;
+#endif
 
 	//DMA ops for mapping all possible addresses
 	dev->ibdev.dma_device->archdata.dma_ops = &vmbus_dma_ops;
