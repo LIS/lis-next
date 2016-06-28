@@ -277,6 +277,7 @@ bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 	} else if (ipv6hdr->version == 6) {
 		memcpy(dbuf, &ipv6hdr->saddr, 32);
 		if (ipv6hdr->nexthdr == IPPROTO_TCP) {
+			skb_reset_transport_header(skb);
 			dbuf[8] = *(__be32 *)&tcp_hdr(skb)->source;
 			data_len = 36;
 		} else if (ipv6hdr->nexthdr == IPPROTO_UDP) {
