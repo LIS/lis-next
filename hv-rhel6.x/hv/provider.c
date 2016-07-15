@@ -74,6 +74,8 @@ struct mlx4_wqe_data_seg {
 	__be64                  addr;
 };
 
+static struct workqueue_struct *probe_wq;
+
 /* return value:
 	true: ep is running
 	false: ep is stopped
@@ -351,10 +353,23 @@ static int hvnd_multicast_detach(struct ib_qp *ibqp, union ib_gid *gid, u16 lid)
 	return -ENOSYS;
 }
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+static int hvnd_process_mad(struct ib_device *ibdev,
+			    int mad_flags,
+			    u8 port_num,
+			    const struct ib_wc *in_wc,
+			    const struct ib_grh *in_grh,
+			    const struct ib_mad_hdr *in_mad,
+			    size_t in_mad_size,
+			    struct ib_mad_hdr *out_mad,
+			    size_t *out_mad_size,
+			    u16 *out_mad_pkey_index)
+#else
 static int hvnd_process_mad(struct ib_device *ibdev, int mad_flags,
 			    u8 port_num, struct ib_wc *in_wc,
 			    struct ib_grh *in_grh, struct ib_mad *in_mad,
 			    struct ib_mad *out_mad)
+#endif
 {
 	debug_check(__func__, __LINE__);
 	return -ENOSYS;
@@ -593,8 +608,14 @@ static int hvnd_query_gid(struct ib_device *ibdev, u8 port, int index,
 	return 0;
 }
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+static int hvnd_query_device(struct ib_device *ibdev,
+			     struct ib_device_attr *props,
+			     struct ib_udata *udata)
+#else
 static int hvnd_query_device(struct ib_device *ibdev,
 			     struct ib_device_attr *props)
+#endif
 {
 	struct hvnd_dev *nd_dev = to_nd_dev(ibdev);
 	struct adapter_info_v2 *adap_info;
@@ -1006,15 +1027,25 @@ free_qp:
 	return ret;
 }
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+static struct ib_cq *hvnd_ib_create_cq(struct ib_device *ibdev,
+				       const struct ib_cq_init_attr *attr,
+				       struct ib_ucontext *ib_context,
+				       struct ib_udata *udata)
+#else
 static struct ib_cq *hvnd_ib_create_cq(struct ib_device *ibdev, int entries,
 				    int vector, struct ib_ucontext *ib_context,
 				    struct ib_udata *udata)
+#endif
 {
 	struct hvnd_ucontext *uctx;
 	struct hvnd_dev *nd_dev;
 	struct mlx4_ib_create_cq ucmd;
 	struct hvnd_cq *cq;
 	int ret = 0;
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+	int entries = attr->cqe;
+#endif
 
 	uctx = to_nd_context(ib_context);
 	nd_dev = to_nd_dev(ibdev);
@@ -2702,7 +2733,7 @@ static void hvnd_probe_delayed_work(struct work_struct *work)
 	ret = hvnd_register_device(nd_dev);
 
 	if (ret == 0)
-		return;
+		goto done;
 	else
 		hvnd_error("hvnd_register_device failed ret=%d\n", ret);
 
@@ -2714,6 +2745,8 @@ err:
 	vmbus_close(nd_dev->hvdev->channel);
 
 	ib_dealloc_device((struct ib_device *)nd_dev);
+done:
+	return;
 }
 
 static int hvnd_probe(struct hv_device *dev,
@@ -2781,9 +2814,11 @@ static int hvnd_probe(struct hv_device *dev,
 		goto err_out2;
 	}
 
+	probe_wq = create_workqueue("hvnd_probe_events");
+
 	/* We need to get IP/MAC address from the Azure Linux agent to continue initialization */
 	INIT_WORK(&nd_dev->probe_delayed_work, hvnd_probe_delayed_work);
-	schedule_work(&nd_dev->probe_delayed_work);
+	queue_work(probe_wq, &nd_dev->probe_delayed_work);
 	return 0;
 
 err_out2:
@@ -2805,6 +2840,7 @@ static int hvnd_remove(struct hv_device *dev)
 	iounmap(nd_dev->mmio_virt);
 	release_resource(&nd_dev->mmio_resource);
 	hvnd_unregister_device(nd_dev);
+	destroy_workqueue(probe_wq);
 	return 0;
 }
 
