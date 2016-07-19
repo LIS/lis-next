@@ -3,9 +3,6 @@
 #define _HV_COMPAT_H
 
 #include <linux/version.h>
-#include <linux/ip.h>
-#include <linux/ipv6.h>
-#include <linux/skbuff.h>
 
 /*
  * Helpers for determining EXTRAVERSION info on RHEL/CentOS update kernels
@@ -38,6 +35,9 @@
 
 #include <linux/rcupdate.h>
 #include <linux/version.h>
+#include <linux/ip.h>
+#include <linux/ipv6.h>
+#include <linux/skbuff.h>
 #include <linux/netdevice.h>
 #include <linux/inetdevice.h>
 #include <asm/pgtable_types.h>
