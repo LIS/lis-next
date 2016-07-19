@@ -203,101 +203,6 @@ static void *init_ppi_data(struct rndis_message *msg, u32 ppi_size,
 	return ppi;
 }
 
-union sub_key {
-	u64 k;
-	struct {
-		u8 pad[3];
-		u8 kb;
-		u32 ka;
-	};
-};
-
-/* Toeplitz hash function
- * data: network byte order
- * return: host byte order
- */
-static u32 comp_hash(u8 *key, int klen, void *data, int dlen)
-{
-	union sub_key subk;
-	int k_next = 4;
-	u8 dt;
-	int i, j;
-	u32 ret = 0;
-
-	subk.k = 0;
-	subk.ka = ntohl(*(u32 *)key);
-
-	for (i = 0; i < dlen; i++) {
-		subk.kb = key[k_next];
-		k_next = (k_next + 1) % klen;
-		dt = ((u8 *)data)[i];
-		for (j = 0; j < 8; j++) {
-			if (dt & 0x80)
-				ret ^= subk.ka;
-			dt <<= 1;
-			subk.k <<= 1;
-		}
-	}
-
-	return ret;
-}
-
-bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
-{
-	struct iphdr *iphdr;
-	struct ipv6hdr *ipv6hdr;
-	struct udphdr *udphdr;
-	__be32 dbuf[9];
-	int data_len = 0;
-
-	skb_reset_mac_header(skb);
-
-	if (eth_hdr(skb)->h_proto != htons(ETH_P_IP) &&
-	    eth_hdr(skb)->h_proto != htons(ETH_P_IPV6))
-		return false;
-
-	iphdr = ip_hdr(skb);
-	ipv6hdr = ipv6_hdr(skb);
-
-	if (iphdr->version == 4) {
-		dbuf[0] = iphdr->saddr;
-		dbuf[1] = iphdr->daddr;
-		if (iphdr->protocol == IPPROTO_TCP) {
-			dbuf[2] = *(__be32 *)&tcp_hdr(skb)->source;
-			data_len = 12;
-		} else if (iphdr->protocol == IPPROTO_UDP) {
-			udphdr = udp_hdr(skb);
-			if (udphdr != NULL) {
-				dbuf[2] = *(__be32 *)&udp_hdr(skb)->source;
-				data_len = 12;
-			}
-		} else {
-			data_len = 8;
-		}
-	} else if (ipv6hdr->version == 6) {
-		memcpy(dbuf, &ipv6hdr->saddr, 32);
-		if (ipv6hdr->nexthdr == IPPROTO_TCP) {
-			skb_reset_transport_header(skb);
-			dbuf[8] = *(__be32 *)&tcp_hdr(skb)->source;
-			data_len = 36;
-		} else if (ipv6hdr->nexthdr == IPPROTO_UDP) {
-			udphdr = udp_hdr(skb);
-			if (udphdr != NULL) {
-				dbuf[8] = *(__be32 *)&udp_hdr(skb)->source;
-				data_len = 36;
-			}
-		} else {
-			data_len = 32;
-		}
-	} else {
-		return false;
-	}
-
-	*hash = comp_hash(netvsc_hash_key, HASH_KEYLEN, dbuf, data_len);
-
-	return true;
-}
-
 #ifdef NOTYET
 // Divergence from upstream commit:
 // 5b54dac856cb5bd6f33f4159012773e4a33704f7
@@ -315,12 +220,9 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 	if (nvsc_dev == NULL || ndev->real_num_tx_queues <= 1)
 		return 0;
 
-	if (netvsc_set_hash(&hash, skb)) {
-		q_idx = nvsc_dev->send_table[hash % VRSS_SEND_TAB_SIZE] %
-			ndev->real_num_tx_queues;
-
-		skb_set_hash(skb, hash, 0);
-	}
+	hash = skb_get_hash(skb);
+	q_idx = nvsc_dev->send_table[hash % VRSS_SEND_TAB_SIZE] %
+		ndev->real_num_tx_queues;
 
 	if (!nvsc_dev->chn_table[q_idx])
 		q_idx = 0;
