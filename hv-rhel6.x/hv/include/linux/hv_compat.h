@@ -3,6 +3,9 @@
 #define _HV_COMPAT_H
 
 #include <linux/version.h>
+#include <linux/ip.h>
+#include <linux/ipv6.h>
+#include <linux/skbuff.h>
 
 /*
  * Helpers for determining EXTRAVERSION info on RHEL/CentOS update kernels
@@ -118,6 +121,128 @@ static inline void *vzalloc(unsigned long size)
 #define NETIF_F_RXCSUM 0
 #endif
 
+#define NDIS_RSS_HASH_SECRET_KEY_MAX_SIZE_REVISION_2   40
+#define HASH_KEYLEN NDIS_RSS_HASH_SECRET_KEY_MAX_SIZE_REVISION_2
+
+static u8 netvsc_hash_key[HASH_KEYLEN] = {
+	0x6d, 0x5a, 0x56, 0xda, 0x25, 0x5b, 0x0e, 0xc2,
+	0x41, 0x67, 0x25, 0x3d, 0x43, 0xa3, 0x8f, 0xb0,
+	0xd0, 0xca, 0x2b, 0xcb, 0xae, 0x7b, 0x30, 0xb4,
+	0x77, 0xcb, 0x2d, 0xa3, 0x80, 0x30, 0xf2, 0x0c,
+	0x6a, 0x42, 0xb7, 0x3b, 0xbe, 0xac, 0x01, 0xfa
+};
+
+union sub_key {
+	u64 k;
+	struct {
+		u8 pad[3];
+		u8 kb;
+		u32 ka;
+	};
+};
+
+/* Toeplitz hash function
+ * data: network byte order
+ * return: host byte order
+ */
+static inline u32 comp_hash(u8 *key, int klen, void *data, int dlen)
+{
+	union sub_key subk;
+	int k_next = 4;
+	u8 dt;
+	int i, j;
+	u32 ret = 0;
+
+	subk.k = 0;
+	subk.ka = ntohl(*(u32 *)key);
+
+	for (i = 0; i < dlen; i++) {
+		subk.kb = key[k_next];
+		k_next = (k_next + 1) % klen;
+		dt = ((u8 *)data)[i];
+		for (j = 0; j < 8; j++) {
+			if (dt & 0x80)
+				ret ^= subk.ka;
+			dt <<= 1;
+			subk.k <<= 1;
+		}
+	}
+
+	return ret;
+}
+
+static inline bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
+{
+	struct iphdr *iphdr;
+	struct ipv6hdr *ipv6hdr;
+	struct tcphdr *tcphdr;
+	struct udphdr *udphdr;
+	__be32 dbuf[9];
+	int data_len = 0;
+
+	skb_reset_mac_header(skb);
+
+	if (eth_hdr(skb)->h_proto != htons(ETH_P_IP) &&
+	    eth_hdr(skb)->h_proto != htons(ETH_P_IPV6))
+		return false;
+
+	iphdr = ip_hdr(skb);
+	ipv6hdr = ipv6_hdr(skb);
+
+	if (iphdr->version == 4) {
+		/* check src addr.
+		 * ignore RSS hashing for DHCP discovery messages.
+		 */
+		dbuf[0] = iphdr->saddr;
+		if (dbuf[0] == 0)
+			return false;
+
+		/* dst addr */
+		dbuf[1] = iphdr->daddr;
+		if (iphdr->protocol == IPPROTO_TCP) {
+			tcphdr = tcp_hdr(skb);
+			if (tcphdr != NULL) {
+				dbuf[2] = *(__be32 *)&tcp_hdr(skb)->source;
+				data_len = 12;
+			}
+		} else if (iphdr->protocol == IPPROTO_UDP) {
+			udphdr = udp_hdr(skb);
+			if (udphdr != NULL) {
+				dbuf[2] = *(__be32 *)&udp_hdr(skb)->source;
+				data_len = 12;
+			}
+		}
+	} else if (ipv6hdr->version == 6) {
+		memcpy(dbuf, &ipv6hdr->saddr, 32);
+		/* src addr
+		 * ignore RSS hashing for DHCP discovery messages.
+		 */
+		if ((dbuf[0] | dbuf[1] | dbuf[2] | dbuf[3]) == 0)
+			return false;
+
+		if (ipv6hdr->nexthdr == IPPROTO_TCP) {
+			tcphdr = tcp_hdr(skb);
+			if (tcphdr != NULL) {
+				dbuf[8] = *(__be32 *)&tcp_hdr(skb)->source;
+				data_len = 36;
+			}
+		} else if (ipv6hdr->nexthdr == IPPROTO_UDP) {
+			udphdr = udp_hdr(skb);
+			if (udphdr != NULL) {
+				dbuf[8] = *(__be32 *)&udp_hdr(skb)->source;
+				data_len = 36;
+			}
+		}
+	}
+
+	/* if data_len is 0, we are not able to compute the RSS hash. */
+	if (data_len == 0)
+		return false;
+
+	*hash = comp_hash(netvsc_hash_key, HASH_KEYLEN, dbuf, data_len);
+	return true;
+}
+
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,6))
 static inline void
 skb_set_hash(struct sk_buff *skb, __u32 hash, int type)
@@ -128,7 +253,6 @@ skb_set_hash(struct sk_buff *skb, __u32 hash, int type)
 }
 #endif
 
-bool netvsc_set_hash(u32 *hash, struct sk_buff *skb);
 static inline __u32
 skb_get_hash(struct sk_buff *skb)
 {
