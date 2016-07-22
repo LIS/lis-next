@@ -1,5 +1,44 @@
 #!/bin/bash
 
+######################################################################## 
+# 
+# Linux on Hyper-V and Azure Test Code, ver. 1.0.0 
+# Copyright (c) Microsoft Corporation 
+# 
+# All rights reserved.  
+# Licensed under the Apache License, Version 2.0 (the ""License""); 
+# you may not use this file except in compliance with the License. 
+# You may obtain a copy of the License at 
+#     http://www.apache.org/licenses/LICENSE-2.0   
+# 
+# THIS CODE IS PROVIDED *AS IS* BASIS, WITHOUT WARRANTIES OR CONDITIONS 
+# OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING WITHOUT LIMITATION 
+# ANY IMPLIED WARRANTIES OR CONDITIONS OF TITLE, FITNESS FOR A PARTICULAR 
+# PURPOSE, MERCHANTABLITY OR NON-INFRINGEMENT. 
+# 
+# See the Apache Version 2.0 License for specific language governing 
+# permissions and limitations under the License. 
+# 
+######################################################################## 
+
+######################################################################## 
+#
+# This is a script to help port LIS driver patches from upstream (e.g.
+# linux-next, net-next) into the LIS-Next repository.
+# 
+# How to use this:
+# 1) Place the set of patches (e.g. from kernel.org) to a directory and 
+# name them in some order (01.patch, 02.patch, etc…)
+# 
+# 2) Run 'cd ~/lis-next/hv-rhel7.x/hv'
+#    You can change to whichever target OS you are working on.
+#
+# 3) Run 'port_usptream_patches.sh <directory containing patches>'
+#
+########################################################################
+
+
+
 PATCHDIR=$1
 RHELVERSION=$2
 #DEPTH=$3
@@ -35,7 +74,7 @@ for patchfile in ${PATCHDIR}/*.patch; do
 	sed -i 's/--- a\/drivers\/net/hyperv/ --- a/g' $patchfile
 	sed -i 's/+++ b\/drivers\/net/hyperv/ +++ b/g' $patchfile
 
-	echo "Applying patch..."
+	echo "Applying patch in DRY RUN..."
 	#depth=$DEPTH
 	#if [ -z $DEPTH ]; then	
 	#	depth=$(grep "\-\-\- a" $patchfile -m1 | grep -o "\/" | wc -l)
@@ -48,6 +87,7 @@ for patchfile in ${PATCHDIR}/*.patch; do
 		break
 	fi
 
+	echo "Applying patch for real this time..."
 	patch --ignore-whitespace -p1 -f < $patchfile
 	result=$?
 	if [ $result -ne 0 ]; then
