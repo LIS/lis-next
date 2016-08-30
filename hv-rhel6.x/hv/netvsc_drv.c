@@ -873,6 +873,8 @@ static int netvsc_set_channels(struct net_device *net,
  out:
 	netvsc_open(net);
 	net_device_ctx->start_remove = false;
+	/* We may have missed link change notifications */
+	schedule_delayed_work(&net_device_ctx->dwork, 0);
 
 	return ret;
 
@@ -981,6 +983,9 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 out:
 	netvsc_open(ndev);
 	ndevctx->start_remove = false;
+
+	/* We may have missed link change notifications */
+	schedule_delayed_work(&ndevctx->dwork, 0);
 
 	return ret;
 }
@@ -1108,6 +1113,11 @@ static void netvsc_link_change(struct work_struct *w)
 	unsigned long flags, next_reconfig, delay;
 
 	ndev_ctx = container_of(w, struct net_device_context, dwork.work);
+
+	rtnl_lock();
+	if (ndev_ctx->start_remove)
+		goto out_unlock;
+
 	net_device = hv_get_drvdata(ndev_ctx->device_ctx);
 	rdev = net_device->extension;
 	net = net_device->ndev;
@@ -1121,7 +1131,7 @@ static void netvsc_link_change(struct work_struct *w)
 		delay = next_reconfig - jiffies;
 		delay = delay < LINKCHANGE_INT ? delay : LINKCHANGE_INT;
 		schedule_delayed_work(&ndev_ctx->dwork, delay);
-		return;
+		goto out_unlock;
 	}
 	ndev_ctx->last_reconfig = jiffies;
 
@@ -1135,9 +1145,7 @@ static void netvsc_link_change(struct work_struct *w)
 	spin_unlock_irqrestore(&ndev_ctx->lock, flags);
 
 	if (!event)
-		return;
-
-	rtnl_lock();
+		goto out_unlock;
 
 	switch (event->event) {
 		/* Only the following events are possible due to the check in
@@ -1186,6 +1194,11 @@ static void netvsc_link_change(struct work_struct *w)
 	 */
 	if (reschedule)
 		schedule_delayed_work(&ndev_ctx->dwork, LINKCHANGE_INT);
+
+	return;
+
+out_unlock:
+	rtnl_unlock();
 }
 
 static void netvsc_free_netdev(struct net_device *netdev)
