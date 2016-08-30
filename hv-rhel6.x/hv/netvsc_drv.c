@@ -632,7 +632,7 @@ void netvsc_linkstatus_callback(struct hv_device *device_obj,
 	event->event = indicate->status;
 
 	spin_lock_irqsave(&ndev_ctx->lock, flags);
-			list_add(&event->list, &ndev_ctx->reconfig_events);
+	list_add_tail(&event->list, &ndev_ctx->reconfig_events);
 	spin_unlock_irqrestore(&ndev_ctx->lock, flags);
 
 	schedule_delayed_work(&ndev_ctx->dwork, 0);
