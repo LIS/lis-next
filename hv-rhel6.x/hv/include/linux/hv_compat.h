@@ -569,6 +569,34 @@ extern void uuid_le_gen(uuid_le *u);
 extern void uuid_be_gen(uuid_be *u);
 #endif /* RHEL_RELEASE_VERSION(6,0) */
 
+/*
+ * Define ethtool dependencies here.
+ */
+#ifndef SPEED_UNKNOWN
+#define SPEED_UNKNOWN -1
+#endif
+
+static inline int ethtool_validate_speed(__u32 speed)
+{
+	return speed <= INT_MAX || speed == SPEED_UNKNOWN;
+}
+
+#ifndef DUPLEX_UNKNOWN
+#define DUPLEX_UNKNOWN 0xff
+#endif
+
+static inline int ethtool_validate_duplex(__u8 duplex)
+{
+	switch (duplex) {
+	case DUPLEX_HALF:
+	case DUPLEX_FULL:
+	case DUPLEX_UNKNOWN:
+		return 1;
+	}
+
+	return 0;
+}
+
 #endif
 #endif
 #endif
