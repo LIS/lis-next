@@ -401,6 +401,26 @@ static inline int memcpy_to_msg(struct msghdr *msg, void *data, int len)
 	return memcpy_toiovec(msg->msg_iov, data, len);
 }
 
+/*
+ * Define ethtool dependencies here.
+ */
+static inline int ethtool_validate_speed(__u32 speed)
+{
+        return speed <= INT_MAX || speed == SPEED_UNKNOWN;
+}
+
+static inline int ethtool_validate_duplex(__u8 duplex)
+{
+        switch (duplex) {
+        case DUPLEX_HALF:
+        case DUPLEX_FULL:
+        case DUPLEX_UNKNOWN:
+                return 1;
+        }
+
+        return 0;
+}
+
 #endif //#ifdef __KERNEL__
 #endif //#if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 10, 0)
 #endif //#ifndef _HV_COMPAT_H
