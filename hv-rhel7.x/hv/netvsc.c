@@ -93,9 +93,7 @@ static void free_netvsc_device(struct netvsc_device *nvdev)
 
 static struct netvsc_device *get_outbound_net_device(struct hv_device *device)
 {
-	struct net_device *ndev = hv_get_drvdata(device);
-	struct net_device_context *net_device_ctx = netdev_priv(ndev);
-	struct netvsc_device *net_device = net_device_ctx->nvdev;
+	struct netvsc_device *net_device = hv_device_to_netvsc_device(device);
 
 	if (net_device && net_device->destroy)
 		net_device = NULL;
@@ -105,9 +103,7 @@ static struct netvsc_device *get_outbound_net_device(struct hv_device *device)
 
 static struct netvsc_device *get_inbound_net_device(struct hv_device *device)
 {
-	struct net_device *ndev = hv_get_drvdata(device);
-	struct net_device_context *net_device_ctx = netdev_priv(ndev);
-	struct netvsc_device *net_device = net_device_ctx->nvdev;
+	struct netvsc_device *net_device = hv_device_to_netvsc_device(device);
 
 	if (!net_device)
 		goto get_in_err;
@@ -126,8 +122,7 @@ static int netvsc_destroy_buf(struct hv_device *device)
 	struct nvsp_message *revoke_packet;
 	int ret = 0;
 	struct net_device *ndev = hv_get_drvdata(device);
-	struct net_device_context *net_device_ctx = netdev_priv(ndev);
-	struct netvsc_device *net_device = net_device_ctx->nvdev;
+	struct netvsc_device *net_device = net_device_to_netvsc_device(ndev);
 
 	/*
 	 * If we got a section count, it means we received a
