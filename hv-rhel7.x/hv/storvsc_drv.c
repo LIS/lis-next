@@ -1279,7 +1279,9 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request,
 	if (scmnd->result) {
 		if (scsi_normalize_sense(scmnd->sense_buffer,
 				SCSI_SENSE_BUFFERSIZE, &sense_hdr) &&
-		    do_logging(STORVSC_LOGGING_ERROR))
+                   !(sense_hdr.sense_key == NOT_READY &&
+				 sense_hdr.asc == 0x03A) &&
+		   do_logging(STORVSC_LOGGING_ERROR))
 #if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
 			scsi_print_sense_hdr(scmnd->device, "storvsc",
 					     &sense_hdr);
