@@ -40,6 +40,7 @@
 #include <asm/hypervisor.h>
 #include <linux/screen_info.h>
 #include <linux/efi.h>
+#include <linux/random.h>
 #include "hyperv_vmbus.h"
 
 static struct acpi_device  *hv_acpi_dev;
@@ -793,6 +794,10 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id)
 		else
 			tasklet_schedule(hv_context.msg_dpc[cpu]);
 	}
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3)) /* we dont have add_interrupt_randomness symbol in kernel yet in 7.2 */
+        add_interrupt_randomness(HYPERVISOR_CALLBACK_VECTOR, 0);
+#endif
+
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) /* KYS; we may have to tweak this */
 	return;
 #else
