@@ -1396,6 +1396,8 @@ static int netvsc_probe(struct hv_device *dev,
 
 	netif_carrier_off(net);
 
+	netvsc_init_settings(net);
+
 	net_device_ctx = netdev_priv(net);
 	net_device_ctx->device_ctx = dev;
 	net_device_ctx->msg_enable = netif_msg_init(debug, default_msg);
@@ -1460,8 +1462,6 @@ static int netvsc_probe(struct hv_device *dev,
 	dev_info(&dev->device, "real num tx,rx queues:%u, %u\n",
 		 net->real_num_tx_queues, nvdev->num_chn);
 
-
-	netvsc_init_settings(net);
 
 	ret = register_netdev(net);
 	if (ret != 0) {
