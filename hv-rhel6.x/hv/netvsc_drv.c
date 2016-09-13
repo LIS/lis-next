@@ -610,31 +610,18 @@ void netvsc_linkstatus_callback(struct hv_device *device_obj,
 	struct netvsc_reconfig *event;
 	unsigned long flags;
 
-	net = hv_get_drvdata(device_obj);
-
-	if (!net)
-		return;
-
-	ndev_ctx = netdev_priv(net);
-
-	/* Update the physical link speed when changing to another vSwitch */
-	if (indicate->status == RNDIS_STATUS_LINK_SPEED_CHANGE) {
-		u32 speed;
-
-		speed = *(u32 *)((void *)indicate + indicate->
-				 status_buf_offset) / 10000;
-		ndev_ctx->speed = speed;
-		return;
-	}
-
-	/* Handle these link change statuses below */
+	/* Handle link change statuses only */
 	if (indicate->status != RNDIS_STATUS_NETWORK_CHANGE &&
 	    indicate->status != RNDIS_STATUS_MEDIA_CONNECT &&
 	    indicate->status != RNDIS_STATUS_MEDIA_DISCONNECT)
 		return;
 
-	if (net->reg_state != NETREG_REGISTERED)
+	net = hv_get_drvdata(device_obj);
+
+	if (!net || net->reg_state != NETREG_REGISTERED)
 		return;
+
+	ndev_ctx = netdev_priv(net);
 
 	event = kzalloc(sizeof(*event), GFP_ATOMIC);
 	if (!event)
@@ -1409,8 +1396,6 @@ static int netvsc_probe(struct hv_device *dev,
 
 	netif_carrier_off(net);
 
-	netvsc_init_settings(net);
-
 	net_device_ctx = netdev_priv(net);
 	net_device_ctx->device_ctx = dev;
 	net_device_ctx->msg_enable = netif_msg_init(debug, default_msg);
@@ -1475,6 +1460,8 @@ static int netvsc_probe(struct hv_device *dev,
 	dev_info(&dev->device, "real num tx,rx queues:%u, %u\n",
 		 net->real_num_tx_queues, nvdev->num_chn);
 
+
+	netvsc_init_settings(net);
 
 	ret = register_netdev(net);
 	if (ret != 0) {
@@ -1561,8 +1548,9 @@ static int netvsc_netdev_event(struct notifier_block *this,
 #else
 	struct net_device *event_dev = ptr;
 #endif
-	/* Avoid Vlan, Bonding dev with same MAC registering as VF */
-	if (event_dev->priv_flags & (IFF_802_1Q_VLAN | IFF_BONDING))
+
+	/* Avoid Vlan dev with same MAC registering as VF */
+	if (event_dev->priv_flags & IFF_802_1Q_VLAN)
 		return NOTIFY_DONE;
 
 	switch (event) {

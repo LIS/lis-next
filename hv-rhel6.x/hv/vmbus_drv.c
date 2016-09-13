@@ -44,7 +44,6 @@
 #include <linux/semaphore.h>
 #include <linux/efi.h>
 #include "hyperv_vmbus.h"
-#include <linux/random.h>
 
 #if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(6,5))
 bool using_null_legacy_pic = false;
@@ -677,10 +676,6 @@ static void vmbus_isr(void)
 		else
 			tasklet_schedule(hv_context.msg_dpc[cpu]);
 	}
-#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3)) /* we dont have add_interrupt_randomness symbol in kernel yet in 7.2 */
-        add_interrupt_randomness(HYPERVISOR_CALLBACK_VECTOR, 0);
-#endif
-
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	if (handled)
 		return IRQ_HANDLED;
