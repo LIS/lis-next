@@ -20,6 +20,17 @@ echo "Installing Modprobe Rules"
 cp -f ./hyperv_pvdrivers.conf /etc/modprobe.d/
 [ $? -eq 0 ] || exit 1
 
+echo "Copying scipts for ip injection"
+
+cp -f ./tools/hv_get_dns_info.sh /usr/sbin/
+[ $? -eq 0 ] || exit 1
+
+cp -f ./tools/hv_get_dhcp_info.sh /usr/sbin/
+[ $? -eq 0 ] || exit 1
+
+cp -f ./tools/hv_set_ifconfig.sh /usr/sbin/
+[ $? -eq 0 ] || exit 1
+
 echo "Generating initramfs"
 dracut --force  "initramfs-$(uname -r).img" $(uname -r)
 [ $? -eq 0 ] || exit 1
