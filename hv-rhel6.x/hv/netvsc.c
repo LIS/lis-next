@@ -482,8 +482,12 @@ static int negotiate_nvsp_ver(struct hv_device *device,
 	init_packet->msg.v2_msg.send_ndis_config.mtu = ndev->mtu + ETH_HLEN;
 	init_packet->msg.v2_msg.send_ndis_config.capability.ieee8021q = 1;
 
-	if (nvsp_ver >= NVSP_PROTOCOL_VERSION_5)
+	if (nvsp_ver >= NVSP_PROTOCOL_VERSION_5) {
 		init_packet->msg.v2_msg.send_ndis_config.capability.sriov = 1;
+
+		/* Teaming bit is needed to receive link speed updates */
+		init_packet->msg.v2_msg.send_ndis_config.capability.teaming = 1;
+	}
 
 	ret = vmbus_sendpacket(device->channel, init_packet,
 				sizeof(struct nvsp_message),
@@ -1135,6 +1139,39 @@ static inline void netvsc_receive_inband(struct hv_device *hdev,
 	}
 }
 
+static void netvsc_process_raw_pkt(struct hv_device *device,
+				   struct vmbus_channel *channel,
+				   struct netvsc_device *net_device,
+				   struct net_device *ndev,
+				   u64 request_id,
+				   struct vmpacket_descriptor *desc)
+{
+	struct nvsp_message *nvmsg;
+
+	nvmsg = (struct nvsp_message *)((unsigned long)
+		desc + (desc->offset8 << 3));
+
+	switch (desc->type) {
+	case VM_PKT_COMP:
+		netvsc_send_completion(net_device, channel, device, desc);
+		break;
+
+	case VM_PKT_DATA_USING_XFER_PAGES:
+		netvsc_receive(net_device, channel, device, desc);
+		break;
+
+	case VM_PKT_DATA_INBAND:
+		netvsc_receive_inband(device, net_device, nvmsg);
+		break;
+
+	default:
+		netdev_err(ndev, "unhandled packet type %d, tid %llx\n",
+			   desc->type, request_id);
+		break;
+	}
+}
+
+
 void netvsc_channel_cb(void *context)
 {
 	int ret;
@@ -1147,7 +1184,7 @@ void netvsc_channel_cb(void *context)
 	unsigned char *buffer;
 	int bufferlen = NETVSC_PACKET_SIZE;
 	struct net_device *ndev;
-	struct nvsp_message *nvmsg;
+	bool need_to_commit = false;
 
 	if (channel->primary_channel != NULL)
 		device = channel->primary_channel->device_obj;
@@ -1161,39 +1198,36 @@ void netvsc_channel_cb(void *context)
 	buffer = get_per_channel_state(channel);
 
 	do {
+		desc = get_next_pkt_raw(channel);
+		if (desc != NULL) {
+			netvsc_process_raw_pkt(device,
+					       channel,
+					       net_device,
+					       ndev,
+					       desc->trans_id,
+					       desc);
+
+			put_pkt_raw(channel, desc);
+			need_to_commit = true;
+			continue;
+		}
+		if (need_to_commit) {
+			need_to_commit = false;
+			commit_rd_index(channel);
+		}
+
 		ret = vmbus_recvpacket_raw(channel, buffer, bufferlen,
 					   &bytes_recvd, &request_id);
 		if (ret == 0) {
 			if (bytes_recvd > 0) {
 				desc = (struct vmpacket_descriptor *)buffer;
-				nvmsg = (struct nvsp_message *)((unsigned long)
-					 desc + (desc->offset8 << 3));
-				switch (desc->type) {
-				case VM_PKT_COMP:
-					netvsc_send_completion(net_device,
-								channel,
-								device, desc);
-					break;
+				netvsc_process_raw_pkt(device,
+						       channel,
+						       net_device,
+						       ndev,
+						       request_id,
+						       desc);
 
-				case VM_PKT_DATA_USING_XFER_PAGES:
-					netvsc_receive(net_device, channel,
-						       device, desc);
-					break;
-
-				case VM_PKT_DATA_INBAND:
-					netvsc_receive_inband(device,
-							      net_device,
-							      nvmsg);
-					break;
-
-				default:
-					netdev_err(ndev,
-						   "unhandled packet type %d, "
-						   "tid %llx len %d\n",
-						   desc->type, request_id,
-						   bytes_recvd);
-					break;
-				}
 
 			} else {
 				/*
