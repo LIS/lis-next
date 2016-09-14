@@ -54,7 +54,7 @@ static inline wait_queue_head_t *sk_sleep(struct sock *sk)
 }
 
 #if defined(RHEL_RELEASE_UPDATE_CODE) && \
-(RHEL_RELEASE_UPDATE_CODE < RHEL_RELEASE_UPDATE_VERSION(6, 4, 358, 19))
+(RHEL_RELEASE_UPDATE_CODE < RHEL_RELEASE_UPDATE_VERSION(6, 4, 358, 57))
 #define __sockaddr_check_size(size)	\
         BUILD_BUG_ON(((size) > sizeof(struct __kernel_sockaddr_storage)))
 #endif
