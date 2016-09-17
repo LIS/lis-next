@@ -604,6 +604,22 @@ static inline int ethtool_validate_duplex(__u8 duplex)
 // In-kernel memory onlining is not supported in older kernels.
 #define memhp_auto_online 0;
 
+static inline long si_mem_available(void)
+{
+        struct sysinfo val;
+        si_meminfo(&val);
+        return val.freeram;
+}
+
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
+static inline unsigned long vm_memory_committed(void)
+{
+	struct sysinfo val;
+	si_meminfo(&val);
+	return val.totalram - val.freeram;
+}
+#endif
+
 #endif
 #endif
 #endif
