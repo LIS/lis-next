@@ -596,18 +596,19 @@ void hv_synic_init(void *arg)
 
 /*
  * hv_synic_clockevents_cleanup - Cleanup clockevent devices
- *  will comment this for time being till clockevents_unbind showed up in distro code
-*void hv_synic_clockevents_cleanup(void)
-*{
-*	int cpu;
-*
-*	if (!(ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE))
-*		return;
-*
-*	for_each_online_cpu(cpu)
-*		clockevents_unbind_device(hv_context.clk_evt[cpu], cpu);
-*}
-*/
+ */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
+void hv_synic_clockevents_cleanup(void)
+{
+	int cpu;
+
+	if (!(ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE))
+		return;
+
+	for_each_online_cpu(cpu)
+		clockevents_unbind_device(hv_context.clk_evt[cpu], cpu);
+}
+#endif
 /*
  * hv_synic_cleanup - Cleanup routine for hv_synic_init().
  */
