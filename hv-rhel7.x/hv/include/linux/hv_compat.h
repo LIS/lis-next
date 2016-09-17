@@ -421,6 +421,20 @@ static inline int ethtool_validate_duplex(__u8 duplex)
         return 0;
 }
 
+/*
+ * Define balloon driver dependencies here.
+ */
+
+// In-kernel memory onlining is not supported in older kernels.
+#define memhp_auto_online 0;
+
+static inline long si_mem_available(void)
+{
+	struct sysinfo val;
+	si_meminfo(&val);
+	return val.freeram;
+}
+
 #endif //#ifdef __KERNEL__
 #endif //#if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 10, 0)
 #endif //#ifndef _HV_COMPAT_H
