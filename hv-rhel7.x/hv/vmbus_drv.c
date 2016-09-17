@@ -952,7 +952,10 @@ static int vmbus_bus_init(int irq)
 	/*
          * Only register if the crash MSRs are available
          */
-        if (ms_hyperv.features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) 
+	if (ms_hyperv.misc_features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
+#endif
+	if (ms_hyperv.features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
 		register_die_notifier(&hyperv_die_block);
                 atomic_notifier_chain_register(&panic_notifier_list,
                                                &hyperv_panic_block);
@@ -1516,7 +1519,10 @@ static void __exit vmbus_exit(void)
 	for_each_online_cpu(cpu)
 		tasklet_kill(hv_context.msg_dpc[cpu]);
 	vmbus_free_channels();
-	if (ms_hyperv.features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2))
+        if (ms_hyperv.misc_features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
+#endif
+        if (ms_hyperv.features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
 		unregister_die_notifier(&hyperv_die_block);
 		atomic_notifier_chain_unregister(&panic_notifier_list,
 						 &hyperv_panic_block);
