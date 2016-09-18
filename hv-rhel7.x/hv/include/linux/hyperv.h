@@ -866,7 +866,7 @@ struct vmbus_channel {
 	 * ring lock to preserve the current behavior.
 	 */
 	bool acquire_ring_lock;
-	*
+	/*
 	 * For performance critical channels (storage, networking
 	 * etc,), Hyper-V has a mechanism to enhance the throughput
 	 * at the expense of latency:
