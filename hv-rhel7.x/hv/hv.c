@@ -301,7 +301,7 @@ cleanup:
  *
  * This routine is called normally during driver unloading or exiting.
  */
-void hv_cleanup(void)
+void hv_cleanup(bool crash)
 {
 	union hv_x64_msr_hypercall_contents hypercall_msr;
 
@@ -311,7 +311,8 @@ void hv_cleanup(void)
 	if (hv_context.hypercall_page) {
 		hypercall_msr.as_uint64 = 0;
 		wrmsrl(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
-		vfree(hv_context.hypercall_page);
+		if (!crash)
+			vfree(hv_context.hypercall_page);
 		hv_context.hypercall_page = NULL;
 	}
 #ifdef CONFIG_X86_64
@@ -330,7 +331,8 @@ void hv_cleanup(void)
 
 		hypercall_msr.as_uint64 = 0;
 		wrmsrl(HV_X64_MSR_REFERENCE_TSC, hypercall_msr.as_uint64);
-		vfree(hv_context.tsc_page);
+		if (!crash)
+			vfree(hv_context.tsc_page);
 		hv_context.tsc_page = NULL;
        }
 #endif
@@ -596,18 +598,19 @@ void hv_synic_init(void *arg)
 
 /*
  * hv_synic_clockevents_cleanup - Cleanup clockevent devices
- *  will comment this for time being till clockevents_unbind showed up in distro code
-*void hv_synic_clockevents_cleanup(void)
-*{
-*	int cpu;
-*
-*	if (!(ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE))
-*		return;
-*
-*	for_each_online_cpu(cpu)
-*		clockevents_unbind_device(hv_context.clk_evt[cpu], cpu);
-*}
-*/
+ */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
+void hv_synic_clockevents_cleanup(void)
+{
+	int cpu;
+
+	if (!(ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE))
+		return;
+
+	for_each_online_cpu(cpu)
+		clockevents_unbind_device(hv_context.clk_evt[cpu], cpu);
+}
+#endif
 /*
  * hv_synic_cleanup - Cleanup routine for hv_synic_init().
  */
