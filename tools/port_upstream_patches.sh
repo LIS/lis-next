@@ -80,7 +80,7 @@ for patchfile in ${PATCHDIR}/*.patch; do
 	#	depth=$(grep "\-\-\- a" $patchfile -m1 | grep -o "\/" | wc -l)
 	#fi
 
-	patch --dry-run --ignore-whitespace -p1 -f < $patchfile
+	patch --dry-run --ignore-whitespace -p1 -F1 -f < $patchfile
 	result=$?
 	if [ $result -ne 0 ]; then
 		echo "Failed to apply patch in dry run. Please manually port it."
@@ -88,7 +88,7 @@ for patchfile in ${PATCHDIR}/*.patch; do
 	fi
 
 	echo "Applying patch for real this time..."
-	patch --ignore-whitespace -p1 -f < $patchfile
+	patch --ignore-whitespace -p1 -F1 -f < $patchfile
 	result=$?
 	if [ $result -ne 0 ]; then
 		echo "Failed to apply patch. Please manually port it."
