@@ -634,6 +634,20 @@ struct multi_send_data {
 	u32 count; /* counter of batched packets */
 };
 
+struct recv_comp_data {
+	u64 tid; /* transaction id */
+	u32 status;
+};
+
+/* Netvsc Receive Slots Max */
+#define NETVSC_RECVSLOT_MAX (NETVSC_RECEIVE_BUFFER_SIZE / ETH_DATA_LEN + 1)
+
+struct multi_recv_comp {
+	void *buf; /* queued receive completions */
+	u32 first; /* first data entry */
+	u32 next; /* next entry for writing */
+};
+
 struct netvsc_stats {
 	u64 packets;
 	u64 bytes;
@@ -643,12 +657,6 @@ struct netvsc_stats {
 struct netvsc_reconfig {
 	struct list_head list;
 	u32 event;
-};
-
-struct garp_wrk {
-	struct work_struct dwrk;
-	struct net_device *netdev;
-	struct netvsc_device *netvsc_dev;
 };
 
 /* The context of the netvsc device */
@@ -668,7 +676,6 @@ struct net_device_context {
 
 	struct work_struct work;
 	u32 msg_enable; /* debug level */
-	struct garp_wrk gwrk;
 
 	struct netvsc_stats __percpu *tx_stats;
 	struct netvsc_stats __percpu *rx_stats;
@@ -679,6 +686,15 @@ struct net_device_context {
 
 	/* the device is going away */
 	bool start_remove;
+
+	/* State to manage the associated VF interface. */
+	struct net_device *vf_netdev;
+	bool vf_inject;
+	atomic_t vf_use_cnt;
+	/* 1: allocated, serial number is valid. 0: not allocated */
+	u32 vf_alloc;
+	/* Serial number of the VF to team with */
+	u32 vf_serial;
 };
 
 /* Per netvsc device */
@@ -734,15 +750,10 @@ struct netvsc_device {
 	u32 max_pkt; /* max number of pkt in one send, e.g. 8 */
 	u32 pkt_align; /* alignment bytes, e.g. 8 */
 
-	/* 1: allocated, serial number is valid. 0: not allocated */
-	u32 vf_alloc;
-	/* Serial number of the VF to team with */
-	u32 vf_serial;
+	struct multi_recv_comp mrc[VRSS_CHANNEL_MAX];
+	atomic_t num_outstanding_recvs;
+
 	atomic_t open_cnt;
-	/* State to manage the associated VF interface. */
-	bool vf_inject;
-	struct net_device *vf_netdev;
-	atomic_t vf_use_cnt;
 };
 
 static inline struct netvsc_device *
