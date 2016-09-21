@@ -511,6 +511,7 @@ static void reset_channel_cb(void *arg)
 static int vmbus_close_internal(struct vmbus_channel *channel)
 {
 	struct vmbus_channel_close_channel *msg;
+	struct tasklet_struct *tasklet;
 	int ret;
 
 	/*
@@ -522,7 +523,8 @@ static int vmbus_close_internal(struct vmbus_channel *channel)
 	 * To resolve the race, we can serialize them by disabling the
 	 * tasklet when the latter is running here.
 	 */
-	hv_event_tasklet_disable(channel);
+	tasklet = hv_context.event_dpc[channel->target_cpu];
+	tasklet_disable(tasklet);
 
 	/*
 	 * In case a device driver's probe() fails (e.g.,
@@ -587,8 +589,8 @@ static int vmbus_close_internal(struct vmbus_channel *channel)
 	free_pages((unsigned long)channel->ringbuffer_pages,
 		get_order(channel->ringbuffer_pagecount * PAGE_SIZE));
 
-out:	
-	hv_event_tasklet_enable(channel);
+out:	tasklet_enable(tasklet);
+
 	return ret;
 }
 
