@@ -65,7 +65,7 @@
 #endif
 
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
-#define skb_vlan_tag_present(__skb)	((_skb)->vlan_tci & VLAN_TAG_PRESENT)
+#define skb_vlan_tag_present(__skb)	((__skb)->vlan_tci & VLAN_TAG_PRESENT)
 #endif
 
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,3))
