@@ -1380,7 +1380,6 @@ static int netvsc_vf_up(struct net_device *vf_netdev)
 	return NOTIFY_OK;
 }
 
-
 static int netvsc_vf_down(struct net_device *vf_netdev)
 {
 	struct net_device *ndev;
@@ -1413,7 +1412,6 @@ static int netvsc_vf_down(struct net_device *vf_netdev)
 
 	return NOTIFY_OK;
 }
-
 
 static int netvsc_unregister_vf(struct net_device *vf_netdev)
 {
@@ -1538,7 +1536,6 @@ static int netvsc_remove(struct hv_device *dev)
 		dev_err(&dev->device, "No net device to remove\n");
 		return 0;
 	}
-
 
 	ndev_ctx = netdev_priv(net);
 	net_device = ndev_ctx->nvdev;
