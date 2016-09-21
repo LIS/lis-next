@@ -720,7 +720,6 @@ static int rndis_filter_set_rss_param(struct rndis_device *rdev, int num_queue)
 	for (i = 0; i < HASH_KEYLEN; i++)
 		keyp[i] = netvsc_hash_key[i];
 
-
 	ret = rndis_filter_send_request(rdev, request);
 	if (ret != 0)
 		goto cleanup;
@@ -737,7 +736,6 @@ cleanup:
 	put_rndis_request(rdev, request);
 	return ret;
 }
-
 
 static int rndis_filter_query_device_link_status(struct rndis_device *dev)
 {
@@ -812,7 +810,6 @@ cleanup:
 		put_rndis_request(dev, request);
 	return ret;
 }
-
 
 static int rndis_filter_init_device(struct rndis_device *dev)
 {
@@ -901,7 +898,6 @@ cleanup:
 
 	if (request)
 		put_rndis_request(dev, request);
-	return;
 }
 
 static int rndis_filter_open_device(struct rndis_device *dev)
@@ -968,12 +964,10 @@ static void netvsc_sc_open(struct vmbus_channel *new_sc)
         spin_unlock_irqrestore(&nvscdev->sc_lock, flags);
         if (nvscdev->num_sc_offered == 0)
                 complete(&nvscdev->channel_init_wait);
-
-
 }
 
 int rndis_filter_device_add(struct hv_device *dev,
-				  void *additional_info)
+			    void *additional_info)
 {
 	int ret;
 	struct net_device *net = hv_get_drvdata(dev);
@@ -1054,7 +1048,6 @@ int rndis_filter_device_add(struct hv_device *dev,
 	offloads.tcp_ip_v6_csum = NDIS_OFFLOAD_PARAMETERS_TX_RX_ENABLED;
 	offloads.udp_ip_v6_csum = NDIS_OFFLOAD_PARAMETERS_TX_RX_ENABLED;
 	offloads.lso_v2_ipv4 = NDIS_OFFLOAD_PARAMETERS_LSOV2_ENABLED;
-
 
 	ret = rndis_filter_set_offload_params(net, &offloads);
 	if (ret)
@@ -1180,7 +1173,6 @@ void rndis_filter_device_remove(struct hv_device *dev)
 
 	netvsc_device_remove(dev);
 }
-
 
 int rndis_filter_open(struct netvsc_device *nvdev)
 {
