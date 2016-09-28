@@ -283,8 +283,7 @@ EXPORT_SYMBOL_GPL(vmbus_send_tl_connect_request);
  * create_gpadl_header - Creates a gpadl for the specified buffer
  */
 static int create_gpadl_header(void *kbuffer, u32 size,
-					 struct vmbus_channel_msginfo **msginfo,
-					 u32 *messagecount)
+			       struct vmbus_channel_msginfo **msginfo)
 {
 	int i;
 	int pagecount;
@@ -328,7 +327,6 @@ static int create_gpadl_header(void *kbuffer, u32 size,
 			gpadl_header->range[0].pfn_array[i] = slow_virt_to_phys(
 				kbuffer + PAGE_SIZE * i) >> PAGE_SHIFT;
 		*msginfo = msgheader;
-		*messagecount = 1;
 
 		pfnsum = pfncount;
 		pfnleft = pagecount - pfncount;
@@ -368,7 +366,6 @@ static int create_gpadl_header(void *kbuffer, u32 size,
 			}
 
 			msgbody->msgsize = msgsize;
-			(*messagecount)++;
 			gpadl_body =
 				(struct vmbus_channel_gpadl_body *)msgbody->msg;
 
@@ -397,6 +394,8 @@ static int create_gpadl_header(void *kbuffer, u32 size,
 		msgheader = kzalloc(msgsize, GFP_KERNEL);
 		if (msgheader == NULL)
 			goto nomem;
+
+		INIT_LIST_HEAD(&msgheader->submsglist);
 		msgheader->msgsize = msgsize;
 
 		gpadl_header = (struct vmbus_channel_gpadl_header *)
@@ -411,7 +410,6 @@ static int create_gpadl_header(void *kbuffer, u32 size,
 				kbuffer + PAGE_SIZE * i) >> PAGE_SHIFT;
 
 		*msginfo = msgheader;
-		*messagecount = 1;
 	}
 
 	return 0;
@@ -436,7 +434,6 @@ int vmbus_establish_gpadl(struct vmbus_channel *channel, void *kbuffer,
 	struct vmbus_channel_gpadl_body *gpadl_body;
 	struct vmbus_channel_msginfo *msginfo = NULL;
 	struct vmbus_channel_msginfo *submsginfo;
-	u32 msgcount;
 	struct list_head *curr;
 	u32 next_gpadl_handle;
 	unsigned long flags;
@@ -445,7 +442,7 @@ int vmbus_establish_gpadl(struct vmbus_channel *channel, void *kbuffer,
 	next_gpadl_handle =
 		(atomic_inc_return(&vmbus_connection.next_gpadl_handle) - 1);
 
-	ret = create_gpadl_header(kbuffer, size, &msginfo, &msgcount);
+	ret = create_gpadl_header(kbuffer, size, &msginfo);
 	if (ret)
 		return ret;
 
@@ -468,24 +465,21 @@ int vmbus_establish_gpadl(struct vmbus_channel *channel, void *kbuffer,
 	if (ret != 0)
 		goto cleanup;
 
-	if (msgcount > 1) {
-		list_for_each(curr, &msginfo->submsglist) {
+	list_for_each(curr, &msginfo->submsglist) {
+		submsginfo = (struct vmbus_channel_msginfo *)curr;
+		gpadl_body =
+			(struct vmbus_channel_gpadl_body *)submsginfo->msg;
 
-			submsginfo = (struct vmbus_channel_msginfo *)curr;
-			gpadl_body =
-			     (struct vmbus_channel_gpadl_body *)submsginfo->msg;
+		gpadl_body->header.msgtype =
+			CHANNELMSG_GPADL_BODY;
+		gpadl_body->gpadl = next_gpadl_handle;
 
-			gpadl_body->header.msgtype =
-				CHANNELMSG_GPADL_BODY;
-			gpadl_body->gpadl = next_gpadl_handle;
+		ret = vmbus_post_msg(gpadl_body,
+				     submsginfo->msgsize -
+				     sizeof(*submsginfo));
+		if (ret != 0)
+			goto cleanup;
 
-			ret = vmbus_post_msg(gpadl_body,
-					       submsginfo->msgsize -
-					       sizeof(*submsginfo));
-			if (ret != 0)
-				goto cleanup;
-
-		}
 	}
 	wait_for_completion(&msginfo->waitevent);
 
