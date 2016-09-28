@@ -1303,6 +1303,20 @@ static void hv_kexec_handler(void)
 };
 #endif
 
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
+static void hv_crash_handler(struct pt_regs *regs)
+{
+	vmbus_initiate_unload();
+	/*
+	 * In crash handler we can't schedule synic cleanup for all CPUs,
+	 * doing the cleanup for current CPU only. This should be sufficient
+	 * for kdump.
+	 */
+	hv_synic_cleanup(NULL);
+	hv_cleanup();
+};
+#endif
+
 static int __init hv_acpi_init(void)
 {
 	int ret, t;
@@ -1342,6 +1356,7 @@ static int __init hv_acpi_init(void)
 		goto cleanup;
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,9))
 	hv_setup_kexec_handler(hv_kexec_handler);
+	hv_setup_crash_handler(hv_crash_handler);
 #endif
 	return 0;
 
@@ -1356,6 +1371,7 @@ static void __exit vmbus_exit(void)
 	int cpu;
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2))
 	hv_remove_kexec_handler();
+	hv_remove_crash_handler();
 #endif
 	vmbus_connection.conn_state = DISCONNECTED;
 //      hv_synic_clockevents_cleanup();  will comment this for time being till clockevents_unbind showed up in distro code
