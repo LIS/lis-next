@@ -1208,6 +1208,7 @@ static void netvsc_free_netdev(struct net_device *netdev)
 	free_netdev(netdev);
 }
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,2))
 static void netvsc_notify_peers(struct work_struct *wrk)
 {
 	struct garp_wrk *gwrk;
@@ -1218,6 +1219,7 @@ static void netvsc_notify_peers(struct work_struct *wrk)
 
 	atomic_dec(&gwrk->net_device_ctx->vf_use_cnt);
 }
+#endif
 
 static struct net_device *get_netvsc_net_device(char *mac)
 {
@@ -1323,6 +1325,7 @@ static int netvsc_vf_up(struct net_device *vf_netdev)
 
 	netif_carrier_off(ndev);
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,2))
 	/*
 	 * Now notify peers. We are scheduling work to
 	 * notify peers; take a reference to prevent
@@ -1332,7 +1335,10 @@ static int netvsc_vf_up(struct net_device *vf_netdev)
 	net_device_ctx->gwrk.netdev = vf_netdev;
 	net_device_ctx->gwrk.net_device_ctx = net_device_ctx;
 	schedule_work(&net_device_ctx->gwrk.dwrk);
-
+#else
+	/* Now notify peers through VF device. */
+	call_netdevice_notifiers(NETDEV_NOTIFY_PEERS, vf_netdev);
+#endif
 	return NOTIFY_OK;
 }
 
@@ -1363,6 +1369,8 @@ static int netvsc_vf_down(struct net_device *vf_netdev)
 	netdev_info(ndev, "Data path switched from VF: %s\n", vf_netdev->name);
 	rndis_filter_close(netvsc_dev);
 	netif_carrier_on(ndev);
+
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,2))
 	/*
 	 * Notify peers.
 	 */
@@ -1370,6 +1378,10 @@ static int netvsc_vf_down(struct net_device *vf_netdev)
 	net_device_ctx->gwrk.netdev = ndev;
 	net_device_ctx->gwrk.net_device_ctx = net_device_ctx;
 	schedule_work(&net_device_ctx->gwrk.dwrk);
+#else
+	/* Now notify peers through netvsc device. */
+	call_netdevice_notifiers(NETDEV_NOTIFY_PEERS, ndev);
+#endif
 
 	return NOTIFY_OK;
 }
@@ -1446,8 +1458,9 @@ static int netvsc_probe(struct hv_device *dev,
 
 	INIT_DELAYED_WORK(&net_device_ctx->dwork, netvsc_link_change);
 	INIT_WORK(&net_device_ctx->work, do_set_multicast);
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,2))
 	INIT_WORK(&net_device_ctx->gwrk.dwrk, netvsc_notify_peers);
-
+#endif
 	spin_lock_init(&net_device_ctx->lock);
 	INIT_LIST_HEAD(&net_device_ctx->reconfig_events);
 

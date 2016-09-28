@@ -657,12 +657,13 @@ struct netvsc_reconfig {
 	u32 event;
 };
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,2))
 struct garp_wrk {
 	struct work_struct dwrk;
 	struct net_device *netdev;
 	struct net_device_context *net_device_ctx;
 };
-
+#endif
 
 /* The context of the netvsc device */
 struct net_device_context {
@@ -681,7 +682,10 @@ struct net_device_context {
 
 	struct work_struct work;
 	u32 msg_enable; /* debug level */
+
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,2))
 	struct garp_wrk gwrk;
+#endif
 
 #if defined(RHEL_RELEASE_VERSION) && RHEL_RELEASE_CODE > 1536
 	struct netvsc_stats __percpu *tx_stats;
