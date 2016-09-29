@@ -1303,7 +1303,7 @@ static void hv_kexec_handler(void)
 };
 #endif
 
-#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,9))
 static void hv_crash_handler(struct pt_regs *regs)
 {
 	vmbus_initiate_unload();
@@ -1369,12 +1369,14 @@ cleanup:
 static void __exit vmbus_exit(void)
 {
 	int cpu;
-#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2))
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,9))
 	hv_remove_kexec_handler();
 	hv_remove_crash_handler();
 #endif
 	vmbus_connection.conn_state = DISCONNECTED;
-//      hv_synic_clockevents_cleanup();  will comment this for time being till clockevents_unbind showed up in distro code
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,8))
+	hv_synic_clockevents_cleanup();
+#endif
 	vmbus_disconnect();
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	free_irq(irq, hv_acpi_dev);
