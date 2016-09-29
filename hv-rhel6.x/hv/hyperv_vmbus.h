@@ -516,7 +516,7 @@ struct ms_hyperv_tsc_page {
 
 extern int hv_init(void);
 
-extern void hv_cleanup(void);
+extern void hv_cleanup(bool crash);
 
 extern int hv_post_message(union hv_connection_id connection_id,
 			 enum hv_message_type message_type,
@@ -550,7 +550,8 @@ void hv_ringbuffer_cleanup(struct hv_ring_buffer_info *ring_info);
 
 int hv_ringbuffer_write(struct hv_ring_buffer_info *ring_info,
 		    struct kvec *kv_list,
-		    u32 kv_count, bool *signal, bool lock);
+		    u32 kv_count, bool *signal, bool lock,
+		    enum hv_signal_policy policy);
 
 void hv_get_ringbuffer_available_space(struct hv_ring_buffer_info *inring_info,
 				       u32 *bytes_avail_toread,

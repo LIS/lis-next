@@ -43,7 +43,12 @@ static void vmbus_setevent(struct vmbus_channel *channel)
 {
 	struct hv_monitor_page *monitorpage;
 
-	if (channel->offermsg.monitor_allocated) {
+	/*
+	 * For channels marked as in "low latency" mode
+	 * bypass the monitor page mechanism.
+	 */
+	if ((channel->offermsg.monitor_allocated) &&
+	    (!channel->low_latency)) {
 		/* Each u32 represents 32 channels */
 		sync_set_bit(channel->offermsg.child_relid & 31,
 			(unsigned long *) vmbus_connection.send_int_page +
@@ -117,7 +122,6 @@ int vmbus_open(struct vmbus_channel *newchannel, u32 send_ringbuffer_size,
 	void *in, *out;
 	unsigned long flags;
 	int ret, err = 0;
-	unsigned long t;
 	struct page *page;
 
 	spin_lock_irqsave(&newchannel->lock, flags);
@@ -227,11 +231,7 @@ int vmbus_open(struct vmbus_channel *newchannel, u32 send_ringbuffer_size,
 		goto error1;
 	}
 
-	t = wait_for_completion_timeout(&open_info->waitevent, 5*HZ);
-	if (t == 0) {
-		err = -ETIMEDOUT;
-		goto error1;
-	}
+	wait_for_completion(&open_info->waitevent);
 
 
 	spin_lock_irqsave(&vmbus_connection.channelmsg_lock, flags);
@@ -283,8 +283,7 @@ EXPORT_SYMBOL_GPL(vmbus_send_tl_connect_request);
  * create_gpadl_header - Creates a gpadl for the specified buffer
  */
 static int create_gpadl_header(void *kbuffer, u32 size,
-					 struct vmbus_channel_msginfo **msginfo,
-					 u32 *messagecount)
+			       struct vmbus_channel_msginfo **msginfo)
 {
 	int i;
 	int pagecount;
@@ -328,7 +327,6 @@ static int create_gpadl_header(void *kbuffer, u32 size,
 			gpadl_header->range[0].pfn_array[i] = slow_virt_to_phys(
 				kbuffer + PAGE_SIZE * i) >> PAGE_SHIFT;
 		*msginfo = msgheader;
-		*messagecount = 1;
 
 		pfnsum = pfncount;
 		pfnleft = pagecount - pfncount;
@@ -368,7 +366,6 @@ static int create_gpadl_header(void *kbuffer, u32 size,
 			}
 
 			msgbody->msgsize = msgsize;
-			(*messagecount)++;
 			gpadl_body =
 				(struct vmbus_channel_gpadl_body *)msgbody->msg;
 
@@ -397,6 +394,8 @@ static int create_gpadl_header(void *kbuffer, u32 size,
 		msgheader = kzalloc(msgsize, GFP_KERNEL);
 		if (msgheader == NULL)
 			goto nomem;
+
+		INIT_LIST_HEAD(&msgheader->submsglist);
 		msgheader->msgsize = msgsize;
 
 		gpadl_header = (struct vmbus_channel_gpadl_header *)
@@ -411,7 +410,6 @@ static int create_gpadl_header(void *kbuffer, u32 size,
 				kbuffer + PAGE_SIZE * i) >> PAGE_SHIFT;
 
 		*msginfo = msgheader;
-		*messagecount = 1;
 	}
 
 	return 0;
@@ -435,8 +433,7 @@ int vmbus_establish_gpadl(struct vmbus_channel *channel, void *kbuffer,
 	struct vmbus_channel_gpadl_header *gpadlmsg;
 	struct vmbus_channel_gpadl_body *gpadl_body;
 	struct vmbus_channel_msginfo *msginfo = NULL;
-	struct vmbus_channel_msginfo *submsginfo;
-	u32 msgcount;
+	struct vmbus_channel_msginfo *submsginfo, *tmp;
 	struct list_head *curr;
 	u32 next_gpadl_handle;
 	unsigned long flags;
@@ -445,7 +442,7 @@ int vmbus_establish_gpadl(struct vmbus_channel *channel, void *kbuffer,
 	next_gpadl_handle =
 		(atomic_inc_return(&vmbus_connection.next_gpadl_handle) - 1);
 
-	ret = create_gpadl_header(kbuffer, size, &msginfo, &msgcount);
+	ret = create_gpadl_header(kbuffer, size, &msginfo);
 	if (ret)
 		return ret;
 
@@ -468,24 +465,21 @@ int vmbus_establish_gpadl(struct vmbus_channel *channel, void *kbuffer,
 	if (ret != 0)
 		goto cleanup;
 
-	if (msgcount > 1) {
-		list_for_each(curr, &msginfo->submsglist) {
+	list_for_each(curr, &msginfo->submsglist) {
+		submsginfo = (struct vmbus_channel_msginfo *)curr;
+		gpadl_body =
+			(struct vmbus_channel_gpadl_body *)submsginfo->msg;
 
-			submsginfo = (struct vmbus_channel_msginfo *)curr;
-			gpadl_body =
-			     (struct vmbus_channel_gpadl_body *)submsginfo->msg;
+		gpadl_body->header.msgtype =
+			CHANNELMSG_GPADL_BODY;
+		gpadl_body->gpadl = next_gpadl_handle;
 
-			gpadl_body->header.msgtype =
-				CHANNELMSG_GPADL_BODY;
-			gpadl_body->gpadl = next_gpadl_handle;
+		ret = vmbus_post_msg(gpadl_body,
+				     submsginfo->msgsize -
+				     sizeof(*submsginfo));
+		if (ret != 0)
+			goto cleanup;
 
-			ret = vmbus_post_msg(gpadl_body,
-					       submsginfo->msgsize -
-					       sizeof(*submsginfo));
-			if (ret != 0)
-				goto cleanup;
-
-		}
 	}
 	wait_for_completion(&msginfo->waitevent);
 
@@ -496,6 +490,10 @@ cleanup:
 	spin_lock_irqsave(&vmbus_connection.channelmsg_lock, flags);
 	list_del(&msginfo->msglistentry);
 	spin_unlock_irqrestore(&vmbus_connection.channelmsg_lock, flags);
+	list_for_each_entry_safe(submsginfo, tmp, &msginfo->submsglist,
+				 msglistentry) {
+		kfree(submsginfo);
+	}
 
 	kfree(msginfo);
 	return ret;
@@ -704,7 +702,7 @@ int vmbus_sendpacket_ctl(struct vmbus_channel *channel, void *buffer,
 	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
 
 	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, num_vecs,
-				  &signal, lock);
+				  &signal, lock, channel->signal_policy);
 
 	/*
          * Signalling the host is conditional on many factors:
@@ -724,11 +722,6 @@ int vmbus_sendpacket_ctl(struct vmbus_channel *channel, void *buffer,
          * it looks the host side's hvsock implementation has a throttling
          * mechanism which can hurt the performance otherwise.
          */
-
-	if (channel->signal_policy)
-		signal = true;
-	else
-		kick_q = true;
 
         if (((ret == 0) && kick_q && signal) ||
             (ret && !is_hvsock_channel(channel)))
@@ -822,7 +815,7 @@ int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
 	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
 
 	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3,
-				  &signal, lock);
+				  &signal, lock, channel->signal_policy);
 
 	/*
          * Signalling the host is conditional on many factors:
@@ -839,11 +832,6 @@ int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
          * even if we may not have written anything. This is a rare
          * enough condition that it should not matter.
          */
-
-	if (channel->signal_policy)
-		signal = true;
-	else
-		kick_q = true;
 
         if (((ret == 0) && kick_q && signal) || (ret))
                 vmbus_setevent(channel);
@@ -892,7 +880,7 @@ int vmbus_sendpacket_hvsock(struct vmbus_channel *channel, void *buf, u32 len)
 	bufferlist[3].iov_len  = packetlen_aligned - packetlen;
 
 	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 4,
-				  &signal, lock);
+				  &signal, lock, channel->signal_policy);
 
 	if (ret == 0 && signal)
 		vmbus_setevent(channel);
@@ -956,7 +944,7 @@ int vmbus_sendpacket_mpb_desc(struct vmbus_channel *channel,
 	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
 
 	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3,
-				  &signal, lock);
+				  &signal, lock, channel->signal_policy);
 
 	if (ret == 0 && signal)
 		vmbus_setevent(channel);
@@ -1021,7 +1009,7 @@ int vmbus_sendpacket_multipagebuffer(struct vmbus_channel *channel,
 	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
 
 	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 3,
-				  &signal, lock);
+				  &signal, lock, channel->signal_policy);
 
 	if (ret == 0 && signal)
 		vmbus_setevent(channel);

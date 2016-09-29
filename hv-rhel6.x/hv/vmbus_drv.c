@@ -843,7 +843,7 @@ err_unregister:
 #endif
 
 err_cleanup:
-	hv_cleanup();
+	hv_cleanup(false);
 
 	return ret;
 }
@@ -1290,6 +1290,33 @@ static struct acpi_driver vmbus_acpi_driver = {
 	},
 };
 
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,9))
+static void hv_kexec_handler(void)
+{
+	int cpu;
+
+	hv_synic_clockevents_cleanup();
+	vmbus_initiate_unload(false);
+	for_each_online_cpu(cpu)
+		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
+	hv_cleanup(false);
+};
+#endif
+
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,9))
+static void hv_crash_handler(struct pt_regs *regs)
+{
+	vmbus_initiate_unload();
+	/*
+	 * In crash handler we can't schedule synic cleanup for all CPUs,
+	 * doing the cleanup for current CPU only. This should be sufficient
+	 * for kdump.
+	 */
+	hv_synic_cleanup(NULL);
+	hv_cleanup(true);
+};
+#endif
+
 static int __init hv_acpi_init(void)
 {
 	int ret, t;
@@ -1327,7 +1354,10 @@ static int __init hv_acpi_init(void)
 #endif
 	if (ret)
 		goto cleanup;
-
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,9))
+	hv_setup_kexec_handler(hv_kexec_handler);
+	hv_setup_crash_handler(hv_crash_handler);
+#endif
 	return 0;
 
 cleanup:
@@ -1339,8 +1369,14 @@ cleanup:
 static void __exit vmbus_exit(void)
 {
 	int cpu;
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,9))
+	hv_remove_kexec_handler();
+	hv_remove_crash_handler();
+#endif
 	vmbus_connection.conn_state = DISCONNECTED;
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,8))
 	hv_synic_clockevents_cleanup();
+#endif
 	vmbus_disconnect();
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	free_irq(irq, hv_acpi_dev);
@@ -1353,7 +1389,7 @@ static void __exit vmbus_exit(void)
 						 &hyperv_panic_block);
 	}
 	bus_unregister(&hv_bus);
-	hv_cleanup();
+	hv_cleanup(false);
 	for_each_online_cpu(cpu) {
 		tasklet_kill(hv_context.event_dpc[cpu]);
 		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
