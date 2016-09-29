@@ -373,9 +373,6 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	u32 skb_length;
 	struct hv_page_buffer page_buf[MAX_PAGE_BUFFER_COUNT];
 	struct hv_page_buffer *pb = page_buf;
-#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
-	struct netvsc_stats *tx_stats = this_cpu_ptr(net_device_ctx->tx_stats);
-#endif
 
 	/* We will atmost need two pages to describe the rndis
 	 * header. We can only transmit MAX_PAGE_BUFFER_COUNT number
@@ -387,20 +384,14 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	num_data_pgs = netvsc_get_slots(skb) + 2;
 
 	if (unlikely(num_data_pgs > MAX_PAGE_BUFFER_COUNT)) {
-		if (skb_linearize(skb)) {
-			netdev_err(net, "failed to linearize skb\n");
-			ret = -ENOMEM;
-			goto drop;
-		}
+		++net_device_ctx->eth_stats.tx_scattered;
+
+		if (skb_linearize(skb))
+			goto no_memory;
 
 		num_data_pgs = netvsc_get_slots(skb) + 2;
 		if (num_data_pgs > MAX_PAGE_BUFFER_COUNT) {
-/* Checkif net_alert_ratelimited() is available when 6.9 is released */
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,3))
-			net_alert_ratelimited("packet too big: %u pages (%u bytes)\n",
-					      num_data_pgs, skb->len);
-#endif
-			ret = -EFAULT;
+			++net_device_ctx->eth_stats.tx_too_big;
 			goto drop;
 		}
 	}
@@ -411,11 +402,9 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	 * structure.
 	 */
 	ret = skb_cow_head(skb, RNDIS_AND_PPI_SIZE);
-	if (ret) {
-		netdev_err(net, "unable to alloc hv_netvsc_packet\n");
-		ret = -ENOMEM;
-		goto drop;
-	}
+	if (ret)
+		goto no_memory;
+
 	/* Use the skb control buffer for building up the packet */
 	BUILD_BUG_ON(sizeof(struct hv_netvsc_packet) >
 			FIELD_SIZEOF(struct sk_buff, cb));
@@ -548,7 +537,7 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 
 		ret = skb_cow_head(skb, 0);
 		if (ret)
-			goto drop;
+			goto no_memory;
 
 		uh = udp_hdr(skb);
 		udp_len = ntohs(uh->len);
@@ -580,6 +569,8 @@ do_send:
 
 	if (likely(ret == 0)) {
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
+		struct netvsc_stats *tx_stats = this_cpu_ptr(net_device_ctx->tx_stats);
+
 		u64_stats_update_begin(&tx_stats->syncp);
 		tx_stats->packets++;
 		tx_stats->bytes += skb_length;
@@ -590,14 +581,20 @@ do_send:
 #endif
 		return NETDEV_TX_OK;
 	}
-	if (ret == -EAGAIN)
-		return NETDEV_TX_BUSY;
 
+	if (ret == -EAGAIN) {
+		++net_device_ctx->eth_stats.tx_busy;
+		return NETDEV_TX_BUSY;
+	}
 drop:
 	dev_kfree_skb_any(skb);
 	net->stats.tx_dropped++;
 
 	return NETDEV_TX_OK;
+
+no_memory:
+	++net_device_ctx->eth_stats.tx_no_memory;
+	goto drop;
 }
 
 /*
@@ -1062,6 +1059,51 @@ static int netvsc_set_mac_addr(struct net_device *ndev, void *p)
 	return err;
 }
 
+static const struct {
+	char name[ETH_GSTRING_LEN];
+	u16 offset;
+} netvsc_stats[] = {
+	{ "tx_scattered", offsetof(struct netvsc_ethtool_stats, tx_scattered) },
+	{ "tx_no_memory",  offsetof(struct netvsc_ethtool_stats, tx_no_memory) },
+	{ "tx_no_space",  offsetof(struct netvsc_ethtool_stats, tx_no_space) },
+	{ "tx_too_big",	  offsetof(struct netvsc_ethtool_stats, tx_too_big) },
+	{ "tx_busy",	  offsetof(struct netvsc_ethtool_stats, tx_busy) },
+};
+
+static int netvsc_get_sset_count(struct net_device *dev, int string_set)
+{
+	switch (string_set) {
+	case ETH_SS_STATS:
+		return ARRAY_SIZE(netvsc_stats);
+	default:
+		return -EINVAL;
+	}
+}
+
+static void netvsc_get_ethtool_stats(struct net_device *dev,
+				     struct ethtool_stats *stats, u64 *data)
+{
+	struct net_device_context *ndc = netdev_priv(dev);
+	const void *nds = &ndc->eth_stats;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(netvsc_stats); i++)
+		data[i] = *(unsigned long *)(nds + netvsc_stats[i].offset);
+}
+
+static void netvsc_get_strings(struct net_device *dev, u32 stringset, u8 *data)
+{
+	int i;
+
+	switch (stringset) {
+	case ETH_SS_STATS:
+		for (i = 0; i < ARRAY_SIZE(netvsc_stats); i++)
+			memcpy(data + i * ETH_GSTRING_LEN,
+			       netvsc_stats[i].name, ETH_GSTRING_LEN);
+		break;
+	}
+}
+
 #ifdef CONFIG_NET_POLL_CONTROLLER
 static void netvsc_poll_controller(struct net_device *net)
 {
@@ -1074,6 +1116,9 @@ static void netvsc_poll_controller(struct net_device *net)
 static const struct ethtool_ops ethtool_ops = {
 	.get_drvinfo	= netvsc_get_drvinfo,
 	.get_link	= ethtool_op_get_link,
+	.get_ethtool_stats = netvsc_get_ethtool_stats,
+	.get_sset_count = netvsc_get_sset_count,
+	.get_strings	= netvsc_get_strings,
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 	.get_channels   = netvsc_get_channels,
 	.set_channels   = netvsc_set_channels,
