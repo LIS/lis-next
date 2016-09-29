@@ -42,7 +42,6 @@
 #include "include/linux/hyperv.h"
 #include "hyperv_net.h"
 
-
 #define RING_SIZE_MIN 64
 #define LINKCHANGE_INT (2 * HZ)
 #define NETVSC_HW_FEATURES	(NETIF_F_RXCSUM | \
@@ -426,7 +425,6 @@ check_size:
 	 * into here. Should find another way to set this flag.
 	 */
 	packet->xmit_more = (skb->next != NULL);
-
 
 	packet->q_idx = skb_get_queue_mapping(skb);
 
@@ -1339,7 +1337,6 @@ static int netvsc_vf_up(struct net_device *vf_netdev)
 	return NOTIFY_OK;
 }
 
-
 static int netvsc_vf_down(struct net_device *vf_netdev)
 {
 	struct net_device *ndev;
@@ -1382,7 +1379,6 @@ static int netvsc_vf_down(struct net_device *vf_netdev)
 
 	return NOTIFY_OK;
 }
-
 
 static int netvsc_unregister_vf(struct net_device *vf_netdev)
 {
@@ -1520,7 +1516,6 @@ static int netvsc_remove(struct hv_device *dev)
 		dev_err(&dev->device, "No net device to remove\n");
 		return 0;
 	}
-
 
 	ndev_ctx = netdev_priv(net);
 	net_device = ndev_ctx->nvdev;
