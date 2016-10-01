@@ -23,13 +23,18 @@ cp -f ./hyperv_pvdrivers.conf /etc/modprobe.d/
 
 echo "Copying scipts for ip injection"
 
-cp -f ./tools/hv_get_dns_info.sh /usr/sbin/
+\cp ./tools/hv_get_dns_info.sh /usr/sbin/
 [ $? -eq 0 ] || exit 1
 
-cp -f ./tools/hv_get_dhcp_info.sh /usr/sbin/
+\cp ./tools/hv_get_dhcp_info.sh /usr/sbin/
 [ $? -eq 0 ] || exit 1
 
-cp -f ./tools/hv_set_ifconfig.sh /usr/sbin/
+\cp ./tools/hv_set_ifconfig.sh /usr/sbin/
+[ $? -eq 0 ] || exit 1
+
+echo "Copying lsvmbus tool"
+
+\cp ./tools/lsvmbus /usr/sbin/
 [ $? -eq 0 ] || exit 1
 
 echo "Generating initramfs"
