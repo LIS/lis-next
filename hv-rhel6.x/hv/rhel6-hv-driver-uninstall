@@ -5,9 +5,9 @@ rm -rf  /lib/modules/$(uname -r)/extra/microsoft-hyper-v/hv_*.ko
 rm -rf /etc/modprobe.d/hyperv_pvdrivers.conf
 
 echo "Get rid of ip injection scripts"
-rm -rf /usr/sbin/hv_get_dns_info.sh 
-rm -rf /usr/sbin/hv_get_dhcp_info.sh 
-rm -rf /usr/sbin/hv_set_ifconfig.sh 
+rm -rf /usr/sbin/hv_get_dns_info
+rm -rf /usr/sbin/hv_get_dhcp_info
+rm -rf /usr/sbin/hv_set_ifconfig
 
 echo "Removing lsvmbus tool"
 rm -rf /usr/sbin/lsvmbus
