@@ -43,6 +43,7 @@
 #include <dirent.h>
 #include <net/if.h>
 #include <getopt.h>
+#include <regex.h>
 
 /*
  * KVP protocol: The user mode component first registers with the
@@ -455,11 +456,16 @@ static int kvp_pool_enumerate(int pool, int index, __u8 *key, int key_size,
 	return 0;
 }
 
-
 void kvp_get_os_info(void)
 {
-	FILE	*file;
+	FILE	*file = NULL;
 	char	*p, buf[512];
+
+	int         sts;
+	regex_t     regex;
+	regmatch_t  match[8];
+	size_t      nmatch = sizeof(match) / sizeof(match[0]);
+	char regex_str[] = "(.*) release ([0-9]+)\\.([0-9]+)(.*) \\((.*)\\)";
 
 	uname(&uts_buf);
 	os_version = uts_buf.release;
@@ -527,64 +533,65 @@ void kvp_get_os_info(void)
 			}
 		}
 		fclose(file);
-		return;
 	}
 
-	/* Fallback for older RH/SUSE releases */
-	file = fopen("/etc/SuSE-release", "r");
-	if (file != NULL)
-		goto kvp_osinfo_found;
-	file  = fopen("/etc/redhat-release", "r");
-	if (file != NULL)
-		goto kvp_osinfo_found;
-
 	/*
-	 * We don't have information about the os.
+	 *  Try the older redhat-release for more detailed information
 	 */
-	return;
+	file  = fopen("/etc/redhat-release", "r");
+	if (file == NULL)
+		return;
 
-kvp_osinfo_found:
-	/* up to three lines */
 	p = fgets(buf, sizeof(buf), file);
 	if (p) {
+		/* Null terminate the string we just read */
 		p = strchr(buf, '\n');
 		if (p)
 			*p = '\0';
+
+		/* Use full string os_name - e.g. 'CentOS Linux 6.7 (final)' */
 		p = strdup(buf);
-		if (!p)
-			goto done;
 		os_name = p;
 
-		/* second line */
-		p = fgets(buf, sizeof(buf), file);
-		if (p) {
-			p = strchr(buf, '\n');
-			if (p)
-				*p = '\0';
-			p = strdup(buf);
-			if (!p)
-				goto done;
-			os_major = p;
-
-			/* third line */
-			p = fgets(buf, sizeof(buf), file);
-			if (p)  {
-				p = strchr(buf, '\n');
-				if (p)
-					*p = '\0';
-				p = strdup(buf);
-				if (p)
-					os_minor = p;
-			}
+		/* Compile the regular expression */
+		if (regcomp(&regex, regex_str, REG_EXTENDED) != 0)
+		{
+			syslog(LOG_ERR, "error compiling regex\n");
+			return;
 		}
+
+		/* Perform a regex match - return if no match */
+		sts = regexec(&regex, buf, nmatch, match, 0);
+		if (sts != 0)
+			return;
+
+		if (match[0].rm_so == -1 || match[0].rm_eo == -1 ||
+		    match[1].rm_so == -1 || match[1].rm_eo == -1 ||
+		    match[2].rm_so == -1 || match[2].rm_eo == -1 ||
+		    match[3].rm_so == -1 || match[3].rm_eo == -1 ||
+		    match[4].rm_so == -1 || match[4].rm_eo == -1 )
+			return;
+
+		/* Copy the OS Major version - e.g. "7" */
+		if (os_major[0] == '\0')
+		{
+			buf[match[2].rm_eo] = '\0';
+			p = strdup(&buf[match[2].rm_so]);
+			os_major = p;
+		}
+
+		/* Copy the OS Minor version - e.g. "2" */
+		if (os_minor[0] == '\0')
+		{
+			buf[match[3].rm_eo] = '\0';
+			p = strdup(&buf[match[3].rm_so]);
+			os_minor = p;
+		}
+
+		regfree(&regex);
 	}
-
-done:
 	fclose(file);
-	return;
 }
-
-
 
 /*
  * Retrieve an interface name corresponding to the specified guid.
