@@ -21,15 +21,20 @@ echo "Installing Modprobe Rules"
 cp -f ./hyperv_pvdrivers.conf /etc/modprobe.d/
 [ $? -eq 0 ] || exit 1
 
-echo "Copying scipts for ip injection"
+echo "Copying scripts for IP injection"
 
-cp -f ./tools/hv_get_dns_info.sh /usr/sbin/
+\cp ./tools/hv_get_dns_info.sh /usr/sbin/hv_get_dns_info
 [ $? -eq 0 ] || exit 1
 
-cp -f ./tools/hv_get_dhcp_info.sh /usr/sbin/
+\cp ./tools/hv_get_dhcp_info.sh /usr/sbin/hv_get_dhcp_info
 [ $? -eq 0 ] || exit 1
 
-cp -f ./tools/hv_set_ifconfig.sh /usr/sbin/
+\cp ./tools/hv_set_ifconfig.sh /usr/sbin/hv_set_ifconfig
+[ $? -eq 0 ] || exit 1
+
+echo "Copying lsvmbus tool"
+
+\cp ./tools/lsvmbus /usr/sbin/
 [ $? -eq 0 ] || exit 1
 
 echo "Generating initramfs"
