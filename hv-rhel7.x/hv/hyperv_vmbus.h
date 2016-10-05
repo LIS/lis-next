@@ -211,22 +211,6 @@ struct hv_input_post_message {
 	u64 payload[HV_MESSAGE_PAYLOAD_QWORD_COUNT];
 };
 
-
-/*
- * Declare the MSR used to setup pages used to communicate with the hypervisor.
- */
-#define HV_X64_MSR_HYPERCALL	0x40000001
-
-union hv_x64_msr_hypercall_contents {
-	u64 as_uint64;
-	struct {
-		u64 enable:1;
-		u64 reserved:11;
-		u64 guest_physical_address:52;
-	};
-};
-
-
 enum {
 	VMBUS_MESSAGE_CONNECTION_ID	= 1,
 	VMBUS_MESSAGE_PORT_ID		= 1,
