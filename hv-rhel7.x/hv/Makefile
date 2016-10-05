@@ -39,8 +39,7 @@ ifeq ($(buildrdma),0)
          endif
 endif
 
-                                
-ccflags-y += -I$(M)/include/
+ccflags-y += -I$(M)/include/ -I$(M)/arch/$(ARCH)/include -I$(M)/arch/$(ARCH)/include/uapi
 
 hv_vmbus-y := vmbus_drv.o \
 		 hv.o connection.o channel.o \

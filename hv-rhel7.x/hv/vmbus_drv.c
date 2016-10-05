@@ -36,7 +36,7 @@
 #include <linux/kernel_stat.h>
 #include <linux/clockchips.h>
 #include <linux/cpu.h>
-#include "include/asm/hyperv.h"
+#include <lis/asm/hyperv.h>
 #include <asm/hypervisor.h>
 #include <linux/screen_info.h>
 #include <linux/efi.h>
