@@ -740,8 +740,7 @@ enum hvsock_event {
 
 
 struct vmbus_channel {
-	/* Unique channel id */
-	int id;
+
 	u16 vendor_id;
 	u16 device_id;
 
