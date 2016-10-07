@@ -8,7 +8,7 @@ make -C /lib/modules/$(uname -r)/build M=`pwd` modules
 
 echo "Installing Modules"
 
-cp -f ./*.ko /lib/modules/$(uname -r)/weak-updates/microsoft-hyper-v-rdma/
+cp -f ./*.ko /lib/modules/$(uname -r)/extra/
 [ $? -eq 0 ] || exit 1
 
 echo "Generating Module dependencies"
