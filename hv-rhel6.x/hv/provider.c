@@ -74,6 +74,8 @@ struct mlx4_wqe_data_seg {
 	__be64                  addr;
 };
 
+static struct workqueue_struct *probe_wq;
+
 /* return value:
 	true: ep is running
 	false: ep is stopped
@@ -2706,7 +2708,7 @@ static void hvnd_probe_delayed_work(struct work_struct *work)
 	ret = hvnd_register_device(nd_dev);
 
 	if (ret == 0)
-		return;
+		goto done;
 	else
 		hvnd_error("hvnd_register_device failed ret=%d\n", ret);
 
@@ -2718,6 +2720,8 @@ err:
 	vmbus_close(nd_dev->hvdev->channel);
 
 	ib_dealloc_device((struct ib_device *)nd_dev);
+done:
+	return;
 }
 
 static int hvnd_probe(struct hv_device *dev,
@@ -2785,9 +2789,11 @@ static int hvnd_probe(struct hv_device *dev,
 		goto err_out2;
 	}
 
+	probe_wq = create_workqueue("hvnd_probe_events");
+
 	/* We need to get IP/MAC address from the Azure Linux agent to continue initialization */
 	INIT_WORK(&nd_dev->probe_delayed_work, hvnd_probe_delayed_work);
-	schedule_work(&nd_dev->probe_delayed_work);
+	queue_work(probe_wq, &nd_dev->probe_delayed_work);
 	return 0;
 
 err_out2:
@@ -2809,6 +2815,7 @@ static int hvnd_remove(struct hv_device *dev)
 	iounmap(nd_dev->mmio_virt);
 	release_resource(&nd_dev->mmio_resource);
 	hvnd_unregister_device(nd_dev);
+	destroy_workqueue(probe_wq);
 	return 0;
 }
 
