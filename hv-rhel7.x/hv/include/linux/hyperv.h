@@ -715,8 +715,7 @@ enum hvsock_event {
 
 
 struct vmbus_channel {
-	/* Unique channel id */
-	int id;
+
 	struct list_head listentry;
 
 	struct hv_device *device_obj;
