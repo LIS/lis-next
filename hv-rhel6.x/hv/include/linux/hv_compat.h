@@ -176,7 +176,6 @@ static inline bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 	struct iphdr *iphdr;
 	struct ipv6hdr *ipv6hdr;
 	struct tcphdr *tcphdr;
-	struct udphdr *udphdr;
 	__be32 dbuf[9];
 	int data_len = 0;
 
@@ -190,9 +189,7 @@ static inline bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 	ipv6hdr = ipv6_hdr(skb);
 
 	if (iphdr->version == 4) {
-		/* check src addr.
-		 * ignore RSS hashing for DHCP discovery messages.
-		 */
+		/* check src addr */
 		dbuf[0] = iphdr->saddr;
 		if (dbuf[0] == 0)
 			return false;
@@ -203,12 +200,6 @@ static inline bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 			tcphdr = tcp_hdr(skb);
 			if (tcphdr != NULL) {
 				dbuf[2] = *(__be32 *)&tcp_hdr(skb)->source;
-				data_len = 12;
-			}
-		} else if (iphdr->protocol == IPPROTO_UDP) {
-			udphdr = udp_hdr(skb);
-			if (udphdr != NULL) {
-				dbuf[2] = *(__be32 *)&udp_hdr(skb)->source;
 				data_len = 12;
 			}
 		}
@@ -224,12 +215,6 @@ static inline bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 			tcphdr = tcp_hdr(skb);
 			if (tcphdr != NULL) {
 				dbuf[8] = *(__be32 *)&tcp_hdr(skb)->source;
-				data_len = 36;
-			}
-		} else if (ipv6hdr->nexthdr == IPPROTO_UDP) {
-			udphdr = udp_hdr(skb);
-			if (udphdr != NULL) {
-				dbuf[8] = *(__be32 *)&udp_hdr(skb)->source;
 				data_len = 36;
 			}
 		}
