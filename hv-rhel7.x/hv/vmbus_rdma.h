@@ -1750,7 +1750,11 @@ struct hvnd_dev {
 	struct idr uctxidr;
 	atomic_t open_cnt;
 
-	struct work_struct probe_delayed_work;
+	char ip_addr[4];
+	char mac_addr[6];
+	struct completion addr_set;
+	int bind_complete;
+	struct mutex bind_mutex;
 };
 
 struct hvnd_cq {
@@ -1986,7 +1990,7 @@ static inline void *map_irp_to_ctx(struct hvnd_dev *nd_dev, u32 irp)
 void hvnd_callback(void *context);
 int hvnd_negotiate_version(struct hvnd_dev *nd_dev);
 int hvnd_init_resources(struct hvnd_dev *nd_dev);
-int hvnd_bind_nic(struct hvnd_dev *nd_dev, bool un_bind);
+int hvnd_bind_nic(struct hvnd_dev *nd_dev, bool un_bind, char *ip_addr, char *mac_addr);
 int hvnd_open_adaptor(struct hvnd_dev *nd_dev, struct hvnd_ucontext *uctx);
 int hvnd_close_adaptor(struct hvnd_dev *nd_dev, struct hvnd_ucontext *uctx);
 int hvnd_query_adaptor(struct hvnd_dev *nd_dev, struct hvnd_ucontext *uctx);

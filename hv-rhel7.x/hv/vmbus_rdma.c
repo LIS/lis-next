@@ -2295,15 +2295,10 @@ err:
 }
 
 
-int hvnd_bind_nic(struct hvnd_dev *nd_dev, bool un_bind)
+int hvnd_bind_nic(struct hvnd_dev *nd_dev, bool un_bind, char *ip_addr, char *mac_addr)
 {
 	int ret;
 	int pkt_type = NDV_PKT_ID1_BIND;
-	char *ip_addr, *mac_addr;
-
-	ret = hvnd_get_ip_addr(&ip_addr, &mac_addr);
-	if (ret)
-		return ret;
 
 	/*
 	 * Send the bind information over to the host.
