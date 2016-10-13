@@ -2158,8 +2158,6 @@ void hvnd_addr_init(void);
 
 void hvnd_addr_deinit(void);
 
-int hvnd_get_ip_addr(char **ip_addr, char **mac_addr);
-
 bool ep_add_work_pending(struct hvnd_ep_obj *ep_object);
 void ep_del_work_pending(struct hvnd_ep_obj *ep_object);
 void ep_stop(struct hvnd_ep_obj *ep_object);
