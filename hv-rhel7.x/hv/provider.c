@@ -42,6 +42,8 @@
 #include <linux/seq_file.h>
 #include "vmbus_rdma.h"
 
+static struct hvnd_dev *g_nd_dev = NULL; // the one and only one
+
 int hvnd_log_level = HVND_ERROR;
 module_param(hvnd_log_level, int, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(hvnd_log_level,
