@@ -124,8 +124,8 @@ static struct notifier_block hyperv_panic_block = {
 
 static const char *fb_mmio_name = "fb_range";
 static struct resource *fb_mmio;
-struct resource *hyperv_mmio;
-struct semaphore hyperv_mmio_lock;
+static struct resource *hyperv_mmio;
+static struct semaphore hyperv_mmio_lock;
 
 static int vmbus_exists(void)
 {
@@ -929,9 +929,9 @@ int vmbus_device_register(struct hv_device *child_device_obj)
 {
 	int ret = 0;
 
+	dev_set_name(&child_device_obj->device, "vmbus-%pUl",
+		     child_device_obj->channel->offermsg.offer.if_instance.b);
 
-	dev_set_name(&child_device_obj->device, "vmbus_%d",
-		     child_device_obj->channel->id);
 	child_device_obj->device.bus = &hv_bus;
 	child_device_obj->device.parent = &hv_acpi_dev->dev;
 	child_device_obj->device.release = vmbus_device_release;

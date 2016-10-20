@@ -438,6 +438,17 @@ static inline long si_mem_available(void)
 	return val.freeram;
 }
 
+/*
+ * The function dev_consume_skb_any() was exposed in RHEL 7.2.
+ * Provide an inline function for the older versions.
+ */
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
+static inline void dev_consume_skb_any(struct sk_buff *skb)
+{
+	dev_kfree_skb_any(skb);
+}
+#endif
+
 #endif //#ifdef __KERNEL__
 #endif //#if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 10, 0)
 #endif //#ifndef _HV_COMPAT_H
