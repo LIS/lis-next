@@ -715,8 +715,7 @@ enum hvsock_event {
 
 
 struct vmbus_channel {
-	/* Unique channel id */
-	int id;
+
 	struct list_head listentry;
 
 	struct hv_device *device_obj;
@@ -1390,6 +1389,27 @@ u64 hv_do_hypercall(u64 control, void *input, void *output);
 		}
 
 /*
+ * Linux doesn't support the 3 devices: the first two are for
+ * Automatic Virtual Machine Activation, and the third is for
+ * Remote Desktop Virtualization.
+ * {f8e65716-3cb3-4a06-9a60-1889c5cccab5}
+ * {3375baf4-9e15-4b30-b765-67acb10d607b}
+ * {276aacf4-ac15-426c-98dd-7521ad3f01fe}
+ */
+
+#define HV_AVMA1_GUID \
+	.guid = UUID_LE(0xf8e65716, 0x3cb3, 0x4a06, 0x9a, 0x60, \
+			0x18, 0x89, 0xc5, 0xcc, 0xca, 0xb5)
+
+#define HV_AVMA2_GUID \
+	.guid = UUID_LE(0x3375baf4, 0x9e15, 0x4b30, 0xb7, 0x65, \
+			0x67, 0xac, 0xb1, 0x0d, 0x60, 0x7b)
+
+#define HV_RDV_GUID \
+	.guid = UUID_LE(0x276aacf4, 0xac15, 0x426c, 0x98, 0xdd, \
+			0x75, 0x21, 0xad, 0x3f, 0x01, 0xfe)
+
+/*
  * Common header for Hyper-V ICs
  */
 
@@ -1477,6 +1497,15 @@ struct ictimesync_data {
 	u8 flags;
 } __packed;
 
+struct ictimesync_ref_data {
+	u64 parenttime;
+	u64 vmreferencetime;
+	u8 flags;
+	char leapflags;
+	char stratum;
+	u8 reserved[3];
+} __packed;
+
 struct hyperv_service_callback {
 	u8 msg_type;
 	char *log_msg;
@@ -1554,6 +1583,89 @@ static inline  bool hv_need_to_signal_on_read(struct hv_ring_buffer_info *rbi)
 		return true;
 
 	return false;
+}
+
+/*
+ * An API to support in-place processing of incoming VMBUS packets.
+ */
+#define VMBUS_PKT_TRAILER	8
+
+static inline struct vmpacket_descriptor *
+get_next_pkt_raw(struct vmbus_channel *channel)
+{
+	struct hv_ring_buffer_info *ring_info = &channel->inbound;
+	u32 read_loc = ring_info->priv_read_index;
+	void *ring_buffer = hv_get_ring_buffer(ring_info);
+	struct vmpacket_descriptor *cur_desc;
+	u32 packetlen;
+	u32 dsize = ring_info->ring_datasize;
+	u32 delta = read_loc - ring_info->ring_buffer->read_index;
+	u32 bytes_avail_toread = (hv_get_bytes_to_read(ring_info) - delta);
+
+	if (bytes_avail_toread < sizeof(struct vmpacket_descriptor))
+		return NULL;
+
+	if ((read_loc + sizeof(*cur_desc)) > dsize)
+		return NULL;
+
+	cur_desc = ring_buffer + read_loc;
+	packetlen = cur_desc->len8 << 3;
+
+	/*
+	 * If the packet under consideration is wrapping around,
+	 * return failure.
+	 */
+	if ((read_loc + packetlen + VMBUS_PKT_TRAILER) > (dsize - 1))
+		return NULL;
+
+	return cur_desc;
+}
+
+/*
+ * A helper function to step through packets "in-place"
+ * This API is to be called after each successful call
+ * get_next_pkt_raw().
+ */
+static inline void put_pkt_raw(struct vmbus_channel *channel,
+				struct vmpacket_descriptor *desc)
+{
+	struct hv_ring_buffer_info *ring_info = &channel->inbound;
+	u32 read_loc = ring_info->priv_read_index;
+	u32 packetlen = desc->len8 << 3;
+	u32 dsize = ring_info->ring_datasize;
+
+	if ((read_loc + packetlen + VMBUS_PKT_TRAILER) > dsize)
+		BUG();
+	/*
+	 * Include the packet trailer.
+	 */
+	ring_info->priv_read_index += packetlen + VMBUS_PKT_TRAILER;
+}
+
+/*
+ * This call commits the read index and potentially signals the host.
+ * Here is the pattern for using the "in-place" consumption APIs:
+ *
+ * while (get_next_pkt_raw() {
+ *	process the packet "in-place";
+ *	put_pkt_raw();
+ * }
+ * if (packets processed in place)
+ *	commit_rd_index();
+ */
+static inline void commit_rd_index(struct vmbus_channel *channel)
+{
+	struct hv_ring_buffer_info *ring_info = &channel->inbound;
+	/*
+	 * Make sure all reads are done before we update the read index since
+	 * the writer may start writing to the read area once the read index
+	 * is updated.
+	 */
+	rmb();
+	ring_info->ring_buffer->read_index = ring_info->priv_read_index;
+
+	if (hv_need_to_signal_on_read(ring_info))
+		vmbus_set_event(channel);
 }
 
 struct vmpipe_proto_header {

@@ -138,9 +138,31 @@ static const struct vmbus_device vmbus_devs[] = {
 	},
 };
 
-static u16 hv_get_dev_type(const uuid_le *guid)
+static const struct {
+	uuid_le guid;
+} vmbus_unsupported_devs[] = {
+	{ HV_AVMA1_GUID },
+	{ HV_AVMA2_GUID },
+	{ HV_RDV_GUID	},
+};
+
+static bool is_unsupported_vmbus_devs(const uuid_le *guid)
 {
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(vmbus_unsupported_devs); i++)
+		if (!uuid_le_cmp(*guid, vmbus_unsupported_devs[i].guid))
+			return true;
+	return false;
+}
+
+static u16 hv_get_dev_type(const struct vmbus_channel *channel)
+{
+	const uuid_le *guid = &channel->offermsg.offer.if_type;
 	u16 i;
+
+	if (is_hvsock_channel(channel) || is_unsupported_vmbus_devs(guid))
+		return HV_UNKOWN;
 
 	for (i = HV_IDE; i < HV_UNKOWN; i++) {
 		/* deviation from upstream - NHM */
@@ -253,14 +275,12 @@ EXPORT_SYMBOL_GPL(vmbus_prep_negotiate_resp);
  */
 static struct vmbus_channel *alloc_channel(void)
 {
-	static atomic_t chan_num = ATOMIC_INIT(0);
 	struct vmbus_channel *channel;
 
 	channel = kzalloc(sizeof(*channel), GFP_ATOMIC);
 	if (!channel)
 		return NULL;
 
-	channel->id = atomic_inc_return(&chan_num);
 	channel->acquire_ring_lock = true;
 	spin_lock_init(&channel->inbound_lock);
 	spin_lock_init(&channel->lock);
@@ -407,7 +427,7 @@ static void vmbus_process_offer(struct vmbus_channel *newchannel)
 		} else
 			goto err_free_chan;
 	}
-	dev_type = hv_get_dev_type(&newchannel->offermsg.offer.if_type);
+	dev_type = hv_get_dev_type(newchannel);
 	if (dev_type == HV_NIC)
 		set_channel_signal_state(newchannel, HV_SIGNAL_POLICY_EXPLICIT);
 
