@@ -755,6 +755,11 @@ vf_injection_done:
 	u64_stats_update_begin(&rx_stats->syncp);
 	rx_stats->packets++;
 	rx_stats->bytes += packet->total_data_buflen;
+
+	if (skb->pkt_type == PACKET_BROADCAST)
+		++rx_stats->broadcast;
+	else if (skb->pkt_type == PACKET_MULTICAST)
+		++rx_stats->multicast;
 	u64_stats_update_end(&rx_stats->syncp);
 #else
 	net->stats.rx_packets++;
@@ -1004,7 +1009,7 @@ static struct rtnl_link_stats64 *netvsc_get_stats64(struct net_device *net,
 							    cpu);
 		struct netvsc_stats *rx_stats = per_cpu_ptr(ndev_ctx->rx_stats,
 							    cpu);
-		u64 tx_packets, tx_bytes, rx_packets, rx_bytes;
+		u64 tx_packets, tx_bytes, rx_packets, rx_bytes, rx_multicast;
 		unsigned int start;
 
 		do {
@@ -1017,12 +1022,14 @@ static struct rtnl_link_stats64 *netvsc_get_stats64(struct net_device *net,
 			start = u64_stats_fetch_begin_irq(&rx_stats->syncp);
 			rx_packets = rx_stats->packets;
 			rx_bytes = rx_stats->bytes;
+			rx_multicast = rx_stats->multicast + rx_stats->broadcast;
 		} while (u64_stats_fetch_retry_irq(&rx_stats->syncp, start));
 
 		t->tx_bytes	+= tx_bytes;
 		t->tx_packets	+= tx_packets;
 		t->rx_bytes	+= rx_bytes;
 		t->rx_packets	+= rx_packets;
+		t->multicast	+= rx_multicast;
 	}
 
 	t->tx_dropped	= net->stats.tx_dropped;
