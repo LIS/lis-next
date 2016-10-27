@@ -2693,6 +2693,7 @@ void hvnd_callback(void *context)
 		break;
 
 	case NDV_PKT_ID1_BIND:
+		nd_dev->bind_pkt.pkt_hdr.status = ((union ndv_packet_hdr *) incoming_pkt_start)->status;
 		copy_sz = 0;
 		break;
 
