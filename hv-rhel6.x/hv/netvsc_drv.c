@@ -755,6 +755,11 @@ vf_injection_done:
 	u64_stats_update_begin(&rx_stats->syncp);
 	rx_stats->packets++;
 	rx_stats->bytes += packet->total_data_buflen;
+
+	if (skb->pkt_type == PACKET_BROADCAST)
+		++rx_stats->broadcast;
+	else if (skb->pkt_type == PACKET_MULTICAST)
+		++rx_stats->multicast;
 	u64_stats_update_end(&rx_stats->syncp);
 #else
 	net->stats.rx_packets++;
@@ -1004,7 +1009,7 @@ static struct rtnl_link_stats64 *netvsc_get_stats64(struct net_device *net,
 							    cpu);
 		struct netvsc_stats *rx_stats = per_cpu_ptr(ndev_ctx->rx_stats,
 							    cpu);
-		u64 tx_packets, tx_bytes, rx_packets, rx_bytes;
+		u64 tx_packets, tx_bytes, rx_packets, rx_bytes, rx_multicast;
 		unsigned int start;
 
 		do {
@@ -1017,12 +1022,14 @@ static struct rtnl_link_stats64 *netvsc_get_stats64(struct net_device *net,
 			start = u64_stats_fetch_begin_irq(&rx_stats->syncp);
 			rx_packets = rx_stats->packets;
 			rx_bytes = rx_stats->bytes;
+			rx_multicast = rx_stats->multicast + rx_stats->broadcast;
 		} while (u64_stats_fetch_retry_irq(&rx_stats->syncp, start));
 
 		t->tx_bytes	+= tx_bytes;
 		t->tx_packets	+= tx_packets;
 		t->rx_bytes	+= rx_bytes;
 		t->rx_packets	+= rx_packets;
+		t->multicast	+= rx_multicast;
 	}
 
 	t->tx_dropped	= net->stats.tx_dropped;
@@ -1295,10 +1302,6 @@ static int netvsc_register_vf(struct net_device *vf_netdev)
 	struct net_device *ndev;
 	struct net_device_context *net_device_ctx;
 	struct netvsc_device *netvsc_dev;
-	const struct ethtool_ops *eth_ops = vf_netdev->ethtool_ops;
-
-	if (eth_ops == NULL || eth_ops == &ethtool_ops)
-		return NOTIFY_DONE;
 
 	/*
 	 * We will use the MAC address to locate the synthetic interface to
@@ -1319,6 +1322,8 @@ static int netvsc_register_vf(struct net_device *vf_netdev)
 	 * Take a reference on the module.
 	 */
 	try_module_get(THIS_MODULE);
+
+	dev_hold(vf_netdev);
 	net_device_ctx->vf_netdev = vf_netdev;
 	return NOTIFY_OK;
 }
@@ -1341,11 +1346,7 @@ static int netvsc_vf_up(struct net_device *vf_netdev)
 {
 	struct net_device *ndev;
 	struct netvsc_device *netvsc_dev;
-	const struct ethtool_ops *eth_ops = vf_netdev->ethtool_ops;
 	struct net_device_context *net_device_ctx;
-
-	if (eth_ops == &ethtool_ops)
-		return NOTIFY_DONE;
 
 	ndev = get_netvsc_net_device(vf_netdev->dev_addr);
 	if (!ndev)
@@ -1395,10 +1396,6 @@ static int netvsc_vf_down(struct net_device *vf_netdev)
 	struct net_device *ndev;
 	struct netvsc_device *netvsc_dev;
 	struct net_device_context *net_device_ctx;
-	const struct ethtool_ops *eth_ops = vf_netdev->ethtool_ops;
-
-	if (eth_ops == &ethtool_ops)
-		return NOTIFY_DONE;
 
 	ndev = get_netvsc_net_device(vf_netdev->dev_addr);
 	if (!ndev)
@@ -1437,11 +1434,7 @@ static int netvsc_unregister_vf(struct net_device *vf_netdev)
 {
 	struct net_device *ndev;
 	struct netvsc_device *netvsc_dev;
-	const struct ethtool_ops *eth_ops = vf_netdev->ethtool_ops;
 	struct net_device_context *net_device_ctx;
-
-	if (eth_ops == &ethtool_ops)
-		return NOTIFY_DONE;
 
 	ndev = get_netvsc_net_device(vf_netdev->dev_addr);
 	if (!ndev)
@@ -1455,6 +1448,7 @@ static int netvsc_unregister_vf(struct net_device *vf_netdev)
 
 	netvsc_inject_disable(net_device_ctx);
 	net_device_ctx->vf_netdev = NULL;
+	dev_put(vf_netdev);
 	module_put(THIS_MODULE);
 	return NOTIFY_OK;
 }
@@ -1631,13 +1625,21 @@ static int netvsc_netdev_event(struct notifier_block *this,
 #else
 	struct net_device *event_dev = ptr;
 #endif
+	/* Skip our own events */
+	if (event_dev->netdev_ops == &device_ops)
+		return NOTIFY_DONE;
+
+	/* Avoid non-Ethernet type devices */
+	if (event_dev->type != ARPHRD_ETHER)
+		return NOTIFY_DONE;
+
 	/* Avoid Vlan dev with same MAC registering as VF */
 	if (event_dev->priv_flags & IFF_802_1Q_VLAN)
 		return NOTIFY_DONE;
 
 	/* Avoid Bonding master dev with same MAC registering as VF */
-	if (event_dev->priv_flags & IFF_BONDING &&
-	    event_dev->flags & IFF_MASTER)
+	if ((event_dev->priv_flags & IFF_BONDING) &&
+	    (event_dev->flags & IFF_MASTER))
 		return NOTIFY_DONE;
 
 	switch (event) {
