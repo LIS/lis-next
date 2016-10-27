@@ -584,16 +584,17 @@ static int hvnd_query_pkey(struct ib_device *ibdev, u8 port, u16 index,
 static int hvnd_query_gid(struct ib_device *ibdev, u8 port, int index,
 			  union ib_gid *gid)
 {
-	char *ip_addr, *mac_addr;
 	int ret;
+	struct hvnd_dev *nd_dev = to_nd_dev(ibdev);
 
 	debug_check(__func__, __LINE__);
-	ret = hvnd_get_ip_addr(&ip_addr, &mac_addr);
-	if (ret)
-		return ret;
+
+	ret = wait_for_completion_timeout(&nd_dev->addr_set, 60*HZ);
+	if (!ret)
+		return -ETIMEDOUT;
 
 	memset(&(gid->raw[0]), 0, sizeof(gid->raw));
-	memcpy(&(gid->raw[0]), mac_addr, 6);
+	memcpy(&(gid->raw[0]), nd_dev->mac_addr, 6);
 	return 0;
 }
 
@@ -2558,17 +2559,10 @@ static struct device_attribute *hvnd_class_attributes[] = {
 	&dev_attr_board_id,
 };
 
-int hvnd_register_device(struct hvnd_dev *dev)
+int hvnd_register_device(struct hvnd_dev *dev, char *ip_addr, char *mac_addr)
 {
 	int ret;
 	int i;
-	char *ip_addr, *mac_addr;
-
-	ret = hvnd_get_ip_addr(&ip_addr, &mac_addr);
-	if (ret) {
-		hvnd_error("hvnd_get_ip_addr failed ret=%d\n", ret);
-		return ret;
-	}
 
 	dev->ibdev.owner = THIS_MODULE;
 	dev->device_cap_flags = IB_DEVICE_LOCAL_DMA_LKEY | IB_DEVICE_MEM_WINDOW;
@@ -2693,37 +2687,94 @@ void hvnd_unregister_device(struct hvnd_dev *dev)
 	return;
 }
 
-static void hvnd_probe_delayed_work(struct work_struct *work)
+static int hvnd_try_bind_nic(unsigned char *mac, __be32 ip)
 {
 	int ret;
-	struct hvnd_dev *nd_dev = container_of(work, struct hvnd_dev, probe_delayed_work);
+	struct hvnd_dev *nd_dev = g_nd_dev;
+
+	mutex_lock(&nd_dev->bind_mutex);
+	if (nd_dev->bind_complete) {
+		mutex_unlock(&nd_dev->bind_mutex);
+		return 1;
+	}
+
+	memcpy(nd_dev->mac_addr, mac, 6);
+	*(__be32*)(nd_dev->ip_addr) = ip;
 
 	/*
 	* Bind the NIC.
 	*/
-	ret = hvnd_bind_nic(nd_dev, false);
-	if (ret) {
-		hvnd_error("hvnd_bind_nic failed ret=%d\n", ret);
-		goto err;
+	hvnd_info("trying to bind to IP %pI4 MAC %pM\n", nd_dev->ip_addr, nd_dev->mac_addr);
+	ret = hvnd_bind_nic(nd_dev, false, nd_dev->ip_addr, nd_dev->mac_addr);
+	if (ret || nd_dev->bind_pkt.pkt_hdr.status) {
+		mutex_unlock(&nd_dev->bind_mutex);
+		return 1;
 	}
 
-	ret = hvnd_register_device(nd_dev);
+	/* if we reach here, this means bind_nic is a success */
+	hvnd_error("successfully bound to IP %pI4 MAC %pM\n", nd_dev->ip_addr, nd_dev->mac_addr);
+	complete(&nd_dev->addr_set);
+	nd_dev->bind_complete=1;
+	mutex_unlock(&nd_dev->bind_mutex);
 
-	if (ret == 0)
-		goto done;
-	else
-		hvnd_error("hvnd_register_device failed ret=%d\n", ret);
+	ret = hvnd_register_device(nd_dev, nd_dev->ip_addr, nd_dev->mac_addr);
 
-/* roll back all allocated resources on error */
-err:
+	if (!ret)
+		return 0;
+
+	hvnd_error("hvnd_register_device failed ret=%d\n", ret);
+
+	/* roll back all allocated resources on error */
 	iounmap(nd_dev->mmio_virt);
 	release_resource(&nd_dev->mmio_resource);
 
 	vmbus_close(nd_dev->hvdev->channel);
-
 	ib_dealloc_device((struct ib_device *)nd_dev);
-done:
-	return;
+
+	return 1;
+}
+static void hvnd_inetaddr_event_up(unsigned long event, struct in_ifaddr *ifa)
+{
+	hvnd_try_bind_nic(ifa->ifa_dev->dev->dev_addr, ifa->ifa_address);
+}
+
+static int hvnd_inetaddr_event(struct notifier_block *notifier, unsigned long event, void *ptr)
+{
+	struct in_ifaddr *ifa = ptr;
+	switch(event) {
+	case NETDEV_UP:
+		hvnd_inetaddr_event_up(event, ifa);
+		break;
+	default:
+		hvnd_debug("Received inetaddr event %lu\n", event);
+	}
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block hvnd_inetaddr_notifier = {
+	.notifier_call = hvnd_inetaddr_event,
+};
+
+static int start_bind_nic()
+{
+	struct net_device *dev;
+	struct in_device *idev;
+	struct in_ifaddr *ifa;
+
+	register_inetaddr_notifier(&hvnd_inetaddr_notifier);
+
+	rtnl_lock();
+	for_each_netdev(&init_net, dev) {
+		idev = in_dev_get(dev);
+		if (!idev)
+			continue;
+		for (ifa = (idev)->ifa_list; ifa && !(ifa->ifa_flags&IFA_F_SECONDARY); ifa = ifa->ifa_next)
+			hvnd_try_bind_nic(dev->dev_addr, ifa->ifa_address);
+	}
+	rtnl_unlock();
+
+	return 0;
 }
 
 static int hvnd_probe(struct hv_device *dev,
@@ -2791,11 +2842,17 @@ static int hvnd_probe(struct hv_device *dev,
 		goto err_out2;
 	}
 
-	probe_wq = create_workqueue("hvnd_probe_events");
+	/*
+	 * Try to bind every NIC to ND channel,
+	 * ND host will only return success for the correct one
+	 */
+	nd_dev->bind_complete = 0;
+	mutex_init(&nd_dev->bind_mutex);
+	init_completion(&nd_dev->addr_set);
 
-	/* We need to get IP/MAC address from the Azure Linux agent to continue initialization */
-	INIT_WORK(&nd_dev->probe_delayed_work, hvnd_probe_delayed_work);
-	queue_work(probe_wq, &nd_dev->probe_delayed_work);
+	g_nd_dev = nd_dev;
+	start_bind_nic();
+
 	return 0;
 
 err_out2:
@@ -2812,11 +2869,12 @@ static int hvnd_remove(struct hv_device *dev)
 {
 	struct hvnd_dev *nd_dev = hv_get_drvdata(dev);
 
-	hvnd_bind_nic(nd_dev, true);
+	unregister_inetaddr_notifier(&hvnd_inetaddr_notifier);
+	hvnd_bind_nic(nd_dev, true, nd_dev->ip_addr, nd_dev->mac_addr);
+	hvnd_unregister_device(nd_dev);
 	vmbus_close(dev->channel);
 	iounmap(nd_dev->mmio_virt);
 	release_resource(&nd_dev->mmio_resource);
-	hvnd_unregister_device(nd_dev);
 	destroy_workqueue(probe_wq);
 	return 0;
 }
