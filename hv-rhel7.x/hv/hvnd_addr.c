@@ -46,156 +46,6 @@
 #include <linux/hyperv.h>
 
 
-/*
- * Create a char device that can support read/write for passing
- * the payload.
- */
-
-static struct completion ip_event;
-static bool opened = false;
-
-char hvnd_ip_addr[4];
-char hvnd_mac_addr[6];
-bool hvnd_addr_set = false;
-
-int hvnd_get_ip_addr(char **ip_addr, char **mac_addr)
-{
-	int t;
-
-	/*
-	 * Now wait for the user level daemon to get us the
-	 * IP addresses bound to the MAC address.
-	 */
-	if (!hvnd_addr_set) {
-		t = wait_for_completion_timeout(&ip_event, 600*HZ);
-		if (t == 0)
-			return -ETIMEDOUT;
-	}
-
-	if (hvnd_addr_set) {
-		*ip_addr = hvnd_ip_addr;
-		*mac_addr = hvnd_mac_addr;
-		return 0;
-	}
-
-	return -ENODATA;
-}
-
-static ssize_t hvnd_write(struct file *file, const char __user *buf,
-			size_t count, loff_t *ppos)
-{
-	char input[120];
-	int scaned, i;
-	unsigned int mac_addr[6], ip_addr[4];
-
-	if (hvnd_addr_set) {
-		hvnd_error("IP/MAC address already set, ignoring input\n");
-		return count;
-	}
-
-	if (count > sizeof(input)-1)
-		return -EINVAL;
-
-	if (copy_from_user(input, buf, count))
-		return -EFAULT;
-
-	input[count] = 0;
-
-	/*
-	 * Wakeup the context that may be waiting for this.
-	 */
-	hvnd_debug("get user mode input: %s\n", input);
-
-	scaned = sscanf(input, "rdmaMacAddress=\"%x:%x:%x:%x:%x:%x\" rdmaIPv4Address=\"%u.%u.%u.%u\"",
-		&mac_addr[0],
-		&mac_addr[1],
-		&mac_addr[2],
-		&mac_addr[3],
-		&mac_addr[4],
-		&mac_addr[5],
-		&ip_addr[0],
-		&ip_addr[1],
-		&ip_addr[2],
-		&ip_addr[3]);
-
-	if (scaned == 10) {
-
-		for(i=0; i<6; i++)
-			hvnd_mac_addr[i] = (char) mac_addr[i];
-		for(i=0; i<4; i++)
-			hvnd_ip_addr[i] = (char) ip_addr[i];
-
-		hvnd_error("Scanned IP address: %pI4 Mac address: %pM\n", hvnd_ip_addr, hvnd_mac_addr);
-
-		hvnd_addr_set = true;
-		complete(&ip_event);
-	}
-
-	return count;
-}
-
-static int hvnd_open(struct inode *inode, struct file *f)
-{
-	/*
-	 * The user level daemon that will open this device is
-	 * really an extension of this driver. We can have only
-	 * active open at a time.
-	 */
-	if (opened)
-		return -EBUSY;
-
-	/*
-	 * The daemon is alive; setup the state.
-	 */
-	opened = true;
-	return 0;
-}
-
-static int hvnd_release(struct inode *inode, struct file *f)
-{
-	/*
-	 * The daemon has exited; reset the state.
-	 */
-	opened = false;
-	return 0;
-}
-
-
-static const struct file_operations hvnd_fops = {
-	.write          = hvnd_write,
-	.release	= hvnd_release,
-	.open		= hvnd_open,
-};
-
-static struct miscdevice hvnd_misc = {
-	.minor          = MISC_DYNAMIC_MINOR,
-	.name           = "hvnd_rdma",
-	.fops           = &hvnd_fops,
-};
-
-static int hvnd_dev_init(void)
-{
-	init_completion(&ip_event);
-	return misc_register(&hvnd_misc);
-}
-
-static void hvnd_dev_deinit(void)
-{
-
-	/*
-	 * The device is going away - perhaps because the
-	 * host has rescinded the channel. Setup state so that
-	 * user level daemon can gracefully exit if it is blocked
-	 * on the read semaphore.
-	 */
-	opened = false;
-	/*
-	 * Signal the semaphore as the device is
-	 * going away.
-	 */
-	misc_deregister(&hvnd_misc);
-}
-
 int hvnd_get_outgoing_rdma_addr(struct hvnd_dev *nd_dev, struct hvnd_ucontext *uctx,
 				union nd_sockaddr_inet *og_addr)
 {
@@ -243,14 +93,12 @@ struct resolve_cb_context {
 void hvnd_addr_init(void)
 {
 	rdma_addr_register_client(&self);
-	hvnd_dev_init();
 	return;
 }
 
 void hvnd_addr_deinit(void)
 {
 	rdma_addr_unregister_client(&self);
-	hvnd_dev_deinit();
 	return;
 }
 
