@@ -2929,3 +2929,4 @@ module_exit(exit_hvnd_drv);
 
 MODULE_DESCRIPTION("Hyper-V NetworkDirect Driver");
 MODULE_LICENSE("GPL");
+MODULE_VERSION(HV_DRV_VERSION);
