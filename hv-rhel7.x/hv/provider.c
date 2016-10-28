@@ -2806,7 +2806,7 @@ static struct notifier_block hvnd_inetaddr_notifier = {
 	.notifier_call = hvnd_inetaddr_event,
 };
 
-static int start_bind_nic()
+static int start_bind_nic(void)
 {
 	struct net_device *dev;
 	struct in_device *idev;
