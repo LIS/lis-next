@@ -287,7 +287,7 @@ bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 	return true;
 }
 
-#ifdef NOTYET
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,3))
 // Divergence from upstream commit:
 // 5b54dac856cb5bd6f33f4159012773e4a33704f7
 static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb,
@@ -1620,8 +1620,8 @@ static struct  hv_driver netvsc_drv = {
 static int netvsc_netdev_event(struct notifier_block *this,
 			       unsigned long event, void *ptr)
 {
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,2))
-	/* Not in RHEL 7.2 kernel - check again when 7.3 releases - NHM */
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,3))
+	/* Not in RHEL 7.3 kernel - check again when 7.3 releases - NHM */
 	struct net_device *event_dev = netdev_notifier_info_to_dev(ptr);
 #else
 	struct net_device *event_dev = ptr;

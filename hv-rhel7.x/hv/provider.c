@@ -716,12 +716,6 @@ static ssize_t hvnd_show_board(struct device *dev, struct device_attribute *attr
 	return 0; 
 }
 
-static int hvnd_get_mib(struct ib_device *ibdev,
-			union rdma_protocol_stats *stats)
-{
-	return 0;
-}
-
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
 static int hvnd_get_port_immutable(struct ib_device *ibdev, u8 port_num, struct ib_port_immutable *immutable)
 {
@@ -1231,6 +1225,7 @@ static struct ib_mr *hvnd_get_dma_mr(struct ib_pd *pd, int acc)
 	return NULL;
 }
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
 static struct ib_mr *hvnd_register_phys_mem(struct ib_pd *pd,
 					    struct ib_phys_buf *buffer_list,
 					    int num_phys_buf, int acc,
@@ -1247,6 +1242,39 @@ int hvnd_reregister_phys_mem(struct ib_mr *mr, int mr_rereg_mask,
 	hvnd_info("check code\n");
 	return 0;
 }
+
+static int hvnd_bind_mw(struct ib_qp *qp, struct ib_mw *mw,
+			struct ib_mw_bind *mw_bind)
+{
+	hvnd_info("check code\n");
+	return -ENOSYS;
+}
+
+static struct ib_mr *hvnd_alloc_fast_reg_mr(struct ib_pd *pd, int pbl_depth)
+{
+	debug_check(__func__, __LINE__);
+	return NULL;
+}
+
+static struct ib_fast_reg_page_list *
+hvnd_alloc_fastreg_pbl(struct ib_device *device,
+			int page_list_len)
+{
+	debug_check(__func__, __LINE__);
+	return NULL;
+}
+
+void hvnd_free_fastreg_pbl(struct ib_fast_reg_page_list *ibpl)
+{
+	debug_check(__func__, __LINE__);
+}
+
+static int hvnd_get_mib(struct ib_device *ibdev,
+			union rdma_protocol_stats *stats)
+{
+	return 0;
+}
+#endif
 
 static void debug_dump_umem(struct ib_umem *umem)
 {
@@ -1378,47 +1406,23 @@ static int hvnd_dereg_mr(struct ib_mr *ib_mr)
 	return 0;
 }
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,5))
+#if RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,5)
 static struct ib_mw *hvnd_alloc_mw(struct ib_pd *pd)
-#else
+#elsif RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3)
 static struct ib_mw *hvnd_alloc_mw(struct ib_pd *pd, enum ib_mw_type type)
+#else
+static struct ib_mw *hvnd_alloc_mw(struct ib_pd *pd, enum ib_mw_type type, struct ib_udata *udata)
 #endif
 {
 	hvnd_info("check code\n");
 	return NULL;
 }
 
-static int hvnd_bind_mw(struct ib_qp *qp, struct ib_mw *mw,
-			struct ib_mw_bind *mw_bind)
-{
-	hvnd_info("check code\n");
-	return -ENOSYS;
-}
 static int hvnd_dealloc_mw(struct ib_mw *mw)
 {
 	debug_check(__func__, __LINE__);
 	return 0;
 }
-
-static struct ib_mr *hvnd_alloc_fast_reg_mr(struct ib_pd *pd, int pbl_depth)
-{
-	debug_check(__func__, __LINE__);
-	return NULL;
-}
-
-static struct ib_fast_reg_page_list *
-hvnd_alloc_fastreg_pbl(struct ib_device *device,
-			int page_list_len)
-{
-	debug_check(__func__, __LINE__);
-	return NULL;
-}
-
-void hvnd_free_fastreg_pbl(struct ib_fast_reg_page_list *ibpl)
-{
-	debug_check(__func__, __LINE__);
-}
-
 
 static int hvnd_arm_cq(struct ib_cq *ibcq, enum ib_cq_notify_flags flags)
 {
@@ -2662,23 +2666,25 @@ int hvnd_register_device(struct hvnd_dev *dev)
 	dev->ibdev.resize_cq = hvnd_resize_cq;
 	dev->ibdev.poll_cq = hvnd_poll_cq;
 	dev->ibdev.get_dma_mr = hvnd_get_dma_mr;
+#if RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3)
 	dev->ibdev.reg_phys_mr = hvnd_register_phys_mem;
 	dev->ibdev.rereg_phys_mr = hvnd_reregister_phys_mem;
-	dev->ibdev.reg_user_mr = hvnd_reg_user_mr;
-	dev->ibdev.dereg_mr = hvnd_dereg_mr;
-	dev->ibdev.alloc_mw = hvnd_alloc_mw;
 	dev->ibdev.bind_mw = hvnd_bind_mw;
-	dev->ibdev.dealloc_mw = hvnd_dealloc_mw;
 	dev->ibdev.alloc_fast_reg_mr = hvnd_alloc_fast_reg_mr;
 	dev->ibdev.alloc_fast_reg_page_list = hvnd_alloc_fastreg_pbl;
 	dev->ibdev.free_fast_reg_page_list = hvnd_free_fastreg_pbl;
+	dev->ibdev.get_protocol_stats = hvnd_get_mib;
+#endif
+	dev->ibdev.reg_user_mr = hvnd_reg_user_mr;
+	dev->ibdev.dereg_mr = hvnd_dereg_mr;
+	dev->ibdev.alloc_mw = hvnd_alloc_mw;
+	dev->ibdev.dealloc_mw = hvnd_dealloc_mw;
 	dev->ibdev.attach_mcast = hvnd_multicast_attach;
 	dev->ibdev.detach_mcast = hvnd_multicast_detach;
 	dev->ibdev.process_mad = hvnd_process_mad;
 	dev->ibdev.req_notify_cq = hvnd_arm_cq;
 	dev->ibdev.post_send = hvnd_post_send;
 	dev->ibdev.post_recv = hvnd_post_receive;
-	dev->ibdev.get_protocol_stats = hvnd_get_mib;
 	dev->ibdev.uverbs_abi_ver = MLX4_IB_UVERBS_ABI_VERSION;
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
@@ -2862,17 +2868,6 @@ static int hvnd_remove(struct hv_device *dev)
 	hvnd_unregister_device(nd_dev);
 	return 0;
 }
-
-/*
- * NetworkDirect GUID
- *	 {8c2eaf3d-32a7-4b09-ab99-bd1f1c86b501}
- */
-#define HV_ND_GUID \
-	.guid = { \
-			0x3d, 0xaf, 0x2e, 0x8c, 0xa7, 0x32, 0x09, 0x4b, \
-			0xab, 0x99, 0xbd, 0x1f, 0x1c, 0x86, 0xb5, 0x01 \
-		}
-
 
 static const struct hv_vmbus_device_id id_table[] = {
 	/* VMBUS RDMA class guid */
