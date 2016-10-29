@@ -287,13 +287,14 @@ bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 	return true;
 }
 
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,3))
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,2))
 // Divergence from upstream commit:
 // 5b54dac856cb5bd6f33f4159012773e4a33704f7
 static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb,
 			void *accel_priv, select_queue_fallback_t fallback)
-#endif
+#else
 static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
+#endif
 {
 	struct net_device_context *net_device_ctx = netdev_priv(ndev);
 	struct netvsc_device *nvsc_dev = net_device_ctx->nvdev;
