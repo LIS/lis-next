@@ -614,6 +614,27 @@ static inline void dev_consume_skb_any(struct sk_buff *skb)
 	dev_kfree_skb_any(skb);
 }
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,1))
+
+/**
+ * skb_checksum_none_assert - make sure skb ip_summed is CHECKSUM_NONE
+ * @skb: skb to check
+ *
+ * fresh skbs have their ip_summed set to CHECKSUM_NONE.
+ * Instead of forcing ip_summed to CHECKSUM_NONE, we can
+ * use this helper, to document places where we make this assertion.
+ *
+ * Function was introduced in the 6.1 release.  NHM
+ */
+static inline void skb_checksum_none_assert(struct sk_buff *skb)
+{
+#ifdef DEBUG
+        BUG_ON(skb->ip_summed != CHECKSUM_NONE);
+#endif
+}
+#endif
+
+
 #endif
 #endif
 #endif
