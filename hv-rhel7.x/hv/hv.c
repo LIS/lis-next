@@ -32,6 +32,8 @@
 #include "include/asm/hyperv.h"
 #include "include/asm/mshyperv.h"
 #include "hyperv_vmbus.h"
+#include <asm/msr.h>
+
 
 /* The one and only */
 struct hv_context hv_context = {

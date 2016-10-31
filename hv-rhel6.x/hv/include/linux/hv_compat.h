@@ -605,6 +605,15 @@ static inline unsigned long vm_memory_committed(void)
 }
 #endif
 
+/*
+ * The function dev_consume_skb_any() was exposed in RHEL 7.2.
+ * Provide an inline function for the older versions.
+ */
+static inline void dev_consume_skb_any(struct sk_buff *skb)
+{
+	dev_kfree_skb_any(skb);
+}
+
 #endif
 #endif
 #endif

@@ -703,7 +703,11 @@ enum vmbus_device_type {
 struct vmbus_device {
 	u16  dev_type;
 	/* deviation from upstream - NHM */
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
 	__u8 guid[16];
+#else
+		uuid_le guid;
+#endif
 	bool perf_device;
 };
 
@@ -1232,6 +1236,8 @@ u64 hv_do_hypercall(u64 control, void *input, void *output);
  * GUID definitions of various offer types - services offered to the guest.
  */
 
+#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,2))
+
 /*
  * Network GUID
  * {f8615163-df3e-46c5-913f-f2d2f965ed0e}
@@ -1387,6 +1393,137 @@ u64 hv_do_hypercall(u64 control, void *input, void *output);
 			0x1D, 0xF6, 0xC4, 0x44, 0x44, 0x44, 0x00, 0x44, \
 			0x9D, 0x52, 0x80, 0x2E, 0x27, 0xED, 0xE1, 0x9F \
 		}
+#else
+/*
+ * Network GUID
+ * {f8615163-df3e-46c5-913f-f2d2f965ed0e}
+ */
+#define HV_NIC_GUID \
+	.guid = UUID_LE(0xf8615163, 0xdf3e, 0x46c5, 0x91, 0x3f, \
+			0xf2, 0xd2, 0xf9, 0x65, 0xed, 0x0e)
+
+/*
+ * IDE GUID
+ * {32412632-86cb-44a2-9b5c-50d1417354f5}
+ */
+#define HV_IDE_GUID \
+	.guid = UUID_LE(0x32412632, 0x86cb, 0x44a2, 0x9b, 0x5c, \
+			0x50, 0xd1, 0x41, 0x73, 0x54, 0xf5)
+
+/*
+ * SCSI GUID
+ * {ba6163d9-04a1-4d29-b605-72e2ffb1dc7f}
+ */
+#define HV_SCSI_GUID \
+	.guid = UUID_LE(0xba6163d9, 0x04a1, 0x4d29, 0xb6, 0x05, \
+			0x72, 0xe2, 0xff, 0xb1, 0xdc, 0x7f)
+
+/*
+ * Shutdown GUID
+ * {0e0b6031-5213-4934-818b-38d90ced39db}
+ */
+#define HV_SHUTDOWN_GUID \
+	.guid = UUID_LE(0x0e0b6031, 0x5213, 0x4934, 0x81, 0x8b, \
+			0x38, 0xd9, 0x0c, 0xed, 0x39, 0xdb)
+
+/*
+ * Time Synch GUID
+ * {9527E630-D0AE-497b-ADCE-E80AB0175CAF}
+ */
+#define HV_TS_GUID \
+	.guid = UUID_LE(0x9527e630, 0xd0ae, 0x497b, 0xad, 0xce, \
+			0xe8, 0x0a, 0xb0, 0x17, 0x5c, 0xaf)
+
+/*
+ * Heartbeat GUID
+ * {57164f39-9115-4e78-ab55-382f3bd5422d}
+ */
+#define HV_HEART_BEAT_GUID \
+	.guid = UUID_LE(0x57164f39, 0x9115, 0x4e78, 0xab, 0x55, \
+			0x38, 0x2f, 0x3b, 0xd5, 0x42, 0x2d)
+
+/*
+ * KVP GUID
+ * {a9a0f4e7-5a45-4d96-b827-8a841e8c03e6}
+ */
+#define HV_KVP_GUID \
+	.guid = UUID_LE(0xa9a0f4e7, 0x5a45, 0x4d96, 0xb8, 0x27, \
+			0x8a, 0x84, 0x1e, 0x8c, 0x03, 0xe6)
+
+/*
+ * Dynamic memory GUID
+ * {525074dc-8985-46e2-8057-a307dc18a502}
+ */
+#define HV_DM_GUID \
+	.guid = UUID_LE(0x525074dc, 0x8985, 0x46e2, 0x80, 0x57, \
+			0xa3, 0x07, 0xdc, 0x18, 0xa5, 0x02)
+
+/*
+ * Mouse GUID
+ * {cfa8b69e-5b4a-4cc0-b98b-8ba1a1f3f95a}
+ */
+#define HV_MOUSE_GUID \
+	.guid = UUID_LE(0xcfa8b69e, 0x5b4a, 0x4cc0, 0xb9, 0x8b, \
+			0x8b, 0xa1, 0xa1, 0xf3, 0xf9, 0x5a)
+
+/*
+ * Keyboard GUID
+ * {f912ad6d-2b17-48ea-bd65-f927a61c7684}
+ */
+#define HV_KBD_GUID \
+	.guid = UUID_LE(0xf912ad6d, 0x2b17, 0x48ea, 0xbd, 0x65, \
+			0xf9, 0x27, 0xa6, 0x1c, 0x76, 0x84)
+
+/*
+ * VSS (Backup/Restore) GUID
+ */
+#define HV_VSS_GUID \
+	.guid = UUID_LE(0x35fa2e29, 0xea23, 0x4236, 0x96, 0xae, \
+			0x3a, 0x6e, 0xba, 0xcb, 0xa4, 0x40)
+/*
+ * Synthetic Video GUID
+ * {DA0A7802-E377-4aac-8E77-0558EB1073F8}
+ */
+#define HV_SYNTHVID_GUID \
+	.guid = UUID_LE(0xda0a7802, 0xe377, 0x4aac, 0x8e, 0x77, \
+			0x05, 0x58, 0xeb, 0x10, 0x73, 0xf8)
+
+/*
+ * Synthetic FC GUID
+ * {2f9bcc4a-0069-4af3-b76b-6fd0be528cda}
+ */
+#define HV_SYNTHFC_GUID \
+	.guid = UUID_LE(0x2f9bcc4a, 0x0069, 0x4af3, 0xb7, 0x6b, \
+			0x6f, 0xd0, 0xbe, 0x52, 0x8c, 0xda)
+
+/*
+ * Guest File Copy Service
+ * {34D14BE3-DEE4-41c8-9AE7-6B174977C192}
+ */
+
+#define HV_FCOPY_GUID \
+	.guid = UUID_LE(0x34d14be3, 0xdee4, 0x41c8, 0x9a, 0xe7, \
+			0x6b, 0x17, 0x49, 0x77, 0xc1, 0x92)
+
+/*
+ * NetworkDirect. This is the guest RDMA service.
+ * {8c2eaf3d-32a7-4b09-ab99-bd1f1c86b501}
+ */
+#define HV_ND_GUID \
+	.guid = UUID_LE(0x8c2eaf3d, 0x32a7, 0x4b09, 0xab, 0x99, \
+			0xbd, 0x1f, 0x1c, 0x86, 0xb5, 0x01)
+
+/*
+ * PCI Express Pass Through
+ * {44C4F61D-4444-4400-9D52-802E27EDE19F}
+ */
+
+#define HV_PCIE_GUID \
+	.guid = UUID_LE(0x44c4f61d, 0x4444, 0x4400, 0x9d, 0x52, \
+			0x80, 0x2e, 0x27, 0xed, 0xe1, 0x9f)
+
+#endif
+
 
 /*
  * Linux doesn't support the 3 devices: the first two are for

@@ -561,17 +561,23 @@ static int vmbus_uevent(struct device *device, struct kobj_uevent_env *env)
 
 static const uuid_le null_guid;
 
+#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,2))
 static inline bool is_null_guid(const __u8 *guid)
+#else
+static inline bool is_null_guid(const uuid_le *guid)
+#endif
 {
 	if (memcmp(guid, &null_guid, sizeof(uuid_le)))
 		return false;
 	return true;
 }
 
+
 /*
  * Return a matching hv_vmbus_device_id pointer.
  * If there is no match, return NULL.
  */
+#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,2))
 static const struct hv_vmbus_device_id *hv_vmbus_get_id(
 					const struct hv_vmbus_device_id *id,
 					const __u8 *guid)
@@ -582,8 +588,19 @@ static const struct hv_vmbus_device_id *hv_vmbus_get_id(
 
 	return NULL;
 }
+#else
+static const struct hv_vmbus_device_id *hv_vmbus_get_id(
+                                        const struct hv_vmbus_device_id *id,
+                                        const uuid_le *guid)
+{
+        for (; !is_null_guid(&id->guid); id++)
+                if (!memcmp(&id->guid, guid, sizeof(uuid_le)))
+                        return id;
 
+        return NULL;
+}
 
+#endif
 
 /*
  * vmbus_match - Attempt to match the specified device to the specified driver
@@ -596,8 +613,12 @@ static int vmbus_match(struct device *device, struct device_driver *driver)
 	/* The hv_sock driver handles all hv_sock offers. */
 	if (is_hvsock_channel(hv_dev->channel))
 		return drv->hvsock;
-
+#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,2))
 	if (hv_vmbus_get_id(drv->id_table, hv_dev->dev_type.b))
+#else
+	if (hv_vmbus_get_id(drv->id_table, &hv_dev->dev_type))
+#endif
+
 		return 1;
 
 	return 0;
@@ -613,8 +634,11 @@ static int vmbus_probe(struct device *child_device)
 			drv_to_hv_drv(child_device->driver);
 	struct hv_device *dev = device_to_hv_device(child_device);
 	const struct hv_vmbus_device_id *dev_id;
-
+#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,2))
 	dev_id = hv_vmbus_get_id(drv->id_table, dev->dev_type.b);
+#else
+	dev_id = hv_vmbus_get_id(drv->id_table, &dev->dev_type);
+#endif
 	if (drv->probe) {
 		ret = drv->probe(dev, dev_id);
 		if (ret != 0)
@@ -826,7 +850,7 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id)
 		else
 			tasklet_schedule(hv_context.msg_dpc[cpu]);
 	}
-#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3)) /* we dont have add_interrupt_randomness symbol in kernel yet in 7.2 */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,4)) /* we dont have add_interrupt_randomness symbol in kernel yet in 7.3 */
         add_interrupt_randomness(HYPERVISOR_CALLBACK_VECTOR, 0);
 #endif
 
@@ -1132,13 +1156,29 @@ static acpi_status vmbus_walk_resources(struct acpi_resource *res, void *ctx)
 	 * devices.
 	 */
 	case ACPI_RESOURCE_TYPE_ADDRESS32:
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
 		start = res->data.address32.minimum;
+#else
+		start = res->data.address32.address.minimum;
+#endif
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
 		end = res->data.address32.maximum;
+#else
+		end = res->data.address32.address.maximum;
+#endif
 		break;
 
 	case ACPI_RESOURCE_TYPE_ADDRESS64:
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
 		start = res->data.address64.minimum;
+#else
+		start = res->data.address64.address.minimum;
+#endif
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
 		end = res->data.address64.maximum;
+#else
+		end = res->data.address64.address.maximum;
+#endif
 		break;
 
 	default:
@@ -1444,7 +1484,7 @@ static void hv_kexec_handler(void)
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
 static void hv_crash_handler(struct pt_regs *regs)
 {
-	vmbus_initiate_unload();
+	vmbus_initiate_unload(true);
 	/*
 	 * In crash handler we can't schedule synic cleanup for all CPUs,
 	 * doing the cleanup for current CPU only. This should be sufficient

@@ -42,6 +42,8 @@
 #include <linux/seq_file.h>
 #include "vmbus_rdma.h"
 
+static struct hvnd_dev *g_nd_dev = NULL; // the one and only one
+
 int hvnd_log_level = HVND_ERROR;
 module_param(hvnd_log_level, int, S_IRUGO|S_IWUSR);
 MODULE_PARM_DESC(hvnd_log_level,
@@ -593,16 +595,17 @@ static int hvnd_query_pkey(struct ib_device *ibdev, u8 port, u16 index,
 static int hvnd_query_gid(struct ib_device *ibdev, u8 port, int index,
 			  union ib_gid *gid)
 {
-	char *ip_addr, *mac_addr;
 	int ret;
+	struct hvnd_dev *nd_dev = to_nd_dev(ibdev);
 
 	debug_check(__func__, __LINE__);
-	ret = hvnd_get_ip_addr(&ip_addr, &mac_addr);
-	if (ret)
-		return ret;
+
+	ret = wait_for_completion_timeout(&nd_dev->addr_set, 60*HZ);
+	if (!ret)
+		return -ETIMEDOUT;
 
 	memset(&(gid->raw[0]), 0, sizeof(gid->raw));
-	memcpy(&(gid->raw[0]), mac_addr, 6);
+	memcpy(&(gid->raw[0]), nd_dev->mac_addr, 6);
 	return 0;
 }
 
@@ -714,12 +717,6 @@ static ssize_t hvnd_show_board(struct device *dev, struct device_attribute *attr
 			  char *buf)
 {
 	return 0; 
-}
-
-static int hvnd_get_mib(struct ib_device *ibdev,
-			union rdma_protocol_stats *stats)
-{
-	return 0;
 }
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
@@ -1231,6 +1228,7 @@ static struct ib_mr *hvnd_get_dma_mr(struct ib_pd *pd, int acc)
 	return NULL;
 }
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
 static struct ib_mr *hvnd_register_phys_mem(struct ib_pd *pd,
 					    struct ib_phys_buf *buffer_list,
 					    int num_phys_buf, int acc,
@@ -1247,6 +1245,39 @@ int hvnd_reregister_phys_mem(struct ib_mr *mr, int mr_rereg_mask,
 	hvnd_info("check code\n");
 	return 0;
 }
+
+static int hvnd_bind_mw(struct ib_qp *qp, struct ib_mw *mw,
+			struct ib_mw_bind *mw_bind)
+{
+	hvnd_info("check code\n");
+	return -ENOSYS;
+}
+
+static struct ib_mr *hvnd_alloc_fast_reg_mr(struct ib_pd *pd, int pbl_depth)
+{
+	debug_check(__func__, __LINE__);
+	return NULL;
+}
+
+static struct ib_fast_reg_page_list *
+hvnd_alloc_fastreg_pbl(struct ib_device *device,
+			int page_list_len)
+{
+	debug_check(__func__, __LINE__);
+	return NULL;
+}
+
+void hvnd_free_fastreg_pbl(struct ib_fast_reg_page_list *ibpl)
+{
+	debug_check(__func__, __LINE__);
+}
+
+static int hvnd_get_mib(struct ib_device *ibdev,
+			union rdma_protocol_stats *stats)
+{
+	return 0;
+}
+#endif
 
 static void debug_dump_umem(struct ib_umem *umem)
 {
@@ -1378,47 +1409,23 @@ static int hvnd_dereg_mr(struct ib_mr *ib_mr)
 	return 0;
 }
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,5))
+#if RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,5)
 static struct ib_mw *hvnd_alloc_mw(struct ib_pd *pd)
-#else
+#elsif RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3)
 static struct ib_mw *hvnd_alloc_mw(struct ib_pd *pd, enum ib_mw_type type)
+#else
+static struct ib_mw *hvnd_alloc_mw(struct ib_pd *pd, enum ib_mw_type type, struct ib_udata *udata)
 #endif
 {
 	hvnd_info("check code\n");
 	return NULL;
 }
 
-static int hvnd_bind_mw(struct ib_qp *qp, struct ib_mw *mw,
-			struct ib_mw_bind *mw_bind)
-{
-	hvnd_info("check code\n");
-	return -ENOSYS;
-}
 static int hvnd_dealloc_mw(struct ib_mw *mw)
 {
 	debug_check(__func__, __LINE__);
 	return 0;
 }
-
-static struct ib_mr *hvnd_alloc_fast_reg_mr(struct ib_pd *pd, int pbl_depth)
-{
-	debug_check(__func__, __LINE__);
-	return NULL;
-}
-
-static struct ib_fast_reg_page_list *
-hvnd_alloc_fastreg_pbl(struct ib_device *device,
-			int page_list_len)
-{
-	debug_check(__func__, __LINE__);
-	return NULL;
-}
-
-void hvnd_free_fastreg_pbl(struct ib_fast_reg_page_list *ibpl)
-{
-	debug_check(__func__, __LINE__);
-}
-
 
 static int hvnd_arm_cq(struct ib_cq *ibcq, enum ib_cq_notify_flags flags)
 {
@@ -2601,17 +2608,10 @@ static struct device_attribute *hvnd_class_attributes[] = {
 	&dev_attr_board_id,
 };
 
-int hvnd_register_device(struct hvnd_dev *dev)
+int hvnd_register_device(struct hvnd_dev *dev, char *ip_addr, char *mac_addr)
 {
 	int ret;
 	int i;
-	char *ip_addr, *mac_addr;
-
-	ret = hvnd_get_ip_addr(&ip_addr, &mac_addr);
-	if (ret) {
-		hvnd_error("hvnd_get_ip_addr failed ret=%d\n", ret);
-		return ret;
-	}
 
 	dev->ibdev.owner = THIS_MODULE;
 	dev->device_cap_flags = IB_DEVICE_LOCAL_DMA_LKEY | IB_DEVICE_MEM_WINDOW;
@@ -2662,23 +2662,25 @@ int hvnd_register_device(struct hvnd_dev *dev)
 	dev->ibdev.resize_cq = hvnd_resize_cq;
 	dev->ibdev.poll_cq = hvnd_poll_cq;
 	dev->ibdev.get_dma_mr = hvnd_get_dma_mr;
+#if RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3)
 	dev->ibdev.reg_phys_mr = hvnd_register_phys_mem;
 	dev->ibdev.rereg_phys_mr = hvnd_reregister_phys_mem;
-	dev->ibdev.reg_user_mr = hvnd_reg_user_mr;
-	dev->ibdev.dereg_mr = hvnd_dereg_mr;
-	dev->ibdev.alloc_mw = hvnd_alloc_mw;
 	dev->ibdev.bind_mw = hvnd_bind_mw;
-	dev->ibdev.dealloc_mw = hvnd_dealloc_mw;
 	dev->ibdev.alloc_fast_reg_mr = hvnd_alloc_fast_reg_mr;
 	dev->ibdev.alloc_fast_reg_page_list = hvnd_alloc_fastreg_pbl;
 	dev->ibdev.free_fast_reg_page_list = hvnd_free_fastreg_pbl;
+	dev->ibdev.get_protocol_stats = hvnd_get_mib;
+#endif
+	dev->ibdev.reg_user_mr = hvnd_reg_user_mr;
+	dev->ibdev.dereg_mr = hvnd_dereg_mr;
+	dev->ibdev.alloc_mw = hvnd_alloc_mw;
+	dev->ibdev.dealloc_mw = hvnd_dealloc_mw;
 	dev->ibdev.attach_mcast = hvnd_multicast_attach;
 	dev->ibdev.detach_mcast = hvnd_multicast_detach;
 	dev->ibdev.process_mad = hvnd_process_mad;
 	dev->ibdev.req_notify_cq = hvnd_arm_cq;
 	dev->ibdev.post_send = hvnd_post_send;
 	dev->ibdev.post_recv = hvnd_post_receive;
-	dev->ibdev.get_protocol_stats = hvnd_get_mib;
 	dev->ibdev.uverbs_abi_ver = MLX4_IB_UVERBS_ABI_VERSION;
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
@@ -2740,35 +2742,96 @@ void hvnd_unregister_device(struct hvnd_dev *dev)
 	return;
 }
 
-static void hvnd_probe_delayed_work(struct work_struct *work)
+static int hvnd_try_bind_nic(unsigned char *mac, __be32 ip)
 {
 	int ret;
-	struct hvnd_dev *nd_dev = container_of(work, struct hvnd_dev, probe_delayed_work);
+	struct hvnd_dev *nd_dev = g_nd_dev;
+
+	mutex_lock(&nd_dev->bind_mutex);
+	if (nd_dev->bind_complete) {
+		mutex_unlock(&nd_dev->bind_mutex);
+		return 1;
+	}
+
+	memcpy(nd_dev->mac_addr, mac, 6);
+	*(__be32*)(nd_dev->ip_addr) = ip;
 
 	/*
 	* Bind the NIC.
 	*/
-	ret = hvnd_bind_nic(nd_dev, false);
-	if (ret) {
-		hvnd_error("hvnd_bind_nic failed ret=%d\n", ret);
-		goto err;
+	hvnd_info("trying to bind to IP %pI4 MAC %pM\n", nd_dev->ip_addr, nd_dev->mac_addr);
+	ret = hvnd_bind_nic(nd_dev, false, nd_dev->ip_addr, nd_dev->mac_addr);
+	if (ret || nd_dev->bind_pkt.pkt_hdr.status) {
+		mutex_unlock(&nd_dev->bind_mutex);
+		return 1;
 	}
 
-	ret = hvnd_register_device(nd_dev);
+	/* if we reach here, this means bind_nic is a success */
+	hvnd_error("successfully bound to IP %pI4 MAC %pM\n", nd_dev->ip_addr, nd_dev->mac_addr);
+	complete(&nd_dev->addr_set);
+	nd_dev->bind_complete=1;
+	mutex_unlock(&nd_dev->bind_mutex);
 
-	if (ret == 0)
-		return;
-	else
-		hvnd_error("hvnd_register_device failed ret=%d\n", ret);
+	ret = hvnd_register_device(nd_dev, nd_dev->ip_addr, nd_dev->mac_addr);
 
-/* roll back all allocated resources on error */
-err:
+	if (!ret)
+		return 0;
+
+	hvnd_error("hvnd_register_device failed ret=%d\n", ret);
+
+	/* roll back all allocated resources on error */
 	iounmap(nd_dev->mmio_virt);
 	release_resource(&nd_dev->mmio_resource);
 
 	vmbus_close(nd_dev->hvdev->channel);
-
 	ib_dealloc_device((struct ib_device *)nd_dev);
+
+	return 1;
+}
+
+static void hvnd_inetaddr_event_up(unsigned long event, struct in_ifaddr *ifa)
+{
+	hvnd_try_bind_nic(ifa->ifa_dev->dev->dev_addr, ifa->ifa_address);
+}
+
+static int hvnd_inetaddr_event(struct notifier_block *notifier, unsigned long event, void *ptr)
+{
+	struct in_ifaddr *ifa = ptr;
+	switch(event) {
+	case NETDEV_UP:
+		hvnd_inetaddr_event_up(event, ifa);
+		break;
+	default:
+		hvnd_debug("Received inetaddr event %lu\n", event);
+	}
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block hvnd_inetaddr_notifier = {
+	.notifier_call = hvnd_inetaddr_event,
+};
+
+static int start_bind_nic(void)
+{
+	struct net_device *dev;
+	struct in_device *idev;
+	struct in_ifaddr *ifa;
+
+	register_inetaddr_notifier(&hvnd_inetaddr_notifier);
+
+	rtnl_lock();
+	for_each_netdev(&init_net, dev) {
+		idev = in_dev_get(dev);
+		if (!idev)
+			continue;
+		for (ifa = (idev)->ifa_list; ifa && !(ifa->ifa_flags&IFA_F_SECONDARY); ifa = ifa->ifa_next) {
+			hvnd_try_bind_nic(dev->dev_addr, ifa->ifa_address);
+		}
+	}
+	rtnl_unlock();
+
+	return 0;
 }
 
 static int hvnd_probe(struct hv_device *dev,
@@ -2836,9 +2899,17 @@ static int hvnd_probe(struct hv_device *dev,
 		goto err_out2;
 	}
 
-	/* We need to get IP/MAC address from the Azure Linux agent to continue initialization */
-	INIT_WORK(&nd_dev->probe_delayed_work, hvnd_probe_delayed_work);
-	schedule_work(&nd_dev->probe_delayed_work);
+	/*
+	 * Try to bind every NIC to ND channel,
+	 * ND host will only return success for the correct one
+	 */
+	nd_dev->bind_complete = 0;
+	mutex_init(&nd_dev->bind_mutex);
+	init_completion(&nd_dev->addr_set);
+
+	g_nd_dev = nd_dev;
+	start_bind_nic();
+
 	return 0;
 
 err_out2:
@@ -2855,24 +2926,14 @@ static int hvnd_remove(struct hv_device *dev)
 {
 	struct hvnd_dev *nd_dev = hv_get_drvdata(dev);
 
-	hvnd_bind_nic(nd_dev, true);
+	unregister_inetaddr_notifier(&hvnd_inetaddr_notifier);
+	hvnd_bind_nic(nd_dev, true, nd_dev->ip_addr, nd_dev->mac_addr);
+	hvnd_unregister_device(nd_dev);
 	vmbus_close(dev->channel);
 	iounmap(nd_dev->mmio_virt);
 	release_resource(&nd_dev->mmio_resource);
-	hvnd_unregister_device(nd_dev);
 	return 0;
 }
-
-/*
- * NetworkDirect GUID
- *	 {8c2eaf3d-32a7-4b09-ab99-bd1f1c86b501}
- */
-#define HV_ND_GUID \
-	.guid = { \
-			0x3d, 0xaf, 0x2e, 0x8c, 0xa7, 0x32, 0x09, 0x4b, \
-			0xab, 0x99, 0xbd, 0x1f, 0x1c, 0x86, 0xb5, 0x01 \
-		}
-
 
 static const struct hv_vmbus_device_id id_table[] = {
 	/* VMBUS RDMA class guid */
@@ -2913,3 +2974,4 @@ module_exit(exit_hvnd_drv);
 
 MODULE_DESCRIPTION("Hyper-V NetworkDirect Driver");
 MODULE_LICENSE("GPL");
+MODULE_VERSION(HV_DRV_VERSION);

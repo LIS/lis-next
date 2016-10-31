@@ -166,7 +166,11 @@ static u16 hv_get_dev_type(const struct vmbus_channel *channel)
 
 	for (i = HV_IDE; i < HV_UNKOWN; i++) {
 		/* deviation from upstream - NHM */
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
 		if (!memcmp(guid->b, vmbus_devs[i].guid, sizeof(uuid_le)))
+#else
+	if (!uuid_le_cmp(*guid, vmbus_devs[i].guid))
+#endif
 			return i;
 	}
 	pr_info("Unknown GUID: %pUl\n", guid);

@@ -13,6 +13,10 @@
 #define CN_VSS_IDX	0xA
 #define CN_VSS_VAL	0x1
 
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,2))
+#define rdtscll(now)    do { (now) = rdtsc_ordered(); } while (0)
+#endif
+
 
 #ifdef __KERNEL__
 
@@ -407,11 +411,14 @@ static inline int memcpy_to_msg(struct msghdr *msg, void *data, int len)
 /*
  * Define ethtool dependencies here.
  */
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
 static inline int ethtool_validate_speed(__u32 speed)
 {
         return speed <= INT_MAX || speed == SPEED_UNKNOWN;
 }
+#endif
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
 static inline int ethtool_validate_duplex(__u8 duplex)
 {
         switch (duplex) {
@@ -423,6 +430,7 @@ static inline int ethtool_validate_duplex(__u8 duplex)
 
         return 0;
 }
+#endif
 
 /*
  * Define balloon driver dependencies here.
@@ -431,12 +439,14 @@ static inline int ethtool_validate_duplex(__u8 duplex)
 // In-kernel memory onlining is not supported in older kernels.
 #define memhp_auto_online 0;
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
 static inline long si_mem_available(void)
 {
 	struct sysinfo val;
 	si_meminfo(&val);
 	return val.freeram;
 }
+#endif
 
 /*
  * The function dev_consume_skb_any() was exposed in RHEL 7.2.
