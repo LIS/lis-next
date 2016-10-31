@@ -59,7 +59,7 @@
 #define CN_VSS_IDX	0xA
 #define CN_VSS_VAL	0x1
 
-#define HV_DRV_VERSION	"4.1.2"
+#define HV_DRV_VERSION	"4.1.3-beta1"
 
 #if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(6,4))
 #ifdef CONFIG_MEMORY_HOTPLUG

@@ -8,7 +8,7 @@
 #define CN_VSS_IDX	0xA
 #define CN_VSS_VAL	0x1
 
-#define HV_DRV_VERSION  "4.1.2"
+#define HV_DRV_VERSION  "4.1.3-beta1"
 
 #ifndef O_CLOEXEC
 #define O_CLOEXEC       02000000        /* set close_on_exec */
