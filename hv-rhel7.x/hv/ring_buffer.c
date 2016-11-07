@@ -364,9 +364,9 @@ void hv_get_ringbuffer_available_space(struct hv_ring_buffer_info *inring_info,
 	spin_unlock_irqrestore(&inring_info->ring_lock, flags);
 }
 
-int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info,
+int hv_ringbuffer_read(struct vmbus_channel *channel,
 			void *buffer, u32 buflen, u32 *buffer_actual_len,
-			u64 *requestid, bool *signal, bool raw)
+			u64 *requestid, bool raw)
 {
 	u32 bytes_avail_toread;
 	u32 next_read_location = 0;
@@ -375,6 +375,7 @@ int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info,
 	u32 offset;
 	u32 packetlen;
 	int ret = 0;
+	struct hv_ring_buffer_info *inring_info = &channel->inbound;
 
 	if (buflen <= 0)
 		return -EINVAL;
@@ -432,7 +433,7 @@ int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info,
 	/* Update the read index */
 	hv_set_next_read_location(inring_info, next_read_location);
 
-	*signal = hv_need_to_signal_on_read(inring_info);
+	hv_signal_on_read(channel);
 
 	return ret;
 }
