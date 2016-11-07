@@ -557,10 +557,9 @@ void hv_get_ringbuffer_available_space(struct hv_ring_buffer_info *inring_info,
 				       u32 *bytes_avail_toread,
 				       u32 *bytes_avail_towrite);
 
-int hv_ringbuffer_read(struct hv_ring_buffer_info *inring_info,
+int hv_ringbuffer_read(struct vmbus_channel *channel,
 		       void *buffer, u32 buflen, u32 *buffer_actual_len,
-		       u64 *requestid, bool *signal, bool raw);
-
+		       u64 *requestid, bool raw);
 
 void hv_ringbuffer_get_debuginfo(struct hv_ring_buffer_info *ring_info,
 			    struct hv_ring_buffer_debug_info *debug_info);
