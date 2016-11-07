@@ -1411,7 +1411,7 @@ static int hvnd_dereg_mr(struct ib_mr *ib_mr)
 
 #if RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,5)
 static struct ib_mw *hvnd_alloc_mw(struct ib_pd *pd)
-#elsif RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3)
+#elif RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3)
 static struct ib_mw *hvnd_alloc_mw(struct ib_pd *pd, enum ib_mw_type type)
 #else
 static struct ib_mw *hvnd_alloc_mw(struct ib_pd *pd, enum ib_mw_type type, struct ib_udata *udata)
