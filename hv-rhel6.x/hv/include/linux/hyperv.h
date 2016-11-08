@@ -1467,6 +1467,8 @@ extern bool vmbus_prep_negotiate_resp(struct icmsg_hdr *,
 
 void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid);
 
+void vmbus_setevent(struct vmbus_channel *channel);
+
 /*
  * Negotiated version with the Host.
  */
