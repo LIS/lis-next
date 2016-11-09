@@ -806,9 +806,7 @@ int vmbus_sendpacket_hvsock(struct vmbus_channel *channel, void *buf, u32 len)
 	u32 packetlen_aligned;
 	u32 packetlen;
 	u64 aligned_data = 0;
-	bool signal = false;
 	bool lock = channel->acquire_ring_lock;
-	int ret;
 
 	packetlen = HVSOCK_HEADER_LEN + len;
 	packetlen_aligned = ALIGN(packetlen, sizeof(u64));
@@ -833,13 +831,9 @@ int vmbus_sendpacket_hvsock(struct vmbus_channel *channel, void *buf, u32 len)
 	bufferlist[3].iov_base = &aligned_data;
 	bufferlist[3].iov_len  = packetlen_aligned - packetlen;
 
-	ret = hv_ringbuffer_write(&channel->outbound, bufferlist, 4,
-				  &signal, lock);
+	return hv_ringbuffer_write(channel, bufferlist, 4,
+ 					lock, true);
 
-	if (ret == 0 && signal)
-		vmbus_setevent(channel);
-
-	return ret;
 }
 EXPORT_SYMBOL_GPL(vmbus_sendpacket_hvsock);
 
