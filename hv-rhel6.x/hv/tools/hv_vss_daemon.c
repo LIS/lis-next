@@ -180,6 +180,7 @@ int main(int argc, char *argv[])
 	if (vss_fd < 0) {
 		syslog(LOG_ERR, "open /dev/vmbus/hv_vss failed; error: %d %s",
 		       errno, strerror(errno));
+		syslog(LOG_ERR, "The Hyper-V Backup guest service may not be enabled for this VM");
 		exit(EXIT_FAILURE);
 	}
 	/*

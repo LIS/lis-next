@@ -186,6 +186,7 @@ int main(int argc, char *argv[])
 	if (fcopy_fd < 0) {
 		syslog(LOG_ERR, "open /dev/vmbus/hv_fcopy failed; error: %d %s",
 			errno, strerror(errno));
+		syslog(LOG_ERR, "The Hyper-V Guest Services may not be enabled for this VM");
 		exit(EXIT_FAILURE);
 	}
 
