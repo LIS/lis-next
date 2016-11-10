@@ -179,7 +179,7 @@ int main(int argc, char *argv[])
 	}
 
 	openlog("HV_FCOPY", 0, LOG_USER);
-	syslog(LOG_INFO, "starting; pid is:%d", getpid());
+	syslog(LOG_INFO, "version %s starting; pid is:%d", HV_DRV_VERSION, getpid());
 
 	fcopy_fd = open("/dev/vmbus/hv_fcopy", O_RDWR);
 

@@ -1438,7 +1438,7 @@ int main(int argc, char *argv[])
 		return 1;
 
 	openlog("KVP", 0, LOG_USER);
-	syslog(LOG_INFO, "KVP starting; pid is:%d", getpid());
+	syslog(LOG_INFO, "version %s starting; pid is:%d", HV_DRV_VERSION, getpid());
 
 	kvp_fd = open("/dev/vmbus/hv_kvp", O_RDWR);
 
