@@ -174,7 +174,7 @@ int main(int argc, char *argv[])
 		return 1;
 
 	openlog("Hyper-V VSS", 0, LOG_USER);
-	syslog(LOG_INFO, "VSS starting; pid is:%d", getpid());
+	syslog(LOG_INFO, "version %s starting; pid is:%d", HV_DRV_VERSION, getpid());
 
 	vss_fd = open("/dev/vmbus/hv_vss", O_RDWR);
 	if (vss_fd < 0) {
