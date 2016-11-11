@@ -179,13 +179,14 @@ int main(int argc, char *argv[])
 	}
 
 	openlog("HV_FCOPY", 0, LOG_USER);
-	syslog(LOG_INFO, "starting; pid is:%d", getpid());
+	syslog(LOG_INFO, "version %s starting; pid is:%d", HV_DRV_VERSION, getpid());
 
 	fcopy_fd = open("/dev/vmbus/hv_fcopy", O_RDWR);
 
 	if (fcopy_fd < 0) {
 		syslog(LOG_ERR, "open /dev/vmbus/hv_fcopy failed; error: %d %s",
 			errno, strerror(errno));
+		syslog(LOG_ERR, "The Hyper-V Guest Services may not be enabled for this VM");
 		exit(EXIT_FAILURE);
 	}
 
