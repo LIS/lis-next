@@ -842,8 +842,11 @@ static void hv_compose_msi_msg(struct pci_dev *pdev, unsigned int irq,
 			       sizeof(*int_pkt), (unsigned long)&ctxt.pkt,
 			       VM_PKT_DATA_INBAND,
 			       VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
-	if (!ret)
-		wait_for_completion(&comp.comp_pkt.host_event);
+
+	if (ret)
+		goto free_int_desc;
+
+	wait_for_completion(&comp.comp_pkt.host_event);
 
 	if (comp.comp_pkt.completion_status < 0) {
 		pr_err("Request for interrupt failed: 0x%x",
