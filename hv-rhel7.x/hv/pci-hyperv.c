@@ -373,7 +373,6 @@ struct hv_pcibus_device {
 
 	struct list_head children;
 	struct list_head dr_list;
-	struct work_struct wrk;
 };
 
 /*
