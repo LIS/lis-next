@@ -16,6 +16,20 @@ ifeq ($(arch), 64)
         obj-m += hv_network_direct.o
 endif
 
+# Get RHEL/CentOS version information
+rhel_major=$(shell grep -Eoh [0-9]+\.[0-9]+ /etc/{issue,*release} | head -1 | awk -F'.' '{ print $$1 }')
+rhel_minor=$(shell grep -Eoh [0-9]+\.[0-9]+ /etc/{issue,*release} | head -1 | awk -F'.' '{ print $$2 }')
+rhel_release_code=$(shell echo $$(($(rhel_major) << 8 | $(rhel_minor))))
+
+# Kernel support for the Hyper-V PCI driver was introduced in RHEL/CentOS 7.3
+# Only build the pci-hyperv driver on RHEL 7.3 and newer.
+# The RHEL_RELEASE_CODE for RHEL/CentOS 7.2 = 1794.
+
+build_pci=$(shell test $(rhel_release_code) -gt 1794; echo $$?)
+ifeq ($(build_pci),0)
+        obj-m	+= pci-hyperv.o
+endif
+                                
 ccflags-y += -I$(M)/include/
 
 hv_vmbus-y := vmbus_drv.o \
