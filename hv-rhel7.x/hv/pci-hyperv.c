@@ -444,15 +444,16 @@ struct x86_msi_ops hv_msi;
  * for any message for which the completion packet contains a
  * status and nothing else.
  */
-static
-void
-hv_pci_generic_compl(void *context, struct pci_response *resp,
-		     int resp_packet_size)
+static void hv_pci_generic_compl(void *context, struct pci_response *resp,
+				 int resp_packet_size)
 {
 	struct hv_pci_compl *comp_pkt = context;
 
 	if (resp_packet_size >= offsetofend(struct pci_response, status))
 		comp_pkt->completion_status = resp->status;
+	else
+		comp_pkt->completion_status = -1;
+
 	complete(&comp_pkt->host_event);
 }
 
