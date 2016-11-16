@@ -463,14 +463,16 @@ static void mousevsc_hid_stop(struct hid_device *hid)
 {
 }
 
-//static int mousevsc_hid_raw_request(struct hid_device *hid,
-//				    unsigned char report_num,
-//				    __u8 *buf, size_t len,
-//				    unsigned char rtype,
-//				    int reqtype)
-//{
-//	return 0;
-//}
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,2))
+static int mousevsc_hid_raw_request(struct hid_device *hid,
+				    unsigned char report_num,
+				    __u8 *buf, size_t len,
+				    unsigned char rtype,
+				    int reqtype)
+{
+	return 0;
+}
+#endif
 
 static struct hid_ll_driver mousevsc_ll_driver = {
 	.parse = mousevsc_hid_parse,
@@ -478,7 +480,9 @@ static struct hid_ll_driver mousevsc_ll_driver = {
 	.close = mousevsc_hid_close,
 	.start = mousevsc_hid_start,
 	.stop = mousevsc_hid_stop,
-	//.raw_request = mousevsc_hid_raw_request,
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,2))
+	.raw_request = mousevsc_hid_raw_request,
+#endif
 };
 
 static struct hid_driver mousevsc_hid_driver;
