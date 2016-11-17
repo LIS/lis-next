@@ -1354,6 +1354,9 @@ static int netvsc_vf_up(struct net_device *vf_netdev)
 	net_device_ctx = netdev_priv(ndev);
 	netvsc_dev = net_device_ctx->nvdev;
 
+	if (!net_device_ctx->synthetic_data_path)
+		return NOTIFY_DONE;
+
 	netdev_info(ndev, "VF up: %s\n", vf_netdev->name);
 	netvsc_inject_enable(net_device_ctx);
 
@@ -1366,6 +1369,7 @@ static int netvsc_vf_up(struct net_device *vf_netdev)
 	 * notify the host to switch the data path.
 	 */
 	netvsc_switch_datapath(ndev, true);
+	net_device_ctx->synthetic_data_path = false;
 	netdev_info(ndev, "Data path switched to VF: %s\n", vf_netdev->name);
 
 	netif_carrier_off(ndev);
@@ -1387,7 +1391,7 @@ static int netvsc_vf_up(struct net_device *vf_netdev)
 	return NOTIFY_OK;
 }
 
-static int netvsc_vf_down(struct net_device *vf_netdev)
+static int netvsc_vf_down(struct net_device *vf_netdev, bool rndis_close)
 {
 	struct net_device *ndev;
 	struct netvsc_device *netvsc_dev;
@@ -1400,11 +1404,16 @@ static int netvsc_vf_down(struct net_device *vf_netdev)
 	net_device_ctx = netdev_priv(ndev);
 	netvsc_dev = net_device_ctx->nvdev;
 
+	if (net_device_ctx->synthetic_data_path)
+		return NOTIFY_DONE;
+
 	netdev_info(ndev, "VF down: %s\n", vf_netdev->name);
 	netvsc_inject_disable(net_device_ctx);
 	netvsc_switch_datapath(ndev, false);
 	netdev_info(ndev, "Data path switched from VF: %s\n", vf_netdev->name);
-	rndis_filter_close(netvsc_dev);
+	net_device_ctx->synthetic_data_path = true;
+	if (rndis_close)
+		rndis_filter_close(netvsc_dev);
 	netif_carrier_on(ndev);
 
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,2))
@@ -1435,6 +1444,8 @@ static int netvsc_unregister_vf(struct net_device *vf_netdev)
 
 	net_device_ctx = netdev_priv(ndev);
 	netvsc_dev = net_device_ctx->nvdev;
+
+	netvsc_vf_down(vf_netdev, false);
 
 	netdev_info(ndev, "VF unregistering: %s\n", vf_netdev->name);
 	netvsc_inject_disable(net_device_ctx);
@@ -1486,6 +1497,8 @@ static int netvsc_probe(struct hv_device *dev,
 	hv_set_drvdata(dev, net);
 
 	net_device_ctx->start_remove = false;
+
+	net_device_ctx->synthetic_data_path = true;
 
 	INIT_DELAYED_WORK(&net_device_ctx->dwork, netvsc_link_change);
 	INIT_WORK(&net_device_ctx->work, do_set_multicast);
@@ -1641,7 +1654,7 @@ static int netvsc_netdev_event(struct notifier_block *this,
 	case NETDEV_UP:
 		return netvsc_vf_up(event_dev);
 	case NETDEV_DOWN:
-		return netvsc_vf_down(event_dev);
+		return netvsc_vf_down(event_dev, true);
 	default:
 		return NOTIFY_DONE;
 	}
