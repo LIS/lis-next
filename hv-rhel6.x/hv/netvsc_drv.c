@@ -1251,22 +1251,45 @@ static void netvsc_notify_peers(struct work_struct *wrk)
 }
 #endif
 
-static struct net_device *get_netvsc_net_device(char *mac)
+static struct net_device *get_netvsc_bymac(const u8 *mac)
 {
-	struct net_device *dev, *found = NULL;
+	struct net_device *dev;
 
 	ASSERT_RTNL();
 
 	for_each_netdev(&init_net, dev) {
-		if (memcmp(dev->dev_addr, mac, ETH_ALEN) == 0) {
-			if (dev->netdev_ops != &device_ops)
-				continue;
-			found = dev;
-			break;
-		}
+		if (dev->netdev_ops != &device_ops)
+			continue;	/* not a netvsc device */
+
+		/* deviation from upstream - we are using dev_addr, not perm_addr */
+		if (ether_addr_equal(mac, dev->dev_addr))
+			return dev;
 	}
 
-	return found;
+	return NULL;
+}
+
+static struct net_device *get_netvsc_byref(const struct net_device *vf_netdev)
+{
+	struct net_device *dev;
+
+	ASSERT_RTNL();
+
+	for_each_netdev(&init_net, dev) {
+		struct net_device_context *net_device_ctx;
+
+		if (dev->netdev_ops != &device_ops)
+			continue;	/* not a netvsc device */
+
+		net_device_ctx = netdev_priv(dev);
+		if (net_device_ctx->nvdev == NULL)
+			continue;	/* device is removed */
+
+		if (net_device_ctx->vf_netdev == vf_netdev)
+			return dev;	/* a match */
+	}
+
+	return NULL;
 }
 
 static int netvsc_register_vf(struct net_device *vf_netdev)
@@ -1275,12 +1298,16 @@ static int netvsc_register_vf(struct net_device *vf_netdev)
 	struct net_device_context *net_device_ctx;
 	struct netvsc_device *netvsc_dev;
 
+	if (vf_netdev->addr_len != ETH_ALEN)
+		return NOTIFY_DONE;
+
 	/*
 	 * We will use the MAC address to locate the synthetic interface to
 	 * associate with the VF interface. If we don't find a matching
 	 * synthetic interface, move on.
 	 */
-	ndev = get_netvsc_net_device(vf_netdev->dev_addr);
+	/* deviation from upstream - we are using dev_addr rather than perm_addr */
+	ndev = get_netvsc_bymac(vf_netdev->dev_addr);
 	if (!ndev)
 		return NOTIFY_DONE;
 
@@ -1320,14 +1347,14 @@ static int netvsc_vf_up(struct net_device *vf_netdev)
 	struct netvsc_device *netvsc_dev;
 	struct net_device_context *net_device_ctx;
 
-	ndev = get_netvsc_net_device(vf_netdev->dev_addr);
+	ndev = get_netvsc_byref(vf_netdev);
 	if (!ndev)
 		return NOTIFY_DONE;
 
 	net_device_ctx = netdev_priv(ndev);
 	netvsc_dev = net_device_ctx->nvdev;
 
-	if (!netvsc_dev || !net_device_ctx->vf_netdev)
+	if (!net_device_ctx->synthetic_data_path)
 		return NOTIFY_DONE;
 
 	netdev_info(ndev, "VF up: %s\n", vf_netdev->name);
@@ -1342,6 +1369,7 @@ static int netvsc_vf_up(struct net_device *vf_netdev)
 	 * notify the host to switch the data path.
 	 */
 	netvsc_switch_datapath(ndev, true);
+	net_device_ctx->synthetic_data_path = false;
 	netdev_info(ndev, "Data path switched to VF: %s\n", vf_netdev->name);
 
 	netif_carrier_off(ndev);
@@ -1363,27 +1391,29 @@ static int netvsc_vf_up(struct net_device *vf_netdev)
 	return NOTIFY_OK;
 }
 
-static int netvsc_vf_down(struct net_device *vf_netdev)
+static int netvsc_vf_down(struct net_device *vf_netdev, bool rndis_close)
 {
 	struct net_device *ndev;
 	struct netvsc_device *netvsc_dev;
 	struct net_device_context *net_device_ctx;
 
-	ndev = get_netvsc_net_device(vf_netdev->dev_addr);
+	ndev = get_netvsc_byref(vf_netdev);
 	if (!ndev)
 		return NOTIFY_DONE;
 
 	net_device_ctx = netdev_priv(ndev);
 	netvsc_dev = net_device_ctx->nvdev;
 
-	if (!netvsc_dev || !net_device_ctx->vf_netdev)
+	if (net_device_ctx->synthetic_data_path)
 		return NOTIFY_DONE;
 
 	netdev_info(ndev, "VF down: %s\n", vf_netdev->name);
 	netvsc_inject_disable(net_device_ctx);
 	netvsc_switch_datapath(ndev, false);
 	netdev_info(ndev, "Data path switched from VF: %s\n", vf_netdev->name);
-	rndis_filter_close(netvsc_dev);
+	net_device_ctx->synthetic_data_path = true;
+	if (rndis_close)
+		rndis_filter_close(netvsc_dev);
 	netif_carrier_on(ndev);
 
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,2))
@@ -1408,16 +1438,16 @@ static int netvsc_unregister_vf(struct net_device *vf_netdev)
 	struct netvsc_device *netvsc_dev;
 	struct net_device_context *net_device_ctx;
 
-	ndev = get_netvsc_net_device(vf_netdev->dev_addr);
+	ndev = get_netvsc_byref(vf_netdev);
 	if (!ndev)
 		return NOTIFY_DONE;
 
 	net_device_ctx = netdev_priv(ndev);
 	netvsc_dev = net_device_ctx->nvdev;
-	if (!netvsc_dev || !net_device_ctx->vf_netdev)
-		return NOTIFY_DONE;
-	netdev_info(ndev, "VF unregistering: %s\n", vf_netdev->name);
 
+	netvsc_vf_down(vf_netdev, false);
+
+	netdev_info(ndev, "VF unregistering: %s\n", vf_netdev->name);
 	netvsc_inject_disable(net_device_ctx);
 	net_device_ctx->vf_netdev = NULL;
 	dev_put(vf_netdev);
@@ -1467,6 +1497,8 @@ static int netvsc_probe(struct hv_device *dev,
 	hv_set_drvdata(dev, net);
 
 	net_device_ctx->start_remove = false;
+
+	net_device_ctx->synthetic_data_path = true;
 
 	INIT_DELAYED_WORK(&net_device_ctx->dwork, netvsc_link_change);
 	INIT_WORK(&net_device_ctx->work, do_set_multicast);
@@ -1622,7 +1654,7 @@ static int netvsc_netdev_event(struct notifier_block *this,
 	case NETDEV_UP:
 		return netvsc_vf_up(event_dev);
 	case NETDEV_DOWN:
-		return netvsc_vf_down(event_dev);
+		return netvsc_vf_down(event_dev, true);
 	default:
 		return NOTIFY_DONE;
 	}

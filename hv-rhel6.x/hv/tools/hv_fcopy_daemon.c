@@ -106,7 +106,7 @@ static int hv_copy_data(struct hv_do_fcopy *cpmsg)
 				cpmsg->offset);
 
 	filesize += cpmsg->size;
-	if (bytes_written != cpmsg->size) {
+	if ((__u32)bytes_written != cpmsg->size) {
 		switch (errno) {
 		case ENOSPC:
 			ret = HV_ERROR_DISK_FULL;

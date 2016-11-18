@@ -721,6 +721,11 @@ struct net_device_context {
 	u32 vf_alloc;
 	/* Serial number of the VF to team with */
 	u32 vf_serial;
+	/*
+	 * Tracks the current data path; initially the data path is set
+	 * to deliver packets on the synthetic path.
+	 */
+	bool synthetic_data_path;
 };
 
 /* Per netvsc device */
