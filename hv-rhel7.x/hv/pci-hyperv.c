@@ -374,6 +374,8 @@ struct hv_pcibus_device {
 
 	struct list_head children;
 	struct list_head dr_list;
+	struct retarget_msi_interrupt retarget_msi_interrupt_params;
+	spinlock_t retarget_msi_interrupt_lock;;
 };
 
 /*
@@ -700,13 +702,15 @@ struct irq_cfg *irqd_cfg(struct irq_data *irq_data)
 static int hv_set_affinity(struct irq_data *data, const struct cpumask *dest,
 			   bool force)
 {
+	struct msi_desc *msi_desc = data->msi_desc;
 	struct irq_cfg *cfg = irqd_cfg(data);
-	struct retarget_msi_interrupt params;
+	struct retarget_msi_interrupt *params;
 	struct hv_pcibus_device *hbus;
 	struct pci_bus *pbus;
 	struct pci_dev *pdev;
 	int cpu, ret;
 	unsigned int dest_id;
+	unsigned long flags;
 
 	ret = __ioapic_set_affinity(data, dest, &dest_id);
 	if (ret)
@@ -716,23 +720,29 @@ static int hv_set_affinity(struct irq_data *data, const struct cpumask *dest,
 	pbus = pdev->bus;
 	hbus = container_of(pbus->sysdata, struct hv_pcibus_device, sysdata);
 
-	memset(&params, 0, sizeof(params));
-	params.partition_id = HV_PARTITION_ID_SELF;
-	params.source = 1; /* MSI(-X) */
-	params.address = data->msi_desc->msg.address_lo;
-	params.data = data->msi_desc->msg.data;
-	params.device_id = (hbus->hdev->dev_instance.b[5] << 24) |
+	spin_lock_irqsave(&hbus->retarget_msi_interrupt_lock, flags);
+
+	params = &hbus->retarget_msi_interrupt_params;
+	memset(params, 0, sizeof(*params));
+	params->partition_id = HV_PARTITION_ID_SELF;
+	params->source = 1; /* MSI(-X) */
+	params->address = msi_desc->msg.address_lo;
+	params->data = msi_desc->msg.data;
+	params->device_id = (hbus->hdev->dev_instance.b[5] << 24) |
 			   (hbus->hdev->dev_instance.b[4] << 16) |
 			   (hbus->hdev->dev_instance.b[7] << 8) |
 			   (hbus->hdev->dev_instance.b[6] & 0xf8) |
 			   PCI_FUNC(pdev->devfn);
-	params.vector = cfg->vector;
+	params->vector = cfg->vector;
 
 	for_each_cpu_and(cpu, dest, cpu_online_mask)
-		params.vp_mask |= (1ULL << vmbus_cpu_number_to_vp_number(cpu));
+		params->vp_mask |= (1ULL <<
+			vmbus_cpu_number_to_vp_number(cpu));
 
-	hv_do_hypercall(HVCALL_RETARGET_INTERRUPT, &params, NULL);
+	hv_do_hypercall(HVCALL_RETARGET_INTERRUPT, params, NULL);
 
+	spin_unlock_irqrestore(&hbus->retarget_msi_interrupt_lock,
+			       flags);
 	return 0;
 }
 
@@ -2126,6 +2136,7 @@ static int hv_pci_probe(struct hv_device *hdev,
 	INIT_LIST_HEAD(&hbus->resources_for_children);
 	spin_lock_init(&hbus->config_lock);
 	spin_lock_init(&hbus->device_list_lock);
+	spin_lock_init(&hbus->retarget_msi_interrupt_lock);
 	sema_init(&hbus->enum_sem, 1);
 	init_completion(&hbus->remove_event);
 
