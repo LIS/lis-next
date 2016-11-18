@@ -809,12 +809,8 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 static void netvsc_get_drvinfo(struct net_device *net,
 			       struct ethtool_drvinfo *info)
 {
-	struct net_device_context *net_device_ctx = netdev_priv(net);
-	struct hv_device *dev = net_device_ctx->device_ctx;
-
 	strlcpy(info->driver, KBUILD_MODNAME, sizeof(info->driver));
 	strlcpy(info->fw_version, "N/A", sizeof(info->fw_version));
-	strlcpy(info->bus_info, vmbus_dev_name(dev), sizeof(info->bus_info));
 }
 
 static void netvsc_get_channels(struct net_device *net,
@@ -1373,6 +1369,9 @@ static int netvsc_vf_up(struct net_device *vf_netdev)
 	net_device_ctx = netdev_priv(ndev);
 	netvsc_dev = net_device_ctx->nvdev;
 
+	if (!net_device_ctx->synthetic_data_path)
+		return NOTIFY_DONE;
+
 	netdev_info(ndev, "VF up: %s\n", vf_netdev->name);
 
 	/*
@@ -1384,6 +1383,7 @@ static int netvsc_vf_up(struct net_device *vf_netdev)
 	 * notify the host to switch the data path.
 	 */
 	netvsc_switch_datapath(ndev, true);
+	net_device_ctx->synthetic_data_path = false;
 	netdev_info(ndev, "Data path switched to VF: %s\n", vf_netdev->name);
 
 	netif_carrier_off(ndev);
@@ -1394,7 +1394,7 @@ static int netvsc_vf_up(struct net_device *vf_netdev)
 	return NOTIFY_OK;
 }
 
-static int netvsc_vf_down(struct net_device *vf_netdev)
+static int netvsc_vf_down(struct net_device *vf_netdev, bool rndis_close)
 {
 	struct net_device *ndev;
 	struct netvsc_device *netvsc_dev;
@@ -1407,10 +1407,15 @@ static int netvsc_vf_down(struct net_device *vf_netdev)
 	net_device_ctx = netdev_priv(ndev);
 	netvsc_dev = net_device_ctx->nvdev;
 
+	if (net_device_ctx->synthetic_data_path)
+		return NOTIFY_DONE;
+
 	netdev_info(ndev, "VF down: %s\n", vf_netdev->name);
 	netvsc_switch_datapath(ndev, false);
 	netdev_info(ndev, "Data path switched from VF: %s\n", vf_netdev->name);
-	rndis_filter_close(netvsc_dev);
+	net_device_ctx->synthetic_data_path = true;
+	if (rndis_close)
+		rndis_filter_close(netvsc_dev);
 	netif_carrier_on(ndev);
 
 	/* Now notify peers through netvsc device. */
@@ -1433,6 +1438,8 @@ static int netvsc_unregister_vf(struct net_device *vf_netdev)
 	netvsc_dev = net_device_ctx->nvdev;
 
 	netdev_info(ndev, "VF unregistering: %s\n", vf_netdev->name);
+
+	netvsc_vf_down(vf_netdev, false);
 
 	RCU_INIT_POINTER(net_device_ctx->vf_netdev, NULL);
 	dev_put(vf_netdev);
@@ -1481,6 +1488,8 @@ static int netvsc_probe(struct hv_device *dev,
 	hv_set_drvdata(dev, net);
 
 	net_device_ctx->start_remove = false;
+
+	net_device_ctx->synthetic_data_path = true;
 
 	INIT_DELAYED_WORK(&net_device_ctx->dwork, netvsc_link_change);
 	INIT_WORK(&net_device_ctx->work, do_set_multicast);
@@ -1622,7 +1631,7 @@ static int netvsc_netdev_event(struct notifier_block *this,
 	case NETDEV_UP:
 		return netvsc_vf_up(event_dev);
 	case NETDEV_DOWN:
-		return netvsc_vf_down(event_dev);
+		return netvsc_vf_down(event_dev, true);
 	default:
 		return NOTIFY_DONE;
 	}

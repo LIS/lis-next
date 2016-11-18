@@ -633,8 +633,22 @@ static inline void skb_checksum_none_assert(struct sk_buff *skb)
 #endif
 }
 #endif
-
-
 #endif
+
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
+#include <linux/etherdevice.h>
+/**
+ * ether_addr_equal - Compare two Ethernet addresses
+ * @addr1: Pointer to a six-byte array containing the Ethernet address
+ * @addr2: Pointer other six-byte array containing the Ethernet address
+ *
+ * Compare two ethernet addresses, returns true if equal
+ */
+static inline bool ether_addr_equal(const u8 *addr1, const u8 *addr2)
+{
+        return !compare_ether_addr(addr1, addr2);
+}
 #endif
+
+#endif /*  end ifdef __KERNEL  */
 #endif
