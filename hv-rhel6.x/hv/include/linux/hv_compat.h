@@ -633,6 +633,7 @@ static inline void skb_checksum_none_assert(struct sk_buff *skb)
 #endif
 }
 #endif
+#endif
 
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
 #include <linux/etherdevice.h>
@@ -649,6 +650,5 @@ static inline bool ether_addr_equal(const u8 *addr1, const u8 *addr2)
 }
 #endif
 
-#endif
-#endif
+#endif /*  end ifdef __KERNEL  */
 #endif
