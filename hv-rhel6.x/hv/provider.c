@@ -76,8 +76,6 @@ struct mlx4_wqe_data_seg {
 	__be64                  addr;
 };
 
-static struct workqueue_struct *probe_wq;
-
 /* return value:
 	true: ep is running
 	false: ep is stopped
@@ -2875,7 +2873,6 @@ static int hvnd_remove(struct hv_device *dev)
 	vmbus_close(dev->channel);
 	iounmap(nd_dev->mmio_virt);
 	release_resource(&nd_dev->mmio_resource);
-	destroy_workqueue(probe_wq);
 	return 0;
 }
 
