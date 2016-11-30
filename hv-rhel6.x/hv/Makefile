@@ -16,8 +16,8 @@ rhel_release_code=$(shell echo $$(($(rhel_major) << 8 | $(rhel_minor))))
 # Get machine bit length
 arch=$(shell getconf LONG_BIT)
 
-# this version of RDMA should only build on RHEL/CentOS 6.5, and on 64 bits arch
-buildrdma=$(shell test $(rhel_release_code) -eq 1541; echo $$?)
+# RDMA should only build on RHEL/CentOS 6.5 or later, and on 64 bits arch
+buildrdma=$(shell test $(rhel_release_code) -ge 1541; echo $$?)
 ifeq ($(buildrdma),0)
         ifeq ($(arch), 64)
                 obj-m += hv_network_direct.o
