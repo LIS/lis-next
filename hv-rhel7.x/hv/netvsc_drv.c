@@ -1522,6 +1522,7 @@ static int netvsc_probe(struct hv_device *dev,
 	netif_set_real_num_tx_queues(net, nvdev->num_chn);
 	netif_set_real_num_rx_queues(net, nvdev->num_chn);
 
+	net->gso_max_size = 62780;  //KYS
 	ret = register_netdev(net);
 	if (ret != 0) {
 		pr_err("Unable to register netdev.\n");
