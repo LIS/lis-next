@@ -1913,15 +1913,16 @@ static inline int insert_handle(struct hvnd_dev *dev, struct idr *idr,
 {
 	int ret;
 	int newid;
+	unsigned long flags;
 
 	do {
 		if (!idr_pre_get(idr, GFP_KERNEL)) {
 			return -ENOMEM;
 		}
-		spin_lock_irq(&dev->id_lock);
+		spin_lock_irqsave(&dev->id_lock, flags);
 		ret = idr_get_new_above(idr, handle, id, &newid);
 		BUG_ON(newid != id);
-		spin_unlock_irq(&dev->id_lock);
+		spin_unlock_irqrestore(&dev->id_lock, flags);
 	} while (ret == -EAGAIN);
 
 	return ret;
