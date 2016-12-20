@@ -2381,6 +2381,10 @@ int hvnd_query_adaptor(struct hvnd_dev *nd_dev, struct hvnd_ucontext *uctx)
 	struct pkt_nd_query_adaptor *pkt;
 	int ret;
 	int pkt_type;
+#if (RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(7,3))
+	struct ib_device_attr *props = &nd_dev->ibdev.attrs;
+	struct adapter_info_v2 *adap_info = &nd_dev->query_pkt.ioctl.ad_info;
+#endif
 
 	hvnd_debug("Performing Adapter query nd_dev=%p\n", nd_dev);
 
@@ -2432,6 +2436,8 @@ int hvnd_query_adaptor(struct hvnd_dev *nd_dev, struct hvnd_ucontext *uctx)
 
 	hvnd_debug("pkt->ioctl.ad_info.inline_request_threshold=%d\n", pkt->ioctl.ad_info.inline_request_threshold);
 
+	nd_dev->query_pkt_set = true;
+
 	// how about host returning PENDING
 	up(&nd_dev->query_pkt_sem);
 
@@ -2439,7 +2445,37 @@ int hvnd_query_adaptor(struct hvnd_dev *nd_dev, struct hvnd_ucontext *uctx)
 		return ret;
 
 	hvnd_debug("Query Adaptor Succeeded\n");
-	nd_dev->query_pkt_set = true;
+
+#if (RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(7,3))
+	/*
+	 * Cache the relevant properties out.
+	*/
+	props->fw_ver = 0;
+	props->device_cap_flags    = 0;
+
+	props->vendor_id           =  0x15b3;
+	props->vendor_part_id      = adap_info->device_id;
+
+	props->max_mr_size         = ~0ull;
+	props->page_size_cap       = PAGE_SIZE;
+	props->max_qp              = 16384;
+	props->max_qp_wr           = min(adap_info->max_recv_q_depth,
+					 adap_info->max_initiator_q_depth);
+
+	props->max_sge             = min(adap_info->max_initiator_sge,
+					 adap_info->max_recv_sge);
+	props->max_cq              = 0x1FFFF;
+	props->max_cqe             = adap_info->max_completion_q_depth;
+	props->max_mr              = 16384;
+	props->max_pd              = 16384;
+
+	props->max_qp_rd_atom      = adap_info->max_inbound_read_limit;
+	props->max_qp_init_rd_atom = adap_info->max_outbound_read_limit;
+	props->max_res_rd_atom     = props->max_qp_rd_atom * props->max_qp;
+	props->max_srq             = 16384;
+	props->max_srq_wr          = adap_info->max_recv_q_depth;
+	props->max_srq_sge         = adap_info->max_recv_sge;
+#endif
 
 	return 0;
 }
