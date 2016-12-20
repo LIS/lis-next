@@ -17,6 +17,7 @@
  * Bug fixes/enhancements: Long Li <longli@microsoft.com>
  */
 
+#include <linux/version.h>
 #include <linux/completion.h>
 #include <linux/module.h>
 #include <linux/errno.h>
@@ -117,6 +118,9 @@ int hvnd_get_neigh_mac_addr(struct sockaddr *local, struct sockaddr *remote, cha
 	int ret;
 
 	memset(&dev_addr, 0, sizeof(dev_addr));
+#if (RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(7,3))
+	dev_addr.net = &init_net;
+#endif
 	ctx.addr = &dev_addr;
 	init_completion(&ctx.comp);
 
