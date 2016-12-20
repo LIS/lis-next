@@ -548,6 +548,11 @@ static struct ib_pd *hvnd_allocate_pd(struct ib_device *ibdev,
 	int ret;
 	struct hvnd_ib_pd *hvnd_pd;
 
+	if (!context) {
+		hvnd_error("kernel mode context not supported\n");
+		return ERR_PTR(-EINVAL);
+	}
+
 
 	hvnd_pd = kzalloc(sizeof(struct hvnd_ib_pd), GFP_KERNEL);
 
