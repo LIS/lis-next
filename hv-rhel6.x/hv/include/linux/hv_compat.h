@@ -30,7 +30,7 @@
 #define CN_VSS_IDX	0xA
 #define CN_VSS_VAL	0x1
 
-#define HV_DRV_VERSION	"4.1.2"
+#define HV_DRV_VERSION	"4.2.0-Beta-01"
 
 
 #ifdef __KERNEL__
@@ -241,7 +241,7 @@ skb_set_hash(struct sk_buff *skb, __u32 hash, int type)
 static inline __u32
 skb_get_hash(struct sk_buff *skb)
 {
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,8))
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,9))
         return skb->hash;
 #else
 	__u32 hash;
