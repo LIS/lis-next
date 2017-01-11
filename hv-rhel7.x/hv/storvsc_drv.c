@@ -2274,11 +2274,14 @@ static int storvsc_probe(struct hv_device *device,
 #ifdef CONFIG_X86_64
 	host->sg_tablesize = (stor_device->max_transfer_bytes >> PAGE_SHIFT);
 #endif
+
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,2))
 	/*
 	 * Set the number of HW queues we are supporting.
 	 */
 	if (stor_device->num_sc != 0)
 		host->nr_hw_queues = stor_device->num_sc + 1;
+#endif
 
 	/* Register the HBA and start the scsi bus scan */
 	ret = scsi_add_host(host, &device->device);
