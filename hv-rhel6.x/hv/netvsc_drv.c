@@ -1623,7 +1623,7 @@ static struct  hv_driver netvsc_drv = {
 static int netvsc_netdev_event(struct notifier_block *this,
 			       unsigned long event, void *ptr)
 {
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,8))
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,9))
 	/* Not in RHEL 6.8 kernel - check again when 6.9 releases - NHM */
 	struct net_device *event_dev = netdev_notifier_info_to_dev(ptr);
 #else

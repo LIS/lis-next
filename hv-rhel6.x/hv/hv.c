@@ -645,7 +645,7 @@ void hv_synic_init(void *arg)
  * hv_synic_clockevents_cleanup - Cleanup clockevent devices
  */
 
-#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,9))
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,9))
 void hv_synic_clockevents_cleanup(void)
 {
 	int cpu;
