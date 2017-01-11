@@ -2064,6 +2064,9 @@ static struct scsi_host_template scsi_driver = {
 	.use_clustering =	ENABLE_CLUSTERING,
 	/* Make sure we dont get a sg segment crosses a page boundary */
 	.dma_boundary =		PAGE_SIZE-1,
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,3))
+	.track_queue_depth =	1,
+#endif
 };
 
 enum {
