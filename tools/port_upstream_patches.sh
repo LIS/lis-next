@@ -69,8 +69,8 @@ for patchfile in ${PATCHDIR}/*.patch; do
 	sed -i 's/+++ b\/drivers\/hv/+++ b/g' $patchfile
 	sed -i 's/--- a\/drivers\/scsi/--- a/g' $patchfile
 	sed -i 's/+++ b\/drivers\/scsi/+++ b/g' $patchfile
-	sed -i 's/--- a\/tools\/hv/--- a\/tools/g' $patchfile
-	sed -i 's/+++ b\/tools\/hv/+++ b\/tools/g' $patchfile
+	sed -i 's/--- a\/tools\/hv\//--- a\/tools\//g' $patchfile
+	sed -i 's/+++ b\/tools\/hv\//+++ b\/tools\//g' $patchfile
 	sed -i 's/--- a\/drivers\/net\/hyperv/ --- a/g' $patchfile
 	sed -i 's/+++ b\/drivers\/net\/hyperv/ +++ b/g' $patchfile
 
