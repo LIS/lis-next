@@ -22,8 +22,6 @@
  */
 
 
-#include <sys/types.h>
-#include <sys/socket.h>
 #include <sys/poll.h>
 #include <sys/utsname.h>
 #include <stdio.h>
@@ -34,7 +32,6 @@
 #include <errno.h>
 #include <arpa/inet.h>
 #include "../include/uapi/linux/hyperv.h"
-#include <linux/netlink.h>
 #include <ifaddrs.h>
 #include <netdb.h>
 #include <syslog.h>
@@ -97,12 +94,12 @@ static struct utsname uts_buf;
 
 #define KVP_CONFIG_LOC	"/var/lib/hyperv"
 
+#ifndef KVP_SCRIPTS_PATH
+#define KVP_SCRIPTS_PATH "/usr/libexec/hypervkvpd/"
+#endif
+
 #define MAX_FILE_NAME 100
 #define ENTRIES_PER_BLOCK 50
-
-#ifndef SOL_NETLINK
-#define SOL_NETLINK 270
-#endif
 
 struct kvp_record {
 	char key[HV_KVP_EXCHANGE_MAX_KEY_SIZE];
@@ -709,7 +706,7 @@ static char *kvp_mac_to_if_name(char *mac)
 	if (dir == NULL)
 		return NULL;
 
-	snprintf(dev_id, sizeof(dev_id), kvp_net_dir);
+	snprintf(dev_id, sizeof(dev_id), "%s", kvp_net_dir);
 	q = dev_id + strlen(kvp_net_dir);
 
 	while ((entry = readdir(dir)) != NULL) {
@@ -832,7 +829,7 @@ static void kvp_get_ipconfig_info(char *if_name,
 	 * .
 	 */
 
-	sprintf(cmd, "%s",  "hv_get_dns_info");
+	sprintf(cmd, KVP_SCRIPTS_PATH "%s",  "hv_get_dns_info");
 
 	/*
 	 * Execute the command to gather DNS info.
@@ -849,7 +846,7 @@ static void kvp_get_ipconfig_info(char *if_name,
 	 * Enabled: DHCP enabled.
 	 */
 
-	sprintf(cmd, "%s %s", "hv_get_dhcp_info", if_name);
+	sprintf(cmd, KVP_SCRIPTS_PATH "%s %s", "hv_get_dhcp_info", if_name);
 
 	file = popen(cmd, "r");
 	if (file == NULL)
@@ -1355,7 +1352,8 @@ static int kvp_set_ip_info(char *if_name, struct hv_kvp_ipaddr_value *new_val)
 	 * invoke the external script to do its magic.
 	 */
 
-	snprintf(cmd, sizeof(cmd), "%s %s", "hv_set_ifconfig", if_file);
+	snprintf(cmd, sizeof(cmd), KVP_SCRIPTS_PATH "%s %s",
+		 "hv_set_ifconfig", if_file);
 	if (system(cmd)) {
 		syslog(LOG_ERR, "Failed to execute cmd '%s'; error: %d %s",
 				cmd, errno, strerror(errno));
