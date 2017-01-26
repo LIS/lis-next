@@ -61,7 +61,7 @@ static DECLARE_WORK(fcopy_send_work, fcopy_send_data);
 static char fcopy_devname[] = "vmbus/hv_fcopy";
 static u8 *recv_buffer;
 static struct hvutil_transport *hvt;
-static struct completion rel_wait_event;
+static struct completion release_event;
 
 /*
  * This state maintains the version number registered by the daemon.
@@ -320,7 +320,7 @@ static void fcopy_on_reset(void)
 
 	if (cancel_delayed_work_sync(&fcopy_timeout_work))
 		fcopy_respond_to_host(HV_E_FAIL);
-	complete(&rel_wait_event);
+	complete(&release_event);
 }
 
 int hv_fcopy_init(struct hv_util_service *srv)
@@ -328,7 +328,7 @@ int hv_fcopy_init(struct hv_util_service *srv)
 	recv_buffer = srv->recv_buffer;
 	fcopy_transaction.recv_channel = srv->channel;
 
-	init_completion(&rel_wait_event);
+	init_completion(&release_event);
 	/*
 	 * When this driver loads, the user level daemon that
 	 * processes the host requests may not yet be running.
@@ -350,5 +350,5 @@ void hv_fcopy_deinit(void)
 	fcopy_transaction.state = HVUTIL_DEVICE_DYING;
 	cancel_delayed_work_sync(&fcopy_timeout_work);
 	hvutil_transport_destroy(hvt);
-	wait_for_completion_timeout(&rel_wait_event, 30*HZ);
+	wait_for_completion(&release_event);
 }
