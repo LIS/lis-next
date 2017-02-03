@@ -134,7 +134,7 @@ static const struct vmbus_device vmbus_devs[] = {
 	},
 
 	/* Unknown GUID */
-	{ .dev_type = HV_UNKOWN,
+	{ .dev_type = HV_UNKNOWN,
 	  .perf_device = false,
 	},
 };
@@ -186,9 +186,9 @@ static u16 hv_get_dev_type(const struct vmbus_channel *channel)
 	u16 i;
 
 	if (is_hvsock_channel(channel) || is_unsupported_vmbus_devs(guid))
-		return HV_UNKOWN;
+		return HV_UNKNOWN;
 
-	for (i = HV_IDE; i < HV_UNKOWN; i++) {
+	for (i = HV_IDE; i < HV_UNKNOWN; i++) {
 		/* deviation from upstream - NHM */
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
 		if (!memcmp(guid->b, vmbus_devs[i].guid, sizeof(uuid_le)))
@@ -420,6 +420,7 @@ void vmbus_free_channels(void)
 {
 	struct vmbus_channel *channel, *tmp;
 
+	mutex_lock(&vmbus_connection.channel_mutex);
 	list_for_each_entry_safe(channel, tmp, &vmbus_connection.chn_list,
 		listentry) {
 		/* hv_process_channel_removal() needs this */
@@ -427,6 +428,7 @@ void vmbus_free_channels(void)
 
 		vmbus_device_unregister(channel->device_obj);
 	}
+	mutex_unlock(&vmbus_connection.channel_mutex);
 }
 
 
