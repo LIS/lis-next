@@ -1,0 +1,60 @@
+#!/bin/bash
+#
+### BEGIN INIT INFO
+# Provides:          hv_fcopy_daemon
+# Required-Start:    $null
+# Should-Start:      $syslog $remote_fs $time
+# Required-Stop:     $null
+# Should-Stop:       $syslog $remote_fs $time
+# Default-Start:     3 5
+# Default-Stop:      0 1 2 6
+# Short-Description: hv_fcopy_daemon provides info to the host
+# Description:       Start hv_fcopy_daemon to allow the host to query this guest
+### END INIT INFO
+
+. /etc/rc.d/init.d/functions
+
+RETVAL=0
+HV_FCOPY_BIN=/usr/sbin/hv_fcopy_daemon
+
+# Check for missing binaries
+test -x $HV_FCOPY_BIN || { echo "$HV_FCOPY_BIN not installed";
+	if [ "$1" = "stop" ]; then exit 0;
+	else exit 5; fi; }
+
+start(){
+	if ! status $HV_FCOPY_BIN >&/dev/null; then
+		echo -n "Starting Hyper-V FCOPY daemon "
+		daemon $HV_FCOPY_BIN
+		RETVAL=$?
+	else
+		echo -n "Hyper-V FCOPY daemon is already started"
+	fi
+	echo
+}
+
+stop(){
+	echo -n "Shutting down Hyper-V FCOPY daemon "
+	killproc $HV_FCOPY_BIN
+	RETVAL=$?
+	echo
+}
+
+case "$1" in
+  start)
+	start
+        ;;
+  stop)
+	stop
+        ;;
+  status)
+	status $HV_FCOPY_BIN
+	RETVAL=$?
+        ;;
+  *)
+        echo $"Usage: $0 {start|stop|status}"
+        exit 1
+esac
+
+exit $RETVAL
+
