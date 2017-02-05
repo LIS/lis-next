@@ -807,8 +807,8 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 	 * is done.
 	 * TODO - use NAPI?
 	 */
-	netif_rx(skb);
-	rcu_read_unlock();
+	netif_receive_skb(skb);
+  rcu_read_unlock();
 
 	return 0;
 }
