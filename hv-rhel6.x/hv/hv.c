@@ -623,7 +623,7 @@ void hv_synic_init(void *arg)
 	 * of cpuid and Linux' notion of cpuid.
 	 * This array will be indexed using Linux cpuid.
 	 */
-	rdmsrl(HV_X64_MSR_VP_INDEX, vp_index);
+	hv_get_vp_index(vp_index);
 	hv_context.vp_index[cpu] = (u32)vp_index;
 
 #ifdef NOTYET
