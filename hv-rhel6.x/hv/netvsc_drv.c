@@ -751,7 +751,7 @@ vf_injection_done:
 	 * is done.
 	 * TODO - use NAPI?
 	 */
-	netif_rx(skb);
+	netif_receive_skb(skb);
 
 	return 0;
 }
