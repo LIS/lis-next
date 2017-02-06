@@ -573,7 +573,6 @@ void hv_synic_free(void)
  */
 void hv_synic_init(void *arg)
 {
-	u64 version;
 	union hv_synic_simp simp;
 	union hv_synic_siefp siefp;
 	union hv_synic_sint shared_sint;
@@ -584,9 +583,6 @@ void hv_synic_init(void *arg)
 
 	if (!hv_context.hypercall_page)
 		return;
-
-	/* Check the version */
-	rdmsrl(HV_X64_MSR_SVERSION, version);
 
 	/* Setup the Synic's message page */
 	rdmsrl(HV_X64_MSR_SIMP, simp.as_uint64);
@@ -627,7 +623,7 @@ void hv_synic_init(void *arg)
 	 * of cpuid and Linux' notion of cpuid.
 	 * This array will be indexed using Linux cpuid.
 	 */
-	rdmsrl(HV_X64_MSR_VP_INDEX, vp_index);
+	hv_get_vp_index(vp_index);
 	hv_context.vp_index[cpu] = (u32)vp_index;
 
 #ifdef NOTYET
