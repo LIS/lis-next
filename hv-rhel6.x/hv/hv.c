@@ -573,7 +573,6 @@ void hv_synic_free(void)
  */
 void hv_synic_init(void *arg)
 {
-	u64 version;
 	union hv_synic_simp simp;
 	union hv_synic_siefp siefp;
 	union hv_synic_sint shared_sint;
@@ -584,9 +583,6 @@ void hv_synic_init(void *arg)
 
 	if (!hv_context.hypercall_page)
 		return;
-
-	/* Check the version */
-	rdmsrl(HV_X64_MSR_SVERSION, version);
 
 	/* Setup the Synic's message page */
 	rdmsrl(HV_X64_MSR_SIMP, simp.as_uint64);
@@ -627,7 +623,7 @@ void hv_synic_init(void *arg)
 	 * of cpuid and Linux' notion of cpuid.
 	 * This array will be indexed using Linux cpuid.
 	 */
-	rdmsrl(HV_X64_MSR_VP_INDEX, vp_index);
+	hv_get_vp_index(vp_index);
 	hv_context.vp_index[cpu] = (u32)vp_index;
 
 #ifdef NOTYET
@@ -654,7 +650,7 @@ void hv_synic_clockevents_cleanup(void)
 	if (!(ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE))
 		return;
 
-	for_each_online_cpu(cpu)
+	for_each_present_cpu(cpu)
 		clockevents_unbind_device(hv_context.clk_evt[cpu], cpu);
 }
 #endif
@@ -673,11 +669,17 @@ void hv_synic_cleanup(void *arg)
 	if (!hv_context.synic_initialized)
 		return;
 
-#if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 18)
 	/* Turn off clockevent device */
-	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,9))
+	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE) {
+		clockevents_unbind_device(hv_context.clk_evt[cpu], cpu);
 		hv_ce_setmode(CLOCK_EVT_MODE_SHUTDOWN,
 			      hv_context.clk_evt[cpu]);
+	}
+#else
+	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
+                hv_ce_setmode(CLOCK_EVT_MODE_SHUTDOWN,
+                              hv_context.clk_evt[cpu]);
 #endif
 
 	rdmsrl(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT, shared_sint.as_uint64);
