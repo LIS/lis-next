@@ -45,14 +45,6 @@
 
 #define RING_SIZE_MIN 64
 #define LINKCHANGE_INT (2 * HZ)
-#define NETVSC_HW_FEATURES	(NETIF_F_RXCSUM | \
-				 NETIF_F_SG | \
-				 NETIF_F_TSO | \
-				 NETIF_F_TSO6 | \
-				 NETIF_F_HW_CSUM)
-
-/* Restrict GSO size to account for NVGRE */
-#define NETVSC_GSO_MAX_SIZE	62768
 
 static int ring_size = 128;
 module_param(ring_size, int, S_IRUGO);
@@ -330,35 +322,27 @@ static int netvsc_get_slots(struct sk_buff *skb)
 	return slots + frag_slots;
 }
 
-static u32 get_net_transport_info(struct sk_buff *skb, u32 *trans_off)
+static u32 net_checksum_info(struct sk_buff *skb)
 {
-	u32 ret_val = TRANSPORT_INFO_NOT_IP;
+	skb_reset_mac_header(skb);  //NHM - is this needed?
 
-	skb_reset_mac_header(skb);
+	if (skb->protocol == htons(ETH_P_IP)) {
+		struct iphdr *ip = ip_hdr(skb);
 
-	if ((eth_hdr(skb)->h_proto != htons(ETH_P_IP)) &&
-		(eth_hdr(skb)->h_proto != htons(ETH_P_IPV6))) {
-		goto not_ip;
-	}
-
-	*trans_off = skb_transport_offset(skb);
-
-	if ((eth_hdr(skb)->h_proto == htons(ETH_P_IP))) {
-		struct iphdr *iphdr = ip_hdr(skb);
-
-		if (iphdr->protocol == IPPROTO_TCP)
-			ret_val = TRANSPORT_INFO_IPV4_TCP;
-		else if (iphdr->protocol == IPPROTO_UDP)
-			ret_val = TRANSPORT_INFO_IPV4_UDP;
+		if (ip->protocol == IPPROTO_TCP)
+			return TRANSPORT_INFO_IPV4_TCP;
+		else if (ip->protocol == IPPROTO_UDP)
+			return TRANSPORT_INFO_IPV4_UDP;
 	} else {
-		if (ipv6_hdr(skb)->nexthdr == IPPROTO_TCP)
-			ret_val = TRANSPORT_INFO_IPV6_TCP;
+		struct ipv6hdr *ip6 = ipv6_hdr(skb);
+
+		if (ip6->nexthdr == IPPROTO_TCP)
+			return TRANSPORT_INFO_IPV6_TCP;
 		else if (ipv6_hdr(skb)->nexthdr == IPPROTO_UDP)
-			ret_val = TRANSPORT_INFO_IPV6_UDP;
+			return TRANSPORT_INFO_IPV6_UDP;
 	}
 
-not_ip:
-	return ret_val;
+	return TRANSPORT_INFO_NOT_IP;
 }
 
 static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
@@ -371,9 +355,6 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	struct rndis_packet *rndis_pkt;
 	u32 rndis_msg_size;
 	struct rndis_per_packet_info *ppi;
-	struct ndis_tcp_ip_checksum_info *csum_info;
-	int  hdr_offset;
-	u32 net_trans_info;
 	u32 hash;
 	u32 skb_length;
 	struct hv_page_buffer page_buf[MAX_PAGE_BUFFER_COUNT];
@@ -471,12 +452,6 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 				VLAN_PRIO_SHIFT;
 	}
 
-	net_trans_info = get_net_transport_info(skb, &hdr_offset);
-
-	/*
-	 * Setup the sendside checksum offload only if this is not a
-	 * GSO packet.
-	 */
 	if (skb_is_gso(skb)) {
 		struct ndis_tcp_lso_info *lso_info;
 
@@ -488,7 +463,7 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 							ppi->ppi_offset);
 
 		lso_info->lso_v2_transmit.type = NDIS_TCP_LARGE_SEND_OFFLOAD_V2_TYPE;
-		if (net_trans_info & (INFO_IPV4 << 16)) {
+		if (skb->protocol == htons(ETH_P_IP)) {
 			lso_info->lso_v2_transmit.ip_version =
 				NDIS_TCP_LARGE_SEND_OFFLOAD_IPV4;
 			ip_hdr(skb)->tot_len = 0;
@@ -504,11 +479,12 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 				~csum_ipv6_magic(&ipv6_hdr(skb)->saddr,
 						 &ipv6_hdr(skb)->daddr, 0, IPPROTO_TCP, 0);
 		}
-		lso_info->lso_v2_transmit.tcp_header_offset = hdr_offset;
+		lso_info->lso_v2_transmit.tcp_header_offset = skb_transport_offset(skb);
 		lso_info->lso_v2_transmit.mss = skb_shinfo(skb)->gso_size;
-
 	} else if (skb->ip_summed == CHECKSUM_PARTIAL) {
-		if (net_trans_info & INFO_TCP) {
+		if (net_checksum_info(skb) & net_device_ctx->tx_checksum_mask) {
+			struct ndis_tcp_ip_checksum_info *csum_info;
+
 			rndis_msg_size += NDIS_CSUM_PPI_SIZE;
 			ppi = init_ppi_data(rndis_msg, NDIS_CSUM_PPI_SIZE,
 					    TCPIP_CHKSUM_PKTINFO);
@@ -516,15 +492,25 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 			csum_info = (struct ndis_tcp_ip_checksum_info *)((void *)ppi +
 									 ppi->ppi_offset);
 
-			if (net_trans_info & (INFO_IPV4 << 16))
+			csum_info->transmit.tcp_header_offset = skb_transport_offset(skb);
+
+			if (skb->protocol == htons(ETH_P_IP)) {
 				csum_info->transmit.is_ipv4 = 1;
-			else
+
+				if (ip_hdr(skb)->protocol == IPPROTO_TCP)
+					csum_info->transmit.tcp_checksum = 1;
+				else
+					csum_info->transmit.udp_checksum = 1;
+			} else {
 				csum_info->transmit.is_ipv6 = 1;
 
-			csum_info->transmit.tcp_checksum = 1;
-			csum_info->transmit.tcp_header_offset = hdr_offset;
+				if (ipv6_hdr(skb)->nexthdr == IPPROTO_TCP)
+					csum_info->transmit.tcp_checksum = 1;
+				else
+					csum_info->transmit.udp_checksum = 1;
+			}
 		} else {
-			/* UDP checksum (and other) offload is not supported. */
+			/* Can't do offload of this type of checksum */
 			if (skb_checksum_help(skb))
 				goto drop;
 		}
@@ -1517,12 +1503,6 @@ static int netvsc_probe(struct hv_device *dev,
 	net_device_ctx->vf_inject = false;
 
 	net->netdev_ops = &device_ops;
-
-#ifdef NOTYET
-	net->hw_features = NETVSC_HW_FEATURES;
-#endif
-	net->features = NETVSC_HW_FEATURES | NETIF_F_HW_VLAN_CTAG_TX;
-
 	net->ethtool_ops = &ethtool_ops;
 	SET_NETDEV_DEV(net, &dev->device);
 
@@ -1539,12 +1519,23 @@ static int netvsc_probe(struct hv_device *dev,
 	}
 	memcpy(net->dev_addr, device_info.mac_adr, ETH_ALEN);
 
+	/* hw_features computed in rndis_filter_device_add */
+#ifdef NOTYET
+	net->features = net->hw_features |
+		NETIF_F_HIGHDMA | NETIF_F_SG |
+		NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_HW_VLAN_CTAG_RX;
+#endif
+	net->features = NETIF_F_HIGHDMA | NETIF_F_SG |
+                NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_TSO | NETIF_F_TSO6 |
+		NETIF_F_HW_CSUM;
+
+	net->vlan_features = net->features;
+
 	nvdev = net_device_ctx->nvdev;
 	netif_set_real_num_tx_queues(net, nvdev->num_chn);
 #ifdef NOTYET
 	netif_set_real_num_rx_queues(net, nvdev->num_chn);
 #endif
-	netif_set_gso_max_size(net, NETVSC_GSO_MAX_SIZE);
 
 	dev_info(&dev->device, "real num tx,rx queues:%u, %u\n",
 		 net->real_num_tx_queues, nvdev->num_chn);
