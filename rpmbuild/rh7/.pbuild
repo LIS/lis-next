@@ -1,0 +1,120 @@
+
+# Configuration file for pbuild.  This file is normally stored in ~/.pbuild,
+# but can be customized with environment variable "PBUILD" (full path).
+#
+
+#
+# Default log file location
+# With no customization, you get:  "~/"  (expanded to your home directory)
+#
+# You can customize with lines like the following:
+# logdir: ~/pbuild_logs
+# logdir_prior: ~/pbuild_logs/prior
+#
+# If specified, logdir_prior forms a logfile directory that log files are
+# moved to prior to pbuild starting up.  This allows you to save one level
+# of prior log files from pbuild.
+#
+# Be certain to create the logfile directory prior to running pbuild
+
+logdir: ~/pbuild_logs
+#logdir_prior: ~/pbuild_logs/prior
+
+#
+# Default branch to build if unspecified on command line.
+# With no customization, you get:  ""  (no branch).
+#
+# If no default branch is defined, and no branch is specified on the command
+# line, then no host entries may contain branch specifications (for backwards
+# compatibility, or to insist that a branch is specified).
+#
+# NOTE: This line must appear before all host entries to be handled properly!
+#
+# You can customize with a line like the following:
+# branch: main
+
+branch: lis-40-rh6
+#branch: lis-40-rh5
+
+#
+# Systems to exclude in the build:
+# With no customization, you get:  ""
+#
+# You can customize with a line like the following:
+# exclude: sun_5.10_sparc,suse_9_32
+
+#
+# Settings that may be customized:
+# With no cusomization, you get:
+#   "CheckValidity,Debug,DeleteLogfiles,NoDiagnoseErrors,NoLogfileBranch,NoLogfileRename,Progress,SummaryScreen,TFProxStart"
+#
+# You can customize with a line like the following:
+#
+# settings: LogfileRename,NoSummaryScreen
+
+settings: NoCheckValidity,LogfileRename
+
+#
+# Per-project configuration options:
+#   Keyword:Project:value
+#
+# Valid keywords:  make_target, configure_options
+
+#configure_options : nip : --dev
+
+#
+# Test settings that may be customized:
+# Attributes are controlled with "test_attributes",
+# Test names are controlled with "test_names".
+#
+# With no customization, you get all tests (no restrictions)
+#
+# You can customize with a line like the following:
+#
+# test_attributes: -slow
+# test_names: atomic,condition
+
+#
+# This rest of the file contains lines with three pieces of information per
+# line (space separated):
+#   Optional: "Host:" constant to specify that this is a host entry
+#   Key (name for referring to the entry)
+#   Host name (DNS name or IP address)
+#   Directory path on host
+#   Optional: Branch specification (to match with command line and/or default)
+#   Optional: Project (must specify branch to specify project)
+#      Project must be one of:
+#         om (for Operations Manager)
+#         cm (for Configuration Manager), or
+#         nw (for NanoWEBM)
+#      If not specified, will default to om
+
+# Lis 4.0 branch build rpm
+host:	rhel-55x32		10.200.50.133   	~/rpmbuild/SOURCES		lis-40-rh5		om
+host:	rhel-55x64		10.200.49.102   	~/rpmbuild/SOURCES		lis-40-rh5		om
+host:	rhel-56x32		10.200.49.92	   	~/rpmbuild/SOURCES		lis-40-rh5		om
+host:	rhel-56x64		10.200.51.84	   	~/rpmbuild/SOURCES		lis-40-rh5		om
+host:	rhel-57x32		10.200.49.84	   	~/rpmbuild/SOURCES		lis-40-rh5		om
+host:	rhel-57x64		10.200.49.79	   	~/rpmbuild/SOURCES		lis-40-rh5		om
+host:	rhel-58x32		10.200.49.76	   	~/rpmbuild/SOURCES		lis-40-rh5		om
+host:	rhel-58x64		10.200.49.108	   	~/rpmbuild/SOURCES		lis-40-rh5		om
+host:	rhel-59x32		10.200.50.73 		~/rpmbuild/SOURCES		lis-40-rh5		om
+host:	rhel-59x64		10.200.49.165 		~/rpmbuild/SOURCES		lis-40-rh5		om
+host:	rhel-510x32		10.200.49.125 		~/rpmbuild/SOURCES		lis-40-rh5		om
+host:	rhel-510x64		10.200.49.166 		~/rpmbuild/SOURCES		lis-40-rh5		om
+host:	rhel-511x32		10.200.49.124 		~/rpmbuild/SOURCES		lis-40-rh5		om
+host:	rhel-511x64		10.200.49.176 		~/rpmbuild/SOURCES		lis-40-rh5		om
+host:	rhel-60x32		10.200.48.127  		~/rpmbuild/SOURCES		lis-40-rh6		om
+host:	rhel-60x64		10.200.50.21  		~/rpmbuild/SOURCES		lis-40-rh6		om
+host:	rhel-61x32		10.200.48.75  		~/rpmbuild/SOURCES		lis-40-rh6		om
+host:	rhel-61x64		10.200.48.74  		~/rpmbuild/SOURCES		lis-40-rh6		om
+host:	rhel-62x32		10.200.51.176  		~/rpmbuild/SOURCES		lis-40-rh6		om
+host:	rhel-62x64		10.200.51.175  		~/rpmbuild/SOURCES		lis-40-rh6		om
+host:	rhel-63x32		10.200.48.129 		~/rpmbuild/SOURCES		lis-40-rh6		om
+host:	rhel-63x64		10.200.51.206  		~/rpmbuild/SOURCES		lis-40-rh6		om
+host:	rhel-64x32		10.200.48.130 		~/rpmbuild/SOURCES		lis-40-rh6		om
+host:	rhel-64x64      	10.200.51.187 		~/rpmbuild/SOURCES		lis-40-rh6		om
+host:	rhel-65x32		10.200.48.128 		~/rpmbuild/SOURCES		lis-40-rh6		om
+host:	rhel-65x64		10.200.51.149 		~/rpmbuild/SOURCES		lis-40-rh6		om
+host:	rhel-66x32		10.200.51.174 		~/rpmbuild/SOURCES		lis-40-rh6		om
+host:	rhel-66x64     		10.200.51.152        	~/rpmbuild/SOURCES		lis-40-rh6      	om
