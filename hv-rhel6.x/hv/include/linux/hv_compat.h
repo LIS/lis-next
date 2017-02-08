@@ -649,6 +649,13 @@ static inline bool ether_addr_equal(const u8 *addr1, const u8 *addr2)
 }
 #endif
 
+#define for_each_clear_bit(bit, addr, size) \
+        for ((bit) = find_first_zero_bit((addr), (size));       \
+             (bit) < (size);                                    \
+             (bit) = find_next_zero_bit((addr), (size), (bit) + 1))
+
+
+
 #endif /* end ifdef __KERNEL */
 #endif /* end LINUX_VERSION_CODE <= KERNEL_VERSION(2, 6, 35) */
 #endif
