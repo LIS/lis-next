@@ -228,16 +228,6 @@ static inline bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 	return true;
 }
 
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,6))
-static inline void
-skb_set_hash(struct sk_buff *skb, __u32 hash, int type)
-{
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,6))
-        skb->rxhash = hash;
-#endif
-}
-#endif
-
 static inline __u32
 skb_get_hash(struct sk_buff *skb)
 {
