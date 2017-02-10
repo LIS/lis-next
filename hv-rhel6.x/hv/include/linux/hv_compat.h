@@ -645,6 +645,19 @@ static inline bool ether_addr_equal(const u8 *addr1, const u8 *addr2)
              (bit) < (size);                                    \
              (bit) = find_next_zero_bit((addr), (size), (bit) + 1))
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
+/**
+ * ethtool_rxfh_indir_default - get default value for RX flow hash indirection
+ * @index: Index in RX flow hash indirection table
+ * @n_rx_rings: Number of RX rings to use
+ *
+ * This function provides the default policy for RX flow hash indirection.
+ */
+static inline u32 ethtool_rxfh_indir_default(u32 index, u32 n_rx_rings)
+{
+        return index % n_rx_rings;
+}
+#endif
 
 
 #endif /* end ifdef __KERNEL */
