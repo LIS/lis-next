@@ -26,4 +26,7 @@ void hv_remove_kexec_handler(void);
 void hv_setup_crash_handler(void (*handler)(struct pt_regs *regs));
 void hv_remove_crash_handler(void);
 
+#define hv_get_synint_state(int_num, val) rdmsrl(int_num, val)
+#define hv_set_synint_state(int_num, val) wrmsrl(int_num, val)
+
 #endif
