@@ -31,4 +31,7 @@ void hv_remove_crash_handler(void);
 #define hv_get_synint_state(int_num, val) rdmsrl(int_num, val)
 #define hv_set_synint_state(int_num, val) wrmsrl(int_num, val)
 
+#define hv_get_simp(val) rdmsrl(HV_X64_MSR_SIMP, val)
+#define hv_set_simp(val) wrmsrl(HV_X64_MSR_SIMP, val)
+
 #endif
