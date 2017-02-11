@@ -593,12 +593,12 @@ void hv_synic_init(void *arg)
 	hv_set_simp(simp.as_uint64);
 
 	/* Setup the Synic's event page */
-	rdmsrl(HV_X64_MSR_SIEFP, siefp.as_uint64);
+	hv_get_siefp(siefp.as_uint64);
 	siefp.siefp_enabled = 1;
 	siefp.base_siefp_gpa = virt_to_phys(hv_context.synic_event_page[cpu])
 		>> PAGE_SHIFT;
 
-	wrmsrl(HV_X64_MSR_SIEFP, siefp.as_uint64);
+	hv_set_siefp(siefp.as_uint64);
 
 	/* Setup the shared SINT. */
 	hv_get_synint_state(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT,
@@ -700,11 +700,12 @@ void hv_synic_cleanup(void *arg)
 	simp.base_simp_gpa = 0;
 
 	hv_set_simp(simp.as_uint64);
-	rdmsrl(HV_X64_MSR_SIEFP, siefp.as_uint64);
+
+	hv_get_siefp(siefp.as_uint64);
 	siefp.siefp_enabled = 0;
 	siefp.base_siefp_gpa = 0;
 
-	wrmsrl(HV_X64_MSR_SIEFP, siefp.as_uint64);
+	hv_set_siefp(siefp.as_uint64);
 
 	/* Disable the global synic bit */
 	rdmsrl(HV_X64_MSR_SCONTROL, sctrl.as_uint64);
