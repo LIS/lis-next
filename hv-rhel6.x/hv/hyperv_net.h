@@ -156,6 +156,11 @@ enum rndis_device_state {
 	RNDIS_DEV_DATAINITIALIZED,
 };
 
+/* For 6.x, the following definition is in hv_compat.h 
+ *
+ *  #define NETVSC_HASH_KEYLEN 40
+ */
+
 struct rndis_device {
 	struct net_device *ndev;
 
@@ -166,7 +171,9 @@ struct rndis_device {
 	spinlock_t request_lock;
 	struct list_head req_list;
 
-	unsigned char hw_mac_adr[ETH_ALEN];
+	u8 hw_mac_adr[ETH_ALEN];
+	u8 rss_key[NETVSC_HASH_KEYLEN];
+	u16 ind_table[ITAB_NUM];
 };
 
 
@@ -194,6 +201,8 @@ int rndis_filter_close(struct netvsc_device *nvdev);
 int rndis_filter_device_add(struct hv_device *dev,
 			void *additional_info);
 void rndis_filter_device_remove(struct hv_device *dev);
+int rndis_filter_set_rss_param(struct rndis_device *rdev,
+			       const u8 *key, int num_queue);
 int rndis_filter_receive(struct hv_device *dev,
 			struct hv_netvsc_packet *pkt,
 			void **data,
@@ -623,6 +632,7 @@ struct nvsp_message {
 
 #define VRSS_SEND_TAB_SIZE 16
 #define VRSS_CHANNEL_MAX 64
+#define VRSS_CHANNEL_DEFAULT 8
 
 #define RNDIS_MAX_PKT_DEFAULT 8
 #define RNDIS_PKT_ALIGN_DEFAULT 8

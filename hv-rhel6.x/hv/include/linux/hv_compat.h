@@ -124,7 +124,8 @@ static inline void *vzalloc(unsigned long size)
 #define NDIS_RSS_HASH_SECRET_KEY_MAX_SIZE_REVISION_2   40
 #define HASH_KEYLEN NDIS_RSS_HASH_SECRET_KEY_MAX_SIZE_REVISION_2
 
-static u8 netvsc_hash_key[HASH_KEYLEN] = {
+#define NETVSC_HASH_KEYLEN 40
+static u8 netvsc_hash_key[NETVSC_HASH_KEYLEN] = {
 	0x6d, 0x5a, 0x56, 0xda, 0x25, 0x5b, 0x0e, 0xc2,
 	0x41, 0x67, 0x25, 0x3d, 0x43, 0xa3, 0x8f, 0xb0,
 	0xd0, 0xca, 0x2b, 0xcb, 0xae, 0x7b, 0x30, 0xb4,
@@ -227,16 +228,6 @@ static inline bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 	*hash = comp_hash(netvsc_hash_key, HASH_KEYLEN, dbuf, data_len);
 	return true;
 }
-
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,6))
-static inline void
-skb_set_hash(struct sk_buff *skb, __u32 hash, int type)
-{
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,6))
-        skb->rxhash = hash;
-#endif
-}
-#endif
 
 static inline __u32
 skb_get_hash(struct sk_buff *skb)
@@ -654,6 +645,19 @@ static inline bool ether_addr_equal(const u8 *addr1, const u8 *addr2)
              (bit) < (size);                                    \
              (bit) = find_next_zero_bit((addr), (size), (bit) + 1))
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
+/**
+ * ethtool_rxfh_indir_default - get default value for RX flow hash indirection
+ * @index: Index in RX flow hash indirection table
+ * @n_rx_rings: Number of RX rings to use
+ *
+ * This function provides the default policy for RX flow hash indirection.
+ */
+static inline u32 ethtool_rxfh_indir_default(u32 index, u32 n_rx_rings)
+{
+        return index % n_rx_rings;
+}
+#endif
 
 
 #endif /* end ifdef __KERNEL */

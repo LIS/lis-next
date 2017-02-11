@@ -50,8 +50,6 @@ static int ring_size = 128;
 module_param(ring_size, int, S_IRUGO);
 MODULE_PARM_DESC(ring_size, "Ring buffer size (# of pages)");
 
-static int max_num_vrss_chns = 8;
-
 static const u32 default_msg = NETIF_MSG_DRV | NETIF_MSG_PROBE |
 		NETIF_MSG_LINK | NETIF_MSG_IFUP |
 		NETIF_MSG_IFDOWN | NETIF_MSG_RX_ERR |
@@ -762,102 +760,76 @@ static void netvsc_get_channels(struct net_device *net,
 	}
 }
 
+static int netvsc_set_queues(struct net_device *net, struct hv_device *dev,
+			     u32 num_chn)
+{
+	struct netvsc_device_info device_info;
+	int ret;
+
+	memset(&device_info, 0, sizeof(device_info));
+	device_info.num_chn = num_chn;
+	device_info.ring_size = ring_size;
+	device_info.max_num_vrss_chns = num_chn;
+
+	ret = rndis_filter_device_add(dev, &device_info);
+	if (ret)
+		return ret;
+
+	ret = netif_set_real_num_tx_queues(net, num_chn);
+	if (ret)
+		return ret;
+
+	ret = netif_set_real_num_rx_queues(net, num_chn);
+
+	return ret;
+}
+
 static int netvsc_set_channels(struct net_device *net,
 			       struct ethtool_channels *channels)
 {
 	struct net_device_context *net_device_ctx = netdev_priv(net);
 	struct hv_device *dev = net_device_ctx->device_ctx;
 	struct netvsc_device *nvdev = net_device_ctx->nvdev;
-	struct netvsc_device_info device_info;
-	u32 num_chn;
-	u32 max_chn;
-	int ret = 0;
-	bool recovering = false;
+	unsigned int count = channels->combined_count;
+	int ret;
+
+	/* We do not support separate count for rx, tx, or other */
+	if (count == 0 ||
+	    channels->rx_count || channels->tx_count || channels->other_count)
+		return -EINVAL;
+
+	if (count > net->num_tx_queues || count > net->num_rx_queues)
+		return -EINVAL;
 
 	if (net_device_ctx->start_remove || !nvdev || nvdev->destroy)
 		return -ENODEV;
 
-	num_chn = nvdev->num_chn;
-	max_chn = min_t(u32, nvdev->max_chn, num_online_cpus());
-
-	if (nvdev->nvsp_version < NVSP_PROTOCOL_VERSION_5) {
-		pr_info("vRSS unsupported before NVSP Version 5\n");
-		return -EINVAL;
-	}
-
-	/* We do not support rx, tx, or other */
-	if (!channels ||
-	    channels->rx_count ||
-	    channels->tx_count ||
-	    channels->other_count ||
-	    (channels->combined_count < 1))
+	if (nvdev->nvsp_version < NVSP_PROTOCOL_VERSION_5)
 		return -EINVAL;
 
-	if (channels->combined_count > max_chn) {
-		pr_info("combined channels too high, using %d\n", max_chn);
-		channels->combined_count = max_chn;
-	}
+	if (count > nvdev->max_chn)
+		return -EINVAL;
 
 	ret = netvsc_close(net);
 	if (ret)
-		goto out;
+		return ret;
 
- do_set:
 	net_device_ctx->start_remove = true;
 	rndis_filter_device_remove(dev);
 
-	nvdev->num_chn = channels->combined_count;
+	ret = netvsc_set_queues(net, dev, count);
+	if (ret == 0)
+		nvdev->num_chn = count;
+	else
+		netvsc_set_queues(net, dev, nvdev->num_chn);
 
-	memset(&device_info, 0, sizeof(device_info));
-	device_info.num_chn = nvdev->num_chn; /* passed to RNDIS */
-	device_info.ring_size = ring_size;
-	device_info.max_num_vrss_chns = max_num_vrss_chns;
-
-	ret = rndis_filter_device_add(dev, &device_info);
-	if (ret) {
-		if (recovering) {
-			netdev_err(net, "unable to add netvsc device (ret %d)\n", ret);
-			return ret;
-		}
-		goto recover;
-	}
-
-	nvdev = net_device_ctx->nvdev;
-
-	ret = netif_set_real_num_tx_queues(net, nvdev->num_chn);
-	if (ret) {
-		if (recovering) {
-			netdev_err(net, "could not set tx queue count (ret %d)\n", ret);
-			return ret;
-		}
-		goto recover;
-	}
-
-	ret = netif_set_real_num_rx_queues(net, nvdev->num_chn);
-	if (ret) {
-		if (recovering) {
-			netdev_err(net, "could not set rx queue count (ret %d)\n", ret);
-			return ret;
-		}
-		goto recover;
-	}
-
- out:
 	netvsc_open(net);
 	net_device_ctx->start_remove = false;
+
 	/* We may have missed link change notifications */
 	schedule_delayed_work(&net_device_ctx->dwork, 0);
 
 	return ret;
-
- recover:
-	/* If the above failed, we attempt to recover through the same
-	 * process but with the original number of channels.
-	 */
-	netdev_err(net, "could not set channels, recovering\n");
-	recovering = true;
-	channels->combined_count = num_chn;
-	goto do_set;
 }
 #endif
 
@@ -920,8 +892,7 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 	struct hv_device *hdev = ndevctx->device_ctx;
 	struct netvsc_device_info device_info;
 	int limit = ETH_DATA_LEN;
-	u32 num_chn;
-	int ret = 0;
+	int ret;
 
 	if (ndevctx->start_remove || !nvdev || nvdev->destroy)
 		return -ENODEV;
@@ -936,8 +907,6 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 	if (ret)
 		goto out;
 
-	num_chn = nvdev->num_chn;
-
 	ndevctx->start_remove = true;
 	rndis_filter_device_remove(hdev);
 
@@ -945,8 +914,8 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 
 	memset(&device_info, 0, sizeof(device_info));
 	device_info.ring_size = ring_size;
-	device_info.num_chn = num_chn;
-	device_info.max_num_vrss_chns = max_num_vrss_chns;
+	device_info.num_chn = nvdev->num_chn;
+	device_info.max_num_vrss_chns = nvdev->num_chn;
 	rndis_filter_device_add(hdev, &device_info);
 
 out:
@@ -1073,6 +1042,32 @@ static void netvsc_get_strings(struct net_device *dev, u32 stringset, u8 *data)
 	}
 }
 
+static int
+netvsc_get_rss_hash_opts(struct netvsc_device *nvdev,
+			 struct ethtool_rxnfc *info)
+{
+	info->data = RXH_IP_SRC | RXH_IP_DST;
+
+	switch (info->flow_type) {
+	case TCP_V4_FLOW:
+	case TCP_V6_FLOW:
+		info->data |= RXH_L4_B_0_1 | RXH_L4_B_2_3;
+		/* fallthrough */
+	case UDP_V4_FLOW:
+	case UDP_V6_FLOW:
+#ifdef NOTYET
+	case IPV4_FLOW:
+	case IPV6_FLOW:
+#endif
+		break;
+	default:
+		info->data = 0;
+		break;
+	}
+
+	return 0;
+}
+
 #ifdef NOTYET
 static int
 netvsc_get_rxnfc(struct net_device *dev, struct ethtool_rxnfc *info,
@@ -1090,6 +1085,9 @@ netvsc_get_rxnfc(struct net_device *dev, struct ethtool_rxnfc *info,
 	case ETHTOOL_GRXRINGS:
 		info->data = nvdev->num_chn;
 		return 0;
+
+	case ETHTOOL_GRXFH:
+		return netvsc_get_rss_hash_opts(nvdev, info);
 	}
 	return -EOPNOTSUPP;
 }
@@ -1100,6 +1098,70 @@ static void netvsc_poll_controller(struct net_device *net)
 	/* As netvsc_start_xmit() works synchronous we don't have to
 	 * trigger anything here.
 	 */
+}
+#endif
+
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,9))
+static u32 netvsc_get_rxfh_key_size(struct net_device *dev)
+{
+	return NETVSC_HASH_KEYLEN;
+}
+
+static u32 netvsc_rss_indir_size(struct net_device *dev)
+{
+	return ITAB_NUM;
+}
+
+static int netvsc_get_rxfh(struct net_device *dev, u32 *indir, u8 *key,
+			   u8 *hfunc)
+{
+	struct net_device_context *ndc = netdev_priv(dev);
+	struct netvsc_device *ndev = ndc->nvdev;
+	struct rndis_device *rndis_dev = ndev->extension;
+	int i;
+
+	if (hfunc)
+		*hfunc = ETH_RSS_HASH_TOP;	/* Toeplitz */
+
+	if (indir) {
+		for (i = 0; i < ITAB_NUM; i++)
+			indir[i] = rndis_dev->ind_table[i];
+	}
+
+	if (key)
+		memcpy(key, rndis_dev->rss_key, NETVSC_HASH_KEYLEN);
+
+	return 0;
+}
+
+static int netvsc_set_rxfh(struct net_device *dev, const u32 *indir,
+			   const u8 *key, const u8 hfunc)
+{
+	struct net_device_context *ndc = netdev_priv(dev);
+	struct netvsc_device *ndev = ndc->nvdev;
+	struct rndis_device *rndis_dev = ndev->extension;
+	int i;
+
+	if (hfunc != ETH_RSS_HASH_NO_CHANGE && hfunc != ETH_RSS_HASH_TOP)
+		return -EOPNOTSUPP;
+
+	if (indir) {
+		for (i = 0; i < ITAB_NUM; i++)
+			if (indir[i] >= dev->num_rx_queues)
+				return -EINVAL;
+
+		for (i = 0; i < ITAB_NUM; i++)
+			rndis_dev->ind_table[i] = indir[i];
+	}
+
+	if (!key) {
+		if (!indir)
+			return 0;
+
+		key = rndis_dev->rss_key;
+	}
+
+	return rndis_filter_set_rss_param(rndis_dev, key, ndev->num_chn);
 }
 #endif
 
@@ -1117,6 +1179,12 @@ static const struct ethtool_ops ethtool_ops = {
 	.get_settings	= netvsc_get_settings,
 	.set_settings	= netvsc_set_settings,
 	.get_rxnfc	= netvsc_get_rxnfc,
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,9))
+	.get_rxfh_key_size = netvsc_get_rxfh_key_size,
+	.get_rxfh_indir_size = netvsc_rss_indir_size,
+	.get_rxfh	= netvsc_get_rxfh,
+	.set_rxfh	= netvsc_set_rxfh,
+#endif
 };
 
 static const struct net_device_ops device_ops = {
@@ -1477,7 +1545,7 @@ static int netvsc_probe(struct hv_device *dev,
 	int ret;
 
 	net = alloc_etherdev_mq(sizeof(struct net_device_context),
-				num_online_cpus());
+				VRSS_CHANNEL_MAX);
 	if (!net)
 		return -ENOMEM;
 
@@ -1531,7 +1599,8 @@ static int netvsc_probe(struct hv_device *dev,
 	/* Notify the netvsc driver of the new device */
 	memset(&device_info, 0, sizeof(device_info));
 	device_info.ring_size = ring_size;
-	device_info.max_num_vrss_chns = max_num_vrss_chns;
+	device_info.max_num_vrss_chns = min_t(u32, VRSS_CHANNEL_DEFAULT,
+					      num_online_cpus());
 	ret = rndis_filter_device_add(dev, &device_info);
 	if (ret != 0) {
 		netdev_err(net, "unable to add netvsc device (ret %d)\n", ret);
