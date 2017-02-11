@@ -29,6 +29,16 @@ build_pci=$(shell test $(rhel_release_code) -gt 1794; echo $$?)
 ifeq ($(build_pci),0)
         obj-m	+= pci-hyperv.o
 endif
+
+
+# UIO underlying function are not yet in rhel6.x so make it conditional for future release
+buildrdma=$(shell test $(rhel_release_code) -gt 1795; echo $$?)
+ifeq ($(buildrdma),0)
+        ifeq ($(arch), 64)
+                obj-m   += uio_hv_generic.o
+         endif
+endif
+
                                 
 ccflags-y += -I$(M)/include/
 
@@ -42,3 +52,4 @@ hv_netvsc-y := netvsc_drv.o netvsc.o rndis_filter.o
 hyperv_keyboard-y := hyperv-keyboard.o
 hv_network_direct-y := provider.o vmbus_rdma.o hvnd_addr.o
 hv_sock-y := af_hvsock.o
+hv_uio_generic-y := uio_hv_generic.o

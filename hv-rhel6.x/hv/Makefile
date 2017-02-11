@@ -24,6 +24,14 @@ ifeq ($(buildrdma),0)
         endif
 endif
 
+# UIO underlying function are not yet in rhel6.x so make it conditional for future release
+buildrdma=$(shell test $(rhel_release_code) -ge 1545; echo $$?)
+ifeq ($(buildrdma),0)
+        ifeq ($(arch), 64)
+		obj-m   += uio_hv_generic.o
+	 endif
+endif
+
 ccflags-y += -I$(M)/include/
 
 # Get extra kernel version information beyond LINUX_VERSION_CODE or RHEL_RELEASE_CODE.
@@ -43,12 +51,12 @@ else
 	ccflags-y += -DEXTRAVERSION2=0
 endif
 
-hv_vmbus-y := vmbus_drv.o \
+hv_vmbus-y	:= vmbus_drv.o \
 		 hv.o connection.o channel.o \
 		 channel_mgmt.o ring_buffer.o
-hv_utils-y := hv_util.o hv_kvp.o hv_snapshot.o hv_fcopy.o hv_utils_transport.o
-
+hv_utils-y	:= hv_util.o hv_kvp.o hv_snapshot.o hv_fcopy.o hv_utils_transport.o
 hv_storvsc-y := storvsc_drv.o
+hv_uio_generic-y := uio_hv_generic.o
 hv_netvsc-y := netvsc_drv.o netvsc.o rndis_filter.o
 hyperv_keyboard-y := hyperv-keyboard.o
 hv_network_direct-y := provider.o vmbus_rdma.o hvnd_addr.o
