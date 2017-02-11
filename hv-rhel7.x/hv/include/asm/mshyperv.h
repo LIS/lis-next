@@ -34,5 +34,7 @@ void hv_remove_crash_handler(void);
 
 #define hv_get_siefp(val) rdmsrl(HV_X64_MSR_SIEFP, val)
 #define hv_set_siefp(val) wrmsrl(HV_X64_MSR_SIEFP, val)
+#define hv_get_synic_state(val) rdmsrl(HV_X64_MSR_SCONTROL, val)
+#define hv_set_synic_state(val) wrmsrl(HV_X64_MSR_SCONTROL, val)
 
 #endif
