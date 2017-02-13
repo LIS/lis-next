@@ -259,7 +259,7 @@ static int kvp_file_init(void)
 			return 1;
 		}
 
-		record = malloc(alloc_unit * num_blocks);
+		record = calloc(num_blocks, alloc_unit);
 		if (record == NULL) {
 			fclose(filep);
 			close(fd);
