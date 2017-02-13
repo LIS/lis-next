@@ -35,7 +35,8 @@
 #include <scsi/scsi_driver.h>
 #include <scsi/scsi_eh.h>
 #include <scsi/scsi_host.h>
-
+#include <net/tcp_states.h>
+#include <net/sock.h>
 
 #define CN_KVP_IDX	0x9
 
@@ -458,6 +459,19 @@ static inline void dev_consume_skb_any(struct sk_buff *skb)
 	dev_kfree_skb_any(skb);
 }
 #endif
+
+
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
+/* This helper checks if a socket is a full socket,
+ * ie _not_ a timewait socket.
+ */
+static inline bool sk_fullsock(const struct sock *sk)
+{
+        return (1 << sk->sk_state) & ~(TCPF_TIME_WAIT);
+}
+#endif
+
+
 
 #endif //#ifdef __KERNEL__
 #endif //#if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 10, 0)
