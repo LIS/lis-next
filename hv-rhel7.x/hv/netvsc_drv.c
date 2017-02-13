@@ -1522,7 +1522,6 @@ static int netvsc_vf_down(struct net_device *vf_netdev, bool rndis_close)
 static int netvsc_unregister_vf(struct net_device *vf_netdev)
 {
 	struct net_device *ndev;
-	struct netvsc_device *netvsc_dev;
 	struct net_device_context *net_device_ctx;
 
 	ndev = get_netvsc_byref(vf_netdev);
@@ -1530,7 +1529,6 @@ static int netvsc_unregister_vf(struct net_device *vf_netdev)
 		return NOTIFY_DONE;
 
 	net_device_ctx = netdev_priv(ndev);
-	netvsc_dev = net_device_ctx->nvdev;
 
 	netdev_info(ndev, "VF unregistering: %s\n", vf_netdev->name);
 
@@ -1634,7 +1632,6 @@ static int netvsc_remove(struct hv_device *dev)
 {
 	struct net_device *net;
 	struct net_device_context *ndev_ctx;
-	struct netvsc_device *net_device;
 
 	net = hv_get_drvdata(dev);
 
@@ -1644,7 +1641,6 @@ static int netvsc_remove(struct hv_device *dev)
 	}
 
 	ndev_ctx = netdev_priv(net);
-	net_device = ndev_ctx->nvdev;
 
 	/* Avoid racing with netvsc_change_mtu()/netvsc_set_channels()
 	 * removing the device.
