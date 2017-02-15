@@ -136,7 +136,7 @@ static int netvsc_close(struct net_device *net)
 	while (true) {
 		aread = 0;
 		for (i = 0; i < nvdev->num_chn; i++) {
-			chn = nvdev->chn_table[i];
+			chn = nvdev->chan_table[i].channel;
 			if (!chn)
 				continue;
 
@@ -276,6 +276,17 @@ bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 	return true;
 }
 
+/*
+ * Select queue for transmit.
+ *
+ * If a valid queue has already been assigned, then use that.
+ * Otherwise compute tx queue based on hash and the send table.
+ *
+ * This is basically similar to default (__netdev_pick_tx) with the added step
+ * of using the host send_table when no other queue has been assigned.
+ *
+ * TODO support XPS - but get_xps_queue not exported
+ */
 #if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,2))
 // Divergence from upstream commit:
 // 5b54dac856cb5bd6f33f4159012773e4a33704f7
@@ -287,19 +298,25 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 {
 	struct net_device_context *net_device_ctx = netdev_priv(ndev);
 	struct netvsc_device *nvsc_dev = net_device_ctx->nvdev;
-	u32 hash;
-	u16 q_idx = 0;
+	struct sock *sk = skb->sk;
+	int q_idx = sk_tx_queue_get(sk);
 
-	if (nvsc_dev == NULL || ndev->real_num_tx_queues <= 1)
-		return 0;
+	if (q_idx < 0 || skb->ooo_okay ||
+	    q_idx >= ndev->real_num_tx_queues) {
+		u16 hash = __skb_tx_hash(ndev, skb, VRSS_SEND_TAB_SIZE);
+		int new_idx;
 
-	if (netvsc_set_hash(&hash, skb)) {
-		q_idx = nvsc_dev->send_table[hash % VRSS_SEND_TAB_SIZE] %
-			ndev->real_num_tx_queues;
-		skb_set_hash(skb, hash, PKT_HASH_TYPE_L3);
+		new_idx = nvsc_dev->send_table[hash]
+			% nvsc_dev->num_chn;
+
+		if (q_idx != new_idx && sk &&
+		    sk_fullsock(sk) && rcu_access_pointer(sk->sk_dst_cache))
+			sk_tx_queue_set(sk, new_idx);
+
+		q_idx = new_idx;
 	}
-	
-	if (!nvsc_dev->chn_table[q_idx])
+
+	if (unlikely(!nvsc_dev->chan_table[q_idx].channel))
 		q_idx = 0;
 	
 	return q_idx;
@@ -687,14 +704,13 @@ void netvsc_linkstatus_callback(struct hv_device *device_obj,
 }
 
 static struct sk_buff *netvsc_alloc_recv_skb(struct net_device *net,
-				struct hv_netvsc_packet *packet,
-				struct ndis_tcp_ip_checksum_info *csum_info,
-				void *data, u16 vlan_tci)
-
+					     const struct ndis_tcp_ip_checksum_info *csum_info,
+					     const struct ndis_pkt_8021q_info *vlan,
+					     void *data, u32 buflen)
 {
 	struct sk_buff *skb;
 
-	skb = netdev_alloc_skb_ip_align(net, packet->total_data_buflen);
+	skb = netdev_alloc_skb_ip_align(net, buflen);
 	if (!skb)
 		return skb;
 
@@ -702,8 +718,7 @@ static struct sk_buff *netvsc_alloc_recv_skb(struct net_device *net,
 	 * Copy to skb. This copy is needed here since the memory pointed by
 	 * hv_netvsc_packet cannot be deallocated
 	 */
-	memcpy(skb_put(skb, packet->total_data_buflen), data,
-	       packet->total_data_buflen);
+	memcpy(skb_put(skb, buflen), data, buflen);
 
 	skb->protocol = eth_type_trans(skb, net);
 
@@ -720,9 +735,12 @@ static struct sk_buff *netvsc_alloc_recv_skb(struct net_device *net,
 			skb->ip_summed = CHECKSUM_UNNECESSARY;
 	}
 
-	if (vlan_tci & VLAN_TAG_PRESENT)
+	if (vlan) {
+		u16 vlan_tci = vlan->vlanid | (vlan->pri << VLAN_PRIO_SHIFT);
+
 		__vlan_hwaccel_put_tag(skb, htons(ETH_P_8021Q),
 				       vlan_tci);
+	}
 
 	return skb;
 }
@@ -731,14 +749,12 @@ static struct sk_buff *netvsc_alloc_recv_skb(struct net_device *net,
  * netvsc_recf_callback - Callback when we receive a packet from the
  * "wire" on the specified device.
  */
-int netvsc_recv_callback(struct hv_device *device_obj,
-				struct hv_netvsc_packet *packet,
-				void **data,
-				struct ndis_tcp_ip_checksum_info *csum_info,
-				struct vmbus_channel *channel,
-				u16 vlan_tci)
+int netvsc_recv_callback(struct net_device *net,
+			 struct vmbus_channel *channel,
+			 void  *data, u32 len,
+			 const struct ndis_tcp_ip_checksum_info *csum_info,
+			 const struct ndis_pkt_8021q_info *vlan)
 {
-	struct net_device *net = hv_get_drvdata(device_obj);
 	struct net_device_context *net_device_ctx = netdev_priv(net);
 	struct net_device *vf_netdev;
 	struct sk_buff *skb;
@@ -760,7 +776,7 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 		net = vf_netdev;
 
 	/* Allocate a skb - TODO direct I/O to pages? */
-	skb = netvsc_alloc_recv_skb(net, packet, csum_info, *data, vlan_tci);
+	skb = netvsc_alloc_recv_skb(net, csum_info, vlan, data, len);
 	if (unlikely(!skb)) {
 		++net->stats.rx_dropped;
 		rcu_read_unlock();
@@ -779,7 +795,7 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 	rx_stats = this_cpu_ptr(net_device_ctx->rx_stats);
 	u64_stats_update_begin(&rx_stats->syncp);
 	rx_stats->packets++;
-	rx_stats->bytes += packet->total_data_buflen;
+	rx_stats->bytes += len;
 
 	if (skb->pkt_type == PACKET_BROADCAST)
 		++rx_stats->broadcast;
@@ -1505,7 +1521,6 @@ static int netvsc_vf_down(struct net_device *vf_netdev, bool rndis_close)
 static int netvsc_unregister_vf(struct net_device *vf_netdev)
 {
 	struct net_device *ndev;
-	struct netvsc_device *netvsc_dev;
 	struct net_device_context *net_device_ctx;
 
 	ndev = get_netvsc_byref(vf_netdev);
@@ -1513,7 +1528,6 @@ static int netvsc_unregister_vf(struct net_device *vf_netdev)
 		return NOTIFY_DONE;
 
 	net_device_ctx = netdev_priv(ndev);
-	netvsc_dev = net_device_ctx->nvdev;
 
 	netdev_info(ndev, "VF unregistering: %s\n", vf_netdev->name);
 
@@ -1617,7 +1631,6 @@ static int netvsc_remove(struct hv_device *dev)
 {
 	struct net_device *net;
 	struct net_device_context *ndev_ctx;
-	struct netvsc_device *net_device;
 
 	net = hv_get_drvdata(dev);
 
@@ -1627,7 +1640,6 @@ static int netvsc_remove(struct hv_device *dev)
 	}
 
 	ndev_ctx = netdev_priv(net);
-	net_device = ndev_ctx->nvdev;
 
 	/* Avoid racing with netvsc_change_mtu()/netvsc_set_channels()
 	 * removing the device.

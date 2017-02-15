@@ -138,7 +138,7 @@ static int netvsc_close(struct net_device *net)
 	while (true) {
 		aread = 0;
 		for (i = 0; i < nvdev->num_chn; i++) {
-			chn = nvdev->chn_table[i];
+			chn = nvdev->chan_table[i].channel;
 			if (!chn)
 				continue;
 
@@ -214,8 +214,9 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 	q_idx = nvsc_dev->send_table[hash % VRSS_SEND_TAB_SIZE] %
 		ndev->real_num_tx_queues;
 
-	if (!nvsc_dev->chn_table[q_idx])
+	if (unlikely(!nvsc_dev->chan_table[q_idx].channel))
 		q_idx = 0;
+
 	return q_idx;
 }
 
@@ -609,13 +610,13 @@ void netvsc_linkstatus_callback(struct hv_device *device_obj,
 }
 
 static struct sk_buff *netvsc_alloc_recv_skb(struct net_device *net,
-				struct hv_netvsc_packet *packet,
-				struct ndis_tcp_ip_checksum_info *csum_info,
-				void *data, u16 vlan_tci)
+					     const struct ndis_tcp_ip_checksum_info *csum_info,
+					     const struct ndis_pkt_8021q_info *vlan,
+					     void *data, u32 buflen)
 {
 	struct sk_buff *skb;
 
-	skb = netdev_alloc_skb_ip_align(net, packet->total_data_buflen);
+	skb = netdev_alloc_skb_ip_align(net, buflen);
 	if (!skb)
 		return skb;
 
@@ -623,8 +624,7 @@ static struct sk_buff *netvsc_alloc_recv_skb(struct net_device *net,
 	 * Copy to skb. This copy is needed here since the memory pointed by
 	 * hv_netvsc_packet cannot be deallocated
 	 */
-	memcpy(skb_put(skb, packet->total_data_buflen), data,
-	       packet->total_data_buflen);
+	memcpy(skb_put(skb, buflen), data, buflen);
 
 	skb->protocol = eth_type_trans(skb, net);
 
@@ -641,8 +641,11 @@ static struct sk_buff *netvsc_alloc_recv_skb(struct net_device *net,
 			skb->ip_summed = CHECKSUM_UNNECESSARY;
 	}
 
-	if (vlan_tci & VLAN_TAG_PRESENT)
+	if (vlan) {
+		u16 vlan_tci = vlan->vlanid | (vlan->pri << VLAN_PRIO_SHIFT);
+
 		__vlan_hwaccel_put_tag(skb, vlan_tci);
+	}
 
 	return skb;
 }
@@ -651,19 +654,16 @@ static struct sk_buff *netvsc_alloc_recv_skb(struct net_device *net,
  * netvsc_recv_callback -  Callback when we receive a packet from the
  * "wire" on the specified device.
  */
-int netvsc_recv_callback(struct hv_device *device_obj,
-				struct hv_netvsc_packet *packet,
-				void **data,
-				struct ndis_tcp_ip_checksum_info *csum_info,
-				struct vmbus_channel *channel,
-				u16 vlan_tci)
+int netvsc_recv_callback(struct net_device *net,
+			 struct vmbus_channel *channel,
+			 void  *data, u32 len,
+			 const struct ndis_tcp_ip_checksum_info *csum_info,
+			 const struct ndis_pkt_8021q_info *vlan)
 {
-	struct net_device *net = hv_get_drvdata(device_obj);
 	struct net_device_context *net_device_ctx = netdev_priv(net);
 	struct sk_buff *skb;
 	struct sk_buff *vf_skb;
 	struct netvsc_stats *rx_stats;
-	u32 bytes_recvd = packet->total_data_buflen;
 	int ret = 0;
 
 	if (!net || net->reg_state != NETREG_REGISTERED)
@@ -688,12 +688,11 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 		 * in the guest.
 		 */
 		vf_skb = netvsc_alloc_recv_skb(net_device_ctx->vf_netdev,
-					       packet, csum_info, *data,
-					       vlan_tci);
+					       csum_info, vlan, data, len);
 		if (vf_skb != NULL) {
 			++net_device_ctx->vf_netdev->stats.rx_packets;
 			net_device_ctx->vf_netdev->stats.rx_bytes +=
-				bytes_recvd;
+				len;
 			netif_receive_skb(vf_skb);
 		} else {
 			++net->stats.rx_dropped;
@@ -707,7 +706,7 @@ vf_injection_done:
 	rx_stats = this_cpu_ptr(net_device_ctx->rx_stats);
 
 	/* Allocate a skb - TODO direct I/O to pages? */
-	skb = netvsc_alloc_recv_skb(net, packet, csum_info, *data, vlan_tci);
+	skb = netvsc_alloc_recv_skb(net, csum_info, vlan, data, len);
 	if (unlikely(!skb)) {
 		++net->stats.rx_dropped;
 		return NVSP_STAT_FAIL;
@@ -718,7 +717,7 @@ vf_injection_done:
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 	u64_stats_update_begin(&rx_stats->syncp);
 	rx_stats->packets++;
-	rx_stats->bytes += packet->total_data_buflen;
+	rx_stats->bytes += len;
 
 	if (skb->pkt_type == PACKET_BROADCAST)
 		++rx_stats->broadcast;
@@ -727,7 +726,7 @@ vf_injection_done:
 	u64_stats_update_end(&rx_stats->syncp);
 #else
 	net->stats.rx_packets++;
-	net->stats.rx_bytes += packet->total_data_buflen;
+	net->stats.rx_bytes += len;
 #endif
 
 	/*
@@ -1515,7 +1514,6 @@ static int netvsc_vf_down(struct net_device *vf_netdev, bool rndis_close)
 static int netvsc_unregister_vf(struct net_device *vf_netdev)
 {
 	struct net_device *ndev;
-	struct netvsc_device *netvsc_dev;
 	struct net_device_context *net_device_ctx;
 
 	ndev = get_netvsc_byref(vf_netdev);
@@ -1523,7 +1521,6 @@ static int netvsc_unregister_vf(struct net_device *vf_netdev)
 		return NOTIFY_DONE;
 
 	net_device_ctx = netdev_priv(ndev);
-	netvsc_dev = net_device_ctx->nvdev;
 
 	netvsc_vf_down(vf_netdev, false);
 
@@ -1645,7 +1642,6 @@ static int netvsc_remove(struct hv_device *dev)
 {
 	struct net_device *net;
 	struct net_device_context *ndev_ctx;
-	struct netvsc_device *net_device;
 
 	net = hv_get_drvdata(dev);
 
@@ -1655,7 +1651,6 @@ static int netvsc_remove(struct hv_device *dev)
 	}
 
 	ndev_ctx = netdev_priv(net);
-	net_device = ndev_ctx->nvdev;
 
 	/* Avoid racing with netvsc_change_mtu()/netvsc_set_channels()
 	 * removing the device.
