@@ -180,7 +180,8 @@ struct rndis_device {
 /* Interface */
 struct rndis_message;
 struct netvsc_device;
-int netvsc_device_add(struct hv_device *device, void *additional_info);
+int netvsc_device_add(struct hv_device *device,
+		      const struct netvsc_device_info *info);
 void netvsc_device_remove(struct hv_device *device);
 int netvsc_send(struct hv_device *device,
 		struct hv_netvsc_packet *packet,
@@ -198,8 +199,9 @@ void netvsc_channel_cb(void *context);
 int rndis_filter_open(struct netvsc_device *nvdev);
 int rndis_filter_close(struct netvsc_device *nvdev);
 int rndis_filter_device_add(struct hv_device *dev,
-			void *additional_info);
-void rndis_filter_device_remove(struct hv_device *dev);
+			    struct netvsc_device_info *info);
+void rndis_filter_device_remove(struct hv_device *dev,
+				struct netvsc_device *nvdev);
 int rndis_filter_set_rss_param(struct rndis_device *rdev,
 			       const u8 *key, int num_queue);
 int rndis_filter_receive(struct net_device *ndev,
