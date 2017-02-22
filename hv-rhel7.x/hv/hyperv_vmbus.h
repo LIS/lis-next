@@ -228,7 +228,6 @@ struct hv_context {
 	*/
 	u64 guestid;
 
-	void *hypercall_page;
 	void *tsc_page;
 
 	bool synic_initialized;
