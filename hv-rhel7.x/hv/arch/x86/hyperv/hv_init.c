@@ -209,3 +209,26 @@ u64 hv_do_hypercall(u64 control, void *input, void *output)
 #endif /* !x86_64 */
 }
 EXPORT_SYMBOL_GPL(hv_do_hypercall);
+
+void hv_print_host_info(void) {
+	int hv_host_info_eax;
+	int hv_host_info_ebx;
+	int hv_host_info_ecx;
+	int hv_host_info_edx;
+
+	/*
+	 * Extract host information.
+	 */
+	if (cpuid_eax(HVCPUID_VENDOR_MAXFUNCTION) >= HVCPUID_VERSION) {
+		hv_host_info_eax = cpuid_eax(HVCPUID_VERSION);
+		hv_host_info_ebx = cpuid_ebx(HVCPUID_VERSION);
+		hv_host_info_ecx = cpuid_ecx(HVCPUID_VERSION);
+		hv_host_info_edx = cpuid_edx(HVCPUID_VERSION);
+
+		pr_info("Hyper-V Host Build:%d-%d.%d-%d-%d.%d\n",
+			hv_host_info_eax, hv_host_info_ebx >> 16,
+			hv_host_info_ebx & 0xFFFF, hv_host_info_ecx,
+			hv_host_info_edx >> 24, hv_host_info_edx & 0xFFFFFF);
+	}
+}
+EXPORT_SYMBOL_GPL(hv_print_host_info);
