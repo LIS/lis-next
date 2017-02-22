@@ -3,7 +3,7 @@
 
 #include <linux/types.h>
 #include <linux/interrupt.h>
-#include <asm/hyperv.h>
+#include <lis/asm/hyperv.h>
 
 struct ms_hyperv_info {
 	u32 features;
@@ -25,6 +25,18 @@ union hv_x64_msr_hypercall_contents {
 		u64 reserved:11;
 		u64 guest_physical_address:52;
 	};
+};
+
+/*
+ * TSC page layout.
+ */
+
+struct ms_hyperv_tsc_page {
+	volatile u32 tsc_sequence;
+	u32 reserved1;
+	volatile u64 tsc_scale;
+	volatile s64 tsc_offset;
+	u64 reserved2[509];
 };
 
 /*
@@ -106,5 +118,5 @@ void hyperv_init(void);
 #define hv_set_synic_state(val) wrmsrl(HV_X64_MSR_SCONTROL, val)
 
 #define hv_get_vp_index(index) rdmsrl(HV_X64_MSR_VP_INDEX, index)
-
+void hv_register_vmbus_handler(int irq, irq_handler_t handler);
 #endif
