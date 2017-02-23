@@ -135,9 +135,9 @@ static int hv_ce_set_next_event(unsigned long delta,
 
 	WARN_ON(evt->mode != CLOCK_EVT_MODE_ONESHOT);
 
-	rdmsrl(HV_X64_MSR_TIME_REF_COUNT, current_tick);
+	hv_get_current_tick(current_tick);
 	current_tick += delta;
-	wrmsrl(HV_X64_MSR_STIMER0_COUNT, current_tick);
+	hv_init_timer(HV_X64_MSR_STIMER0_COUNT, current_tick);
 	return 0;
 }
 
@@ -155,13 +155,13 @@ static void hv_ce_setmode(enum clock_event_mode mode,
 		timer_cfg.enable = 1;
 		timer_cfg.auto_enable = 1;
 		timer_cfg.sintx = VMBUS_MESSAGE_SINT;
-		wrmsrl(HV_X64_MSR_STIMER0_CONFIG, timer_cfg.as_uint64);
+		hv_init_timer_config(HV_X64_MSR_STIMER0_CONFIG, timer_cfg.as_uint64);
 		break;
 
 	case CLOCK_EVT_MODE_UNUSED:
 	case CLOCK_EVT_MODE_SHUTDOWN:
-		wrmsrl(HV_X64_MSR_STIMER0_COUNT, 0);
-		wrmsrl(HV_X64_MSR_STIMER0_CONFIG, 0);
+		hv_init_timer(HV_X64_MSR_STIMER0_COUNT, 0);
+		hv_init_timer_config(HV_X64_MSR_STIMER0_CONFIG, 0);
 		break;
 	case CLOCK_EVT_MODE_RESUME:
 		break;
