@@ -55,20 +55,10 @@
 #define HV_FEATURE_QUERY_NUMA_DISTANCE                    0x80
 #define HV_FEATURE_DETERMINE_TIMER_FREQUENCIES            0x100
 #define HV_FEATURE_SYNTHETIC_MACHINE_CHECK                0x200
-#define HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE              0x400
 #define HV_FEATURE_DEBUG_MSG_AVAILABLE                    0x800
 #define HV_FEATURE_NPIPE_1_AVAILABLE                      0x1000
 #define HV_FEATURE_DISABLE_HYPERVISOR_AVAILABLE           0x2000
 /* Bits 14 - 31 reserved */
-
-#define HV_X64_MSR_CRASH_P0   0x40000100
-#define HV_X64_MSR_CRASH_P1   0x40000101
-#define HV_X64_MSR_CRASH_P2   0x40000102
-#define HV_X64_MSR_CRASH_P3   0x40000103
-#define HV_X64_MSR_CRASH_P4   0x40000104
-#define HV_X64_MSR_CRASH_CTL  0x40000105
-
-#define HV_CRASH_CTL_CRASH_NOTIFY (1ULL << 63)
 
 
 /* Define the expected SynIC version. */

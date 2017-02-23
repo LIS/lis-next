@@ -96,8 +96,6 @@ struct hv_device_info {
 	struct hv_dev_port_info outbound;
 };
 
-
-
 int hyperv_panic_event(struct notifier_block *nb,
                         unsigned long event, void *ptr)
 {
@@ -105,16 +103,7 @@ int hyperv_panic_event(struct notifier_block *nb,
 
 	regs = task_pt_regs(current);
 
-	wrmsrl(HV_X64_MSR_CRASH_P0, regs->ip);
-	wrmsrl(HV_X64_MSR_CRASH_P1, regs->ax);
-	wrmsrl(HV_X64_MSR_CRASH_P2, regs->bx);
-	wrmsrl(HV_X64_MSR_CRASH_P3, regs->cx);
-	wrmsrl(HV_X64_MSR_CRASH_P4, regs->dx);
-
-	/*
-	 * Let Hyper-V know there is crash data available
-	 */
-	wrmsrl(HV_X64_MSR_CRASH_CTL, HV_CRASH_CTL_CRASH_NOTIFY);
+	hyperv_report_panic(regs);
 	return NOTIFY_DONE;
 }
 

@@ -123,6 +123,7 @@ void hv_remove_crash_handler(void);
 
 #if IS_ENABLED(CONFIG_HYPERV)
 void hyperv_init(void);
+void hyperv_report_panic(struct pt_regs *regs);
 void hv_print_host_info(void);
 #endif
 
