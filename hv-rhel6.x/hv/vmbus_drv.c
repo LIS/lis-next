@@ -748,7 +748,7 @@ static int vmbus_bus_init(int irq)
 
 	ret = bus_register(&hv_bus);
 	if (ret)
-		goto err_cleanup;
+		return ret;
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	ret = request_irq(irq, vmbus_isr, 0, driver_name, hv_acpi_dev);
@@ -830,9 +830,6 @@ err_alloc:
 err_unregister:
 	bus_unregister(&hv_bus);
 #endif
-
-err_cleanup:
-	hv_cleanup(false);
 
 	return ret;
 }
@@ -1288,7 +1285,7 @@ static void hv_kexec_handler(void)
 	vmbus_initiate_unload(false);
 	for_each_online_cpu(cpu)
 		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
-	hv_cleanup(false);
+	hyperv_cleanup();
 };
 #endif
 
@@ -1302,7 +1299,7 @@ static void hv_crash_handler(struct pt_regs *regs)
 	 * for kdump.
 	 */
 	hv_synic_cleanup(NULL);
-	hv_cleanup(true);
+	hyperv_cleanup();
 };
 #endif
 
@@ -1378,7 +1375,6 @@ static void __exit vmbus_exit(void)
 						 &hyperv_panic_block);
 	}
 	bus_unregister(&hv_bus);
-	hv_cleanup(false);
 	for_each_online_cpu(cpu) {
 		tasklet_kill(hv_context.event_dpc[cpu]);
 		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
