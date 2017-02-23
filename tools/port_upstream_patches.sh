@@ -73,6 +73,10 @@ for patchfile in ${PATCHDIR}/*.patch; do
 	sed -i 's/+++ b\/tools\/hv\//+++ b\/tools\//g' $patchfile
 	sed -i 's/--- a\/drivers\/net\/hyperv/ --- a/g' $patchfile
 	sed -i 's/+++ b\/drivers\/net\/hyperv/ +++ b/g' $patchfile
+	sed -i 's/--- a\/arch\/x86\/include\/asm/ --- a\/arch\/x86\/include\/lis\/asm/g' $patchfile
+	sed -i 's/+++ b\/arch\/x86\/include\/asm/ +++ b\/arch\/x86\/include\/lis\/asm/g' $patchfile
+	sed -i 's/--- a\/arch\/x86\/include\/uapi\/asm/ --- a\/arch\/x86\/include\/uapi\/lis\/asm/g' $patchfile
+	sed -i 's/+++ b\/arch\/x86\/include\/uapi\/asm/ +++ b\/arch\/x86\/include\/uapi\/lis\/asm/g' $patchfile
 
 	echo "Applying patch in DRY RUN..."
 	#depth=$DEPTH
@@ -80,6 +84,7 @@ for patchfile in ${PATCHDIR}/*.patch; do
 	#	depth=$(grep "\-\-\- a" $patchfile -m1 | grep -o "\/" | wc -l)
 	#fi
 
+	echo "patch --dry-run --ignore-whitespace -p1 -F1 -f < $patchfile"
 	patch --dry-run --ignore-whitespace -p1 -F1 -f < $patchfile
 	result=$?
 	if [ $result -ne 0 ]; then
