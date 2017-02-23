@@ -90,6 +90,11 @@ void hv_remove_kexec_handler(void);
 void hv_setup_crash_handler(void (*handler)(struct pt_regs *regs));
 void hv_remove_crash_handler(void);
 
+#if IS_ENABLED(CONFIG_HYPERV)
+void hyperv_init(void);
+extern void *hv_hypercall_pg;
+#endif
+
 #define hv_get_synint_state(int_num, val) rdmsrl(int_num, val)
 #define hv_set_synint_state(int_num, val) wrmsrl(int_num, val)
 
