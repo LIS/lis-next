@@ -92,7 +92,6 @@ void hv_remove_crash_handler(void);
 
 #if IS_ENABLED(CONFIG_HYPERV)
 void hyperv_init(void);
-extern void *hv_hypercall_pg;
 #endif
 
 #define hv_get_synint_state(int_num, val) rdmsrl(int_num, val)
