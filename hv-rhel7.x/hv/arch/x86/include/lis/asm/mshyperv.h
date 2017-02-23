@@ -124,6 +124,7 @@ void hv_remove_crash_handler(void);
 #if IS_ENABLED(CONFIG_HYPERV)
 void hyperv_init(void);
 void hyperv_report_panic(struct pt_regs *regs);
+bool hv_is_hypercall_page_setup(void);
 void hv_print_host_info(void);
 #endif
 
