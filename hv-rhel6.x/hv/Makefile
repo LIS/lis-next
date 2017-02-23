@@ -32,7 +32,7 @@ ifeq ($(buildrdma),0)
 	 endif
 endif
 
-ccflags-y += -I$(M)/include/
+ccflags-y += -I$(M)/include/ -I$(M)/arch/$(SRCARCH)/include -I$(M)/arch/$(SRCARCH)/include/uapi
 
 # Get extra kernel version information beyond LINUX_VERSION_CODE or RHEL_RELEASE_CODE.
 # This is used to identify RHEL/CentOS kernel update versions.

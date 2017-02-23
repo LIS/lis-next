@@ -32,8 +32,8 @@
 #include <linux/clockchips.h>
 #endif
 #include "include/uapi/linux/hyperv.h"
-#include "include/asm/hyperv.h"
-#include "include/asm/mshyperv.h"
+#include <lis/asm/hyperv.h>
+#include <lis/asm/mshyperv.h>
 #include "hyperv_vmbus.h"
 
 /* The one and only */

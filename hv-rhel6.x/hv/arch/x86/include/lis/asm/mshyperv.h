@@ -81,8 +81,6 @@ void hyperv_callback_vector(void);
 #ifdef CONFIG_TRACING
 #define trace_hyperv_callback_vector hyperv_callback_vector
 #endif
-void hv_register_vmbus_handler(int irq, irq_handler_t handler);
-
 void hyperv_vector_handler(struct pt_regs *regs);
 void hv_setup_vmbus_irq(void (*handler)(void));
 void hv_remove_vmbus_irq(void);
@@ -100,10 +98,10 @@ void hv_remove_crash_handler(void);
 
 #define hv_get_siefp(val) rdmsrl(HV_X64_MSR_SIEFP, val)
 #define hv_set_siefp(val) wrmsrl(HV_X64_MSR_SIEFP, val)
-
 #define hv_get_synic_state(val) rdmsrl(HV_X64_MSR_SCONTROL, val)
 #define hv_set_synic_state(val) wrmsrl(HV_X64_MSR_SCONTROL, val)
 
 #define hv_get_vp_index(index) rdmsrl(HV_X64_MSR_VP_INDEX, index)
+void hv_register_vmbus_handler(int irq, irq_handler_t handler);
 
 #endif

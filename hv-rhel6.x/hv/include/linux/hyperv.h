@@ -26,7 +26,7 @@
 #define _HYPERV_H
 
 #include "../uapi/linux/hyperv.h"
-#include "../asm/hyperv.h"
+#include <lis/asm/hyperv.h>
 
 #include <linux/types.h>
 #include <linux/scatterlist.h>

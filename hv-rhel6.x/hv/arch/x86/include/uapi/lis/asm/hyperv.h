@@ -245,6 +245,14 @@ typedef struct _HV_REFERENCE_TSC_PAGE {
 
 #define HV_SYNIC_STIMER_COUNT		(4)
 
+/* Define timer message payload structure. */
+struct hv_timer_message_payload {
+	__u32 timer_index;
+	__u32 reserved;
+	__u64 expiration_time;	/* When the timer expired */
+	__u64 delivery_time;	/* When the message was delivered */
+};
+
 /* Define synthetic interrupt controller message constants. */
 #define HV_MESSAGE_SIZE			(256)
 #define HV_MESSAGE_PAYLOAD_BYTE_COUNT	(240)
@@ -319,14 +327,6 @@ struct hv_message {
 /* Define the synthetic interrupt message page layout. */
 struct hv_message_page {
 	struct hv_message sint_message[HV_SYNIC_SINT_COUNT];
-};
-
-/* Define timer message payload structure. */
-struct hv_timer_message_payload {
-	__u32 timer_index;
-	__u32 reserved;
-	__u64 expiration_time;  /* When the timer expired */
-	__u64 delivery_time;    /* When the message was delivered */
 };
 
 #endif
