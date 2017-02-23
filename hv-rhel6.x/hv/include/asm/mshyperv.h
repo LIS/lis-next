@@ -13,7 +13,19 @@ struct ms_hyperv_info {
 
 extern struct ms_hyperv_info ms_hyperv;
 
-#define hv_get_vp_index(index) rdmsrl(HV_X64_MSR_VP_INDEX, index)
+/*
+ *  * Declare the MSR used to setup pages used to communicate with the hypervisor.
+ *   */
+#define HV_X64_MSR_HYPERCALL	0x40000001
+
+union hv_x64_msr_hypercall_contents {
+	u64 as_uint64;
+	struct {
+		u64 enable:1;
+		u64 reserved:11;
+		u64 guest_physical_address:52;
+	};
+};
 
 void hyperv_callback_vector(void);
 #ifdef CONFIG_TRACING
@@ -41,5 +53,7 @@ void hv_remove_crash_handler(void);
 
 #define hv_get_synic_state(val) rdmsrl(HV_X64_MSR_SCONTROL, val)
 #define hv_set_synic_state(val) wrmsrl(HV_X64_MSR_SCONTROL, val)
+
+#define hv_get_vp_index(index) rdmsrl(HV_X64_MSR_VP_INDEX, index)
 
 #endif
