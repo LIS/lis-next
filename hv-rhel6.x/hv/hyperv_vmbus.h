@@ -242,56 +242,6 @@ enum {
 };
 
 
-/*
- * The guest OS needs to register the guest ID with the hypervisor.
- * The guest ID is a 64 bit entity and the structure of this ID is
- * specified in the Hyper-V specification:
- *
- * http://msdn.microsoft.com/en-us/library/windows/hardware/ff542653%28v=vs.85%29.aspx
- *
- * While the current guideline does not specify how Linux guest ID(s)
- * need to be generated, our plan is to publish the guidelines for
- * Linux and other guest operating systems that currently are hosted
- * on Hyper-V. The implementation here conforms to this yet
- * unpublished guidelines.
- *
- *
- * Bit(s)
- * 63 - Indicates if the OS is Open Source or not; 1 is Open Source
- * 62:56 - Os Type; Linux is 0x100
- * 55:48 - Distro specific identification
- * 47:16 - Linux kernel version number
- * 15:0  - Distro specific identification
- *
- * Distro specific identification are defined as:
- *   SuSE SLE      0x10
- *   RHEL          0x20
- *   CentOS        0x21
- *   Oracle (RHCK) 0x22
- *   Oracle (UEK)  0x40
- *   Debian        0x60
- *   Ubuntu        0x80
- */
-
-#define HV_LINUX_VENDOR_ID		0x8100
-
-/*
- * Generate the guest ID based on the guideline described above.
- */
-
-static inline  __u64 generate_guest_id(__u8 d_info1, __u32 kernel_version,
-					__u16 d_info2)
-{
-	__u64 guest_id = 0;
-
-	guest_id = (((__u64)HV_LINUX_VENDOR_ID) << 48);
-	guest_id |= (((__u64)(d_info1)) << 48);
-	guest_id |= (((__u64)(kernel_version)) << 16);
-	guest_id |= ((__u64)(d_info2));
-
-	return guest_id;
-}
-
 struct hv_context {
 	/* We only support running on top of Hyper-V
 	* So at this point this really can only contain the Hyper-V ID
