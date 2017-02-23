@@ -1023,13 +1023,12 @@ static void netvsc_sc_open(struct vmbus_channel *new_sc)
 }
 
 int rndis_filter_device_add(struct hv_device *dev,
-		 	    void *additional_info)
+			    struct netvsc_device_info *device_info)
 {
 	struct net_device *net = hv_get_drvdata(dev);
 	struct net_device_context *net_device_ctx = netdev_priv(net);
 	struct netvsc_device *net_device;
 	struct rndis_device *rndis_device;
-	struct netvsc_device_info *device_info = additional_info;
 	struct ndis_offload hwcaps;
 	struct ndis_offload_params offloads;
 	struct nvsp_message *init_packet;
@@ -1053,7 +1052,7 @@ int rndis_filter_device_add(struct hv_device *dev,
 	 * NOTE! Once the channel is created, we may get a receive callback
 	 * (RndisFilterOnReceive()) before this call is completed
 	 */
-	ret = netvsc_device_add(dev, additional_info);
+	ret = netvsc_device_add(dev, device_info);
 	if (ret != 0) {
 		kfree(rndis_device);
 		return ret;
@@ -1072,7 +1071,7 @@ int rndis_filter_device_add(struct hv_device *dev,
 	/* Send the rndis initialization message */
 	ret = rndis_filter_init_device(rndis_device);
 	if (ret != 0) {
-		rndis_filter_device_remove(dev);
+		rndis_filter_device_remove(dev, net_device);
 		return ret;
 	}
 
@@ -1087,7 +1086,7 @@ int rndis_filter_device_add(struct hv_device *dev,
 	/* Get the mac address */
 	ret = rndis_filter_query_device_mac(rndis_device);
 	if (ret != 0) {
-		rndis_filter_device_remove(dev);
+		rndis_filter_device_remove(dev, net_device);
 		return ret;
 	}
 
@@ -1096,7 +1095,7 @@ int rndis_filter_device_add(struct hv_device *dev,
 	/* Find HW offload capabilities */
 	ret = rndis_query_hwcaps(rndis_device, &hwcaps);
 	if (ret != 0) {
-		rndis_filter_device_remove(dev);
+		rndis_filter_device_remove(dev, net_device);
 		return ret;
 	}
 
@@ -1267,13 +1266,13 @@ out:
 	return 0; /* return 0 because primary channel can be used alone */
 
 err_dev_remv:
-	rndis_filter_device_remove(dev);
+	rndis_filter_device_remove(dev, net_device);
 	return ret;
 }
 
-void rndis_filter_device_remove(struct hv_device *dev)
+void rndis_filter_device_remove(struct hv_device *dev,
+				struct netvsc_device *net_dev)
 {
-	struct netvsc_device *net_dev = hv_device_to_netvsc_device(dev);
 	struct rndis_device *rndis_dev = net_dev->extension;
 
 	/* If not all subchannel offers are complete, wait for them until
