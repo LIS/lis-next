@@ -36,9 +36,9 @@
 #include <linux/clockchips.h>
 #include <linux/cpu.h>
 #include <lis/asm/hyperv.h>
-#include <asm/hypervisor.h>
 #include <linux/screen_info.h>
 #include <lis/asm/mshyperv.h>
+#include <asm/hypervisor.h>
 #include <linux/notifier.h>
 #include <linux/ptrace.h>
 #include <linux/semaphore.h>

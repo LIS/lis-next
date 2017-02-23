@@ -293,14 +293,6 @@ struct hv_context {
 
 extern struct hv_context hv_context;
 
-struct ms_hyperv_tsc_page {
-       volatile u32 tsc_sequence;
-       u32 reserved1;
-       volatile u64 tsc_scale;
-       volatile s64 tsc_offset;
-       u64 reserved2[509];
-};
-
 /* Hv Interface */
 
 extern int hv_init(void);
