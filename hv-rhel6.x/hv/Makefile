@@ -32,7 +32,7 @@ ifeq ($(buildrdma),0)
 	 endif
 endif
 
-ccflags-y += -I$(M)/include/
+ccflags-y += -I$(M)/include/ -I$(M)/arch/$(SRCARCH)/include -I$(M)/arch/$(SRCARCH)/include/uapi
 
 # Get extra kernel version information beyond LINUX_VERSION_CODE or RHEL_RELEASE_CODE.
 # This is used to identify RHEL/CentOS kernel update versions.
@@ -53,7 +53,7 @@ endif
 
 hv_vmbus-y	:= vmbus_drv.o \
 		 hv.o connection.o channel.o \
-		 channel_mgmt.o ring_buffer.o
+		 channel_mgmt.o ring_buffer.o arch/$(SRCARCH)/hyperv/hv_init.o
 hv_utils-y	:= hv_util.o hv_kvp.o hv_snapshot.o hv_fcopy.o hv_utils_transport.o
 hv_storvsc-y := storvsc_drv.o
 hv_uio_generic-y := uio_hv_generic.o

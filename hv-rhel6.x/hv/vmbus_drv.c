@@ -35,10 +35,10 @@
 #include <linux/kernel_stat.h>
 #include <linux/clockchips.h>
 #include <linux/cpu.h>
-#include "include/asm/hyperv.h"
-#include <asm/hypervisor.h>
+#include <lis/asm/hyperv.h>
 #include <linux/screen_info.h>
-#include "include/asm/mshyperv.h"
+#include <lis/asm/mshyperv.h>
+#include <asm/hypervisor.h>
 #include <linux/notifier.h>
 #include <linux/ptrace.h>
 #include <linux/semaphore.h>
@@ -96,8 +96,6 @@ struct hv_device_info {
 	struct hv_dev_port_info outbound;
 };
 
-
-
 int hyperv_panic_event(struct notifier_block *nb,
                         unsigned long event, void *ptr)
 {
@@ -105,16 +103,7 @@ int hyperv_panic_event(struct notifier_block *nb,
 
 	regs = task_pt_regs(current);
 
-	wrmsrl(HV_X64_MSR_CRASH_P0, regs->ip);
-	wrmsrl(HV_X64_MSR_CRASH_P1, regs->ax);
-	wrmsrl(HV_X64_MSR_CRASH_P2, regs->bx);
-	wrmsrl(HV_X64_MSR_CRASH_P3, regs->cx);
-	wrmsrl(HV_X64_MSR_CRASH_P4, regs->dx);
-
-	/*
-	 * Let Hyper-V know there is crash data available
-	 */
-	wrmsrl(HV_X64_MSR_CRASH_CTL, HV_CRASH_CTL_CRASH_NOTIFY);
+	hyperv_report_panic(regs);
 	return NOTIFY_DONE;
 }
 
@@ -759,7 +748,7 @@ static int vmbus_bus_init(int irq)
 
 	ret = bus_register(&hv_bus);
 	if (ret)
-		goto err_cleanup;
+		return ret;
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	ret = request_irq(irq, vmbus_isr, 0, driver_name, hv_acpi_dev);
@@ -841,9 +830,6 @@ err_alloc:
 err_unregister:
 	bus_unregister(&hv_bus);
 #endif
-
-err_cleanup:
-	hv_cleanup(false);
 
 	return ret;
 }
@@ -1299,7 +1285,7 @@ static void hv_kexec_handler(void)
 	vmbus_initiate_unload(false);
 	for_each_online_cpu(cpu)
 		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
-	hv_cleanup(false);
+	hyperv_cleanup();
 };
 #endif
 
@@ -1313,7 +1299,7 @@ static void hv_crash_handler(struct pt_regs *regs)
 	 * for kdump.
 	 */
 	hv_synic_cleanup(NULL);
-	hv_cleanup(true);
+	hyperv_cleanup();
 };
 #endif
 
@@ -1389,7 +1375,6 @@ static void __exit vmbus_exit(void)
 						 &hyperv_panic_block);
 	}
 	bus_unregister(&hv_bus);
-	hv_cleanup(false);
 	for_each_online_cpu(cpu) {
 		tasklet_kill(hv_context.event_dpc[cpu]);
 		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);

@@ -371,26 +371,26 @@ void __read_once_size(const volatile void *p, void *res, int size)
 }
 
 /*
- *  *  * Prevent the compiler from merging or refetching reads or writes. The
- *   *   * compiler is also forbidden from reordering successive instances of
- *    *    * READ_ONCE, WRITE_ONCE and ACCESS_ONCE (see below), but only when the
- *     *     * compiler is aware of some particular ordering.  One way to make the
- *      *      * compiler aware of ordering is to put the two invocations of READ_ONCE,
- *       *       * WRITE_ONCE or ACCESS_ONCE() in different C statements.
- *        *        *
- *         *         * In contrast to ACCESS_ONCE these two macros will also work on aggregate
- *          *          * data types like structs or unions. If the size of the accessed data
- *           *           * type exceeds the word size of the machine (e.g., 32 bits or 64 bits)
- *            *            * READ_ONCE() and WRITE_ONCE()  will fall back to memcpy and print a
- *             *             * compile-time warning.
- *              *              *
- *               *               * Their two major use cases are: (1) Mediating communication between
- *                *                * process-level code and irq/NMI handlers, all running on the same CPU,
- *                 *                 * and (2) Ensuring that the compiler does not  fold, spindle, or otherwise
- *                  *                  * mutilate accesses that either do not require ordering or that interact
- *                   *                   * with an explicit memory barrier or atomic instruction that provides the
- *                    *                    * required ordering.
- *                     *                     */
+ * Prevent the compiler from merging or refetching reads or writes. The
+ * compiler is also forbidden from reordering successive instances of
+ * READ_ONCE, WRITE_ONCE and ACCESS_ONCE (see below), but only when the
+ * compiler is aware of some particular ordering.  One way to make the
+ * compiler aware of ordering is to put the two invocations of READ_ONCE,
+ * WRITE_ONCE or ACCESS_ONCE() in different C statements.
+ * 
+ * In contrast to ACCESS_ONCE these two macros will also work on aggregate
+ * data types like structs or unions. If the size of the accessed data
+ * type exceeds the word size of the machine (e.g., 32 bits or 64 bits)
+ * READ_ONCE() and WRITE_ONCE()  will fall back to memcpy and print a
+ * compile-time warning.
+ * 
+ * Their two major use cases are: (1) Mediating communication between
+ * process-level code and irq/NMI handlers, all running on the same CPU,
+ * and (2) Ensuring that the compiler does not  fold, spindle, or otherwise
+ * mutilate accesses that either do not require ordering or that interact
+ * with an explicit memory barrier or atomic instruction that provides the
+ * required ordering.
+ */
 
 #define READ_ONCE(x) \
         ({ union { typeof(x) __val; char __c[1]; } __u; __read_once_size(&(x), __u.__c, sizeof(x)); __u.__val; })
@@ -471,7 +471,9 @@ static inline bool sk_fullsock(const struct sock *sk)
 }
 #endif
 
-
+#define timespec64 timespec
+#define ns_to_timespec64 ns_to_timespec
+#define do_settimeofday64 do_settimeofday
 
 #endif //#ifdef __KERNEL__
 #endif //#if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 10, 0)

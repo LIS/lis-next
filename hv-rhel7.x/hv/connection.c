@@ -31,7 +31,7 @@
 #include <linux/vmalloc.h>
 #include "include/linux/hyperv.h"
 #include <linux/export.h>
-#include "include/asm/hyperv.h"
+#include <lis/asm/hyperv.h>
 #include "hyperv_vmbus.h"
 
 
@@ -223,11 +223,8 @@ int vmbus_connect(void)
 		goto cleanup;
 
 	vmbus_proto_version = version;
-	pr_info("Hyper-V Host Build:%d-%d.%d-%d-%d.%d; Vmbus version:%d.%d\n",
-		    host_info_eax, host_info_ebx >> 16,
-		    host_info_ebx & 0xFFFF, host_info_ecx,
-		    host_info_edx >> 24, host_info_edx & 0xFFFFFF,
-		    version >> 16, version & 0xFFFF);
+	pr_info("Vmbus version:%d.%d\n",
+		version >> 16, version & 0xFFFF);
 
 	kfree(msginfo);
 	return 0;

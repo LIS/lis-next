@@ -32,14 +32,13 @@
 #include <linux/clockchips.h>
 #endif
 #include "include/uapi/linux/hyperv.h"
-#include "include/asm/hyperv.h"
-#include "include/asm/mshyperv.h"
+#include <lis/asm/hyperv.h>
+#include <lis/asm/mshyperv.h>
 #include "hyperv_vmbus.h"
 
 /* The one and only */
 struct hv_context hv_context = {
 	.synic_initialized	= false,
-	.hypercall_page		= NULL,
 };
 
 #define HV_TIMER_FREQUENCY (10 * 1000 * 1000) /* 100ns period */
@@ -49,169 +48,6 @@ struct hv_context hv_context = {
 #define HV_TIMER_FREQUENCY (10 * 1000 * 1000) /* 100ns period */
 #define HV_MAX_MAX_DELTA_TICKS 0xffffffff
 #define HV_MIN_DELTA_TICKS 1
-
-/*
- * query_hypervisor_info - Get version info of the windows hypervisor
- */
-unsigned int host_info_eax;
-unsigned int host_info_ebx;
-unsigned int host_info_ecx;
-unsigned int host_info_edx;
-
-static int query_hypervisor_info(void)
-{
-	unsigned int eax;
-	unsigned int ebx;
-	unsigned int ecx;
-	unsigned int edx;
-	unsigned int max_leaf;
-	unsigned int op;
-
-	/*
-	* Its assumed that this is called after confirming that Viridian
-	* is present. Query id and revision.
-	*/
-	eax = 0;
-	ebx = 0;
-	ecx = 0;
-	edx = 0;
-	op = HVCPUID_VENDOR_MAXFUNCTION;
-	cpuid(op, &eax, &ebx, &ecx, &edx);
-
-	max_leaf = eax;
-
-	if (max_leaf >= HVCPUID_VERSION) {
-		eax = 0;
-		ebx = 0;
-		ecx = 0;
-		edx = 0;
-		op = HVCPUID_VERSION;
-		cpuid(op, &eax, &ebx, &ecx, &edx);
-		host_info_eax = eax;
-		host_info_ebx = ebx;
-		host_info_ecx = ecx;
-		host_info_edx = edx;
-	}
-	return max_leaf;
-}
-
-/*
- * hv_do_hypercall- Invoke the specified hypercall
- */
-u64 hv_do_hypercall(u64 control, void *input, void *output)
-{
-	u64 input_address = (input) ? virt_to_phys(input) : 0;
-	u64 output_address = (output) ? virt_to_phys(output) : 0;
-	void *hypercall_page = hv_context.hypercall_page;
-
-#ifdef CONFIG_X86_64
-	u64 hv_status = 0;
-
-	if (!hypercall_page)
-		return (u64)ULLONG_MAX;
-
-	__asm__ __volatile__("mov %0, %%r8" : : "r" (output_address) : "r8");
-	__asm__ __volatile__("call *%3" : "=a" (hv_status) :
-			     "c" (control), "d" (input_address),
-			     "m" (hypercall_page));
-
-	return hv_status;
-
-#else
-
-	u32 control_hi = control >> 32;
-	u32 control_lo = control & 0xFFFFFFFF;
-	u32 hv_status_hi = 1;
-	u32 hv_status_lo = 1;
-	u32 input_address_hi = input_address >> 32;
-	u32 input_address_lo = input_address & 0xFFFFFFFF;
-	u32 output_address_hi = output_address >> 32;
-	u32 output_address_lo = output_address & 0xFFFFFFFF;
-
-	if (!hypercall_page)
-		return (u64)ULLONG_MAX;
-
-	__asm__ __volatile__ ("call *%8" : "=d"(hv_status_hi),
-			      "=a"(hv_status_lo) : "d" (control_hi),
-			      "a" (control_lo), "b" (input_address_hi),
-			      "c" (input_address_lo), "D"(output_address_hi),
-			      "S"(output_address_lo), "m" (hypercall_page));
-
-	return hv_status_lo | ((u64)hv_status_hi << 32);
-#endif /* !x86_64 */
-}
-EXPORT_SYMBOL_GPL(hv_do_hypercall);
-
-#ifndef CONFIG_X86_64
-static cycle_t read_hv_clock_msr(struct clocksource *arg)
-{
-       cycle_t current_tick;
-       /*
-        * Read the partition counter to get the current tick count. This count
-        * is set to 0 when the partition is created and is incremented in
-        * 100 nanosecond units.
-        */
-       rdmsrl(HV_X64_MSR_TIME_REF_COUNT, current_tick);
-       return current_tick;
-}
-#endif
-
-#ifdef CONFIG_X86_64
-static cycle_t read_hv_clock_tsc(struct clocksource *arg)
-{
-       cycle_t current_tick;
-       struct ms_hyperv_tsc_page *tsc_pg = hv_context.tsc_page;
-
-       if (tsc_pg->tsc_sequence != 0) {
-               /*
-                * Use the tsc page to compute the value.
-                */
-
-               while (1) {
-                       cycle_t tmp;
-                       u32 sequence = tsc_pg->tsc_sequence;
-                       u64 cur_tsc;
-                       u64 scale = tsc_pg->tsc_scale;
-                       s64 offset = tsc_pg->tsc_offset;
-
-                       rdtscll(cur_tsc);
-                       /* current_tick = ((cur_tsc *scale) >> 64) + offset */
-                       asm("mulq %3"
-                               : "=d" (current_tick), "=a" (tmp)
-                               : "a" (cur_tsc), "r" (scale));
-
-                       current_tick += offset;
-                       if (tsc_pg->tsc_sequence == sequence)
-                               return current_tick;
-
-                       if (tsc_pg->tsc_sequence != 0)
-                               continue;
-                       /*
-                        * Fallback using MSR method.
-                        */
-                       break;
-               }
-       }
-       rdmsrl(HV_X64_MSR_TIME_REF_COUNT, current_tick);
-       return current_tick;
-}
-#endif
-
-#define HV_CLOCK_SHIFT  22
-static struct clocksource hyperv_cs_tsc = {
-               .name           = "hyperv_clocksource_tsc_page",
-               .rating         = 425,
-#ifdef CONFIG_X86_64
-               .read           = read_hv_clock_tsc,
-#endif
-               .mask           = CLOCKSOURCE_MASK(64),
-               .flags          = CLOCK_SOURCE_IS_CONTINUOUS,
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,3))
-	       .mult           = (100 << HV_CLOCK_SHIFT),
-	       .shift          = HV_CLOCK_SHIFT,
-#endif
-};
-
 
 /*
  * hv_init - Main initialization routine.
@@ -220,13 +56,6 @@ static struct clocksource hyperv_cs_tsc = {
  */
 int hv_init(void)
 {
-	int max_leaf;
-	union hv_x64_msr_hypercall_contents hypercall_msr;
-	void *virtaddr = NULL;
-#ifdef CONFIG_X86_64
-	union hv_x64_msr_hypercall_contents tsc_msr;
-	void *va_tsc = NULL;
-#endif
 
 	memset(hv_context.synic_event_page, 0, sizeof(void *) * NR_CPUS);
 	memset(hv_context.synic_message_page, 0,
@@ -241,134 +70,20 @@ int hv_init(void)
 	       sizeof(void *) * NR_CPUS);
 	memset(hv_context.clk_evt, 0,
 	       sizeof(void *) * NR_CPUS);
-
-	max_leaf = query_hypervisor_info();
-
 	/*
-	 * Write our OS ID.
+	 * This initialization is normally done at
+	 * early boot time in the upstream kernel.
+	 *
+	 * Since we can't change the kernel bootup behavior,
+	 * we do this at module load time.
 	 */
-	hv_context.guestid = generate_guest_id(0x20, LINUX_VERSION_CODE, 0);
-	wrmsrl(HV_X64_MSR_GUEST_OS_ID, hv_context.guestid);
+	hyperv_init();
+	hv_print_host_info();
 
-	/* See if the hypercall page is already set */
-	rdmsrl(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
-
-#ifdef __x86_64__
-	virtaddr = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL_EXEC);
-#else
-	virtaddr = __vmalloc(PAGE_SIZE, GFP_KERNEL,
-			     __pgprot(__PAGE_KERNEL & (~_PAGE_NX)));
-#endif
-
-	if (!virtaddr)
-		goto cleanup;
-
-	hypercall_msr.enable = 1;
-
-	hypercall_msr.guest_physical_address = vmalloc_to_pfn(virtaddr);
-	wrmsrl(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
-
-	/* Confirm that hypercall page did get setup. */
-	hypercall_msr.as_uint64 = 0;
-	rdmsrl(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
-
-	if (!hypercall_msr.enable)
-		goto cleanup;
-
-	hv_context.hypercall_page = virtaddr;
-
-#ifdef CONFIG_X86_64
-       if (ms_hyperv.features & HV_X64_MSR_REFERENCE_TSC_AVAILABLE) {
-               va_tsc = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL);
-               if (!va_tsc)
-                       goto cleanup;
-               hv_context.tsc_page = va_tsc;
-
-               rdmsrl(HV_X64_MSR_REFERENCE_TSC, tsc_msr.as_uint64);
-
-               tsc_msr.enable = 1;
-               tsc_msr.guest_physical_address = vmalloc_to_pfn(va_tsc);
-
-               wrmsrl(HV_X64_MSR_REFERENCE_TSC, tsc_msr.as_uint64);
-        #if  (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,3))
-                clocksource_register(&hyperv_cs_tsc);
-        #else
-               clocksource_register_hz(&hyperv_cs_tsc, NSEC_PER_SEC/100);
-        #endif
-
-       }
-#else
-       /*
-        * For 32 bit guests use the MSR based mechanism.
-        */
-       if (ms_hyperv.features & HV_X64_MSR_TIME_REF_COUNT_AVAILABLE) {
-               hyperv_cs_tsc.read = read_hv_clock_msr;
-	 #if  (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,3))
-                clocksource_register(&hyperv_cs_tsc);
-        #else
-               clocksource_register_hz(&hyperv_cs_tsc, NSEC_PER_SEC/100);
-        #endif
-
-       }
-#endif
+	if (!hv_is_hypercall_page_setup())
+		return -ENOTSUPP;
 
 	return 0;
-
-cleanup:
-	if (virtaddr) {
-		if (hypercall_msr.enable) {
-			hypercall_msr.as_uint64 = 0;
-			wrmsrl(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
-		}
-
-		vfree(virtaddr);
-	}
-
-	return -ENOTSUPP;
-}
-
-/*
- * hv_cleanup - Cleanup routine.
- *
- * This routine is called normally during driver unloading or exiting.
- */
-void hv_cleanup(bool crash)
-{
-	union hv_x64_msr_hypercall_contents hypercall_msr;
-
-	/* Reset our OS id */
-	wrmsrl(HV_X64_MSR_GUEST_OS_ID, 0);
-
-	if (hv_context.hypercall_page) {
-		hypercall_msr.as_uint64 = 0;
-		wrmsrl(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
-		if (!crash)
-			vfree(hv_context.hypercall_page);
-		hv_context.hypercall_page = NULL;
-	}
-#ifdef CONFIG_X86_64
-	/*
-	 * Cleanup the TSC page based CS.
-	 */
-	if (ms_hyperv.features & HV_X64_MSR_REFERENCE_TSC_AVAILABLE) {
-		/*
-		 * Crash can happen in an interrupt context and unregistering
-		 * a clocksource is impossible and redundant in this case.
-		 */
-		if (!oops_in_progress) {
-			clocksource_change_rating(&hyperv_cs_tsc, 10);
-			clocksource_unregister(&hyperv_cs_tsc);
-		}
-
-		hypercall_msr.as_uint64 = 0;
-		wrmsrl(HV_X64_MSR_REFERENCE_TSC, hypercall_msr.as_uint64);
-		if (!crash) {
-			vfree(hv_context.tsc_page);
-			hv_context.tsc_page = NULL;
-		}
-	}
-#endif
-
 }
 
 /*
@@ -410,9 +125,9 @@ static int hv_ce_set_next_event(unsigned long delta,
 
 	WARN_ON(evt->mode != CLOCK_EVT_MODE_ONESHOT);
 
-	rdmsrl(HV_X64_MSR_TIME_REF_COUNT, current_tick);
+	hv_get_current_tick(current_tick);
 	current_tick += delta;
-	wrmsrl(HV_X64_MSR_STIMER0_COUNT, current_tick);
+	hv_init_timer(HV_X64_MSR_STIMER0_COUNT, current_tick);
 	return 0;
 }
 
@@ -430,13 +145,13 @@ static void hv_ce_setmode(enum clock_event_mode mode,
 		timer_cfg.enable = 1;
 		timer_cfg.auto_enable = 1;
 		timer_cfg.sintx = VMBUS_MESSAGE_SINT;
-		wrmsrl(HV_X64_MSR_STIMER0_CONFIG, timer_cfg.as_uint64);
+		hv_init_timer_config(HV_X64_MSR_STIMER0_CONFIG, timer_cfg.as_uint64);
 		break;
 
 	case CLOCK_EVT_MODE_UNUSED:
 	case CLOCK_EVT_MODE_SHUTDOWN:
-		wrmsrl(HV_X64_MSR_STIMER0_COUNT, 0);
-		wrmsrl(HV_X64_MSR_STIMER0_CONFIG, 0);
+		hv_init_timer(HV_X64_MSR_STIMER0_COUNT, 0);
+		hv_init_timer_config(HV_X64_MSR_STIMER0_CONFIG, 0);
 		break;
 	case CLOCK_EVT_MODE_RESUME:
 		break;
@@ -580,9 +295,6 @@ void hv_synic_init(void *arg)
 	u64 vp_index;
 
 	int cpu = smp_processor_id();
-
-	if (!hv_context.hypercall_page)
-		return;
 
 	/* Setup the Synic's message page */
 	hv_get_simp(simp.as_uint64);

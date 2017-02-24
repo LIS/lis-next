@@ -73,6 +73,9 @@
   */
 #define HV_X64_MSR_STAT_PAGES_AVAILABLE		(1 << 8)
 
+/* Crash MSR available */
+#define HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE (1 << 10)
+
 /*
  * Feature identification: EBX indicates which flags were specified at
  * partition creation. The format is the same as the partition creation
@@ -142,6 +145,11 @@
  */
 #define HV_X64_RELAXED_TIMING_RECOMMENDED	(1 << 5)
 
+/*
+ * Crash notification flag.
+ */
+#define HV_CRASH_CTL_CRASH_NOTIFY (1ULL << 63)
+
 /* MSR used to identify the guest OS. */
 #define HV_X64_MSR_GUEST_OS_ID			0x40000000
 
@@ -201,6 +209,17 @@
 #define HV_X64_MSR_STIMER3_CONFIG		0x400000B6
 #define HV_X64_MSR_STIMER3_COUNT		0x400000B7
 
+/* Hyper-V guest crash notification MSR's */
+#define HV_X64_MSR_CRASH_P0			0x40000100
+#define HV_X64_MSR_CRASH_P1			0x40000101
+#define HV_X64_MSR_CRASH_P2			0x40000102
+#define HV_X64_MSR_CRASH_P3			0x40000103
+#define HV_X64_MSR_CRASH_P4			0x40000104
+#define HV_X64_MSR_CRASH_CTL			0x40000105
+#define HV_X64_MSR_CRASH_CTL_NOTIFY		(1ULL << 63)
+#define HV_X64_MSR_CRASH_PARAMS		\
+		(1 + (HV_X64_MSR_CRASH_P4 - HV_X64_MSR_CRASH_P0))
+
 #define HV_X64_MSR_HYPERCALL_ENABLE		0x00000001
 #define HV_X64_MSR_HYPERCALL_PAGE_ADDRESS_SHIFT	12
 #define HV_X64_MSR_HYPERCALL_PAGE_ADDRESS_MASK	\
@@ -244,6 +263,14 @@ typedef struct _HV_REFERENCE_TSC_PAGE {
 #define HV_SYNIC_SINT_COUNT		(16)
 
 #define HV_SYNIC_STIMER_COUNT		(4)
+
+/* Define timer message payload structure. */
+struct hv_timer_message_payload {
+	__u32 timer_index;
+	__u32 reserved;
+	__u64 expiration_time;	/* When the timer expired */
+	__u64 delivery_time;	/* When the message was delivered */
+};
 
 /* Define synthetic interrupt controller message constants. */
 #define HV_MESSAGE_SIZE			(256)
@@ -319,14 +346,6 @@ struct hv_message {
 /* Define the synthetic interrupt message page layout. */
 struct hv_message_page {
 	struct hv_message sint_message[HV_SYNIC_SINT_COUNT];
-};
-
-/* Define timer message payload structure. */
-struct hv_timer_message_payload {
-	__u32 timer_index;
-	__u32 reserved;
-	__u64 expiration_time;  /* When the timer expired */
-	__u64 delivery_time;    /* When the message was delivered */
 };
 
 #endif
