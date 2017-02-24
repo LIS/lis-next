@@ -917,8 +917,8 @@ out:
 }
 
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
-static struct rtnl_link_stats64 *netvsc_get_stats64(struct net_device *net,
-						    struct rtnl_link_stats64 *t)
+static void *netvsc_get_stats64(struct net_device *net,
+				struct rtnl_link_stats64 *t)
 {
 	struct net_device_context *ndev_ctx = netdev_priv(net);
 
@@ -943,7 +943,7 @@ static struct rtnl_link_stats64 *netvsc_get_stats64(struct net_device *net,
 
 		t->tx_bytes	+= bytes;
 		t->tx_packets	+= packets;
- 
+
 		stats = &nvchan->rx_stats;
 		do {
 			start = u64_stats_fetch_begin_irq(&stats->syncp);
@@ -962,8 +962,6 @@ static struct rtnl_link_stats64 *netvsc_get_stats64(struct net_device *net,
 
 	t->rx_dropped	= net->stats.rx_dropped;
 	t->rx_errors	= net->stats.rx_errors;
-
-	return t;
 }
 #endif
 
