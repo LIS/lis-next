@@ -625,15 +625,15 @@ static void netvsc_send_tx_complete(struct netvsc_device *net_device,
 		const struct hv_netvsc_packet *packet
 			= (struct hv_netvsc_packet *)skb->cb;
 		u32 send_index = packet->send_buf_index;
-		struct netvsc_stats *tx_stats;
-
 		if (send_index != NETVSC_INVALID_INDEX)
 			netvsc_free_send_slot(net_device, send_index);
 		q_idx = packet->q_idx;
 		channel = incoming_channel;
 
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
-		tx_stats = this_cpu_ptr(net_device_ctx->tx_stats);
+		struct netvsc_stats *tx_stats;
+
+		tx_stats = &net_device->chan_table[q_idx].tx_stats;
 
 		u64_stats_update_begin(&tx_stats->syncp);
 		tx_stats->packets += packet->total_packets;

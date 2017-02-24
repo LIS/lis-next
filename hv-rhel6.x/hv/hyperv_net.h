@@ -715,13 +715,6 @@ struct net_device_context {
 #endif
 
 	u32 tx_checksum_mask;
-#if defined(RHEL_RELEASE_VERSION) && RHEL_RELEASE_CODE > 1536
-	struct netvsc_stats __percpu *tx_stats;
-	struct netvsc_stats __percpu *rx_stats;
-#else
-	struct netvsc_stats *tx_stats;
-	struct netvsc_stats *rx_stats;
-#endif
 
 	/* Ethtool settings */
 	u8 duplex;
@@ -752,6 +745,9 @@ struct netvsc_channel {
 	struct multi_send_data msd;
 	struct multi_recv_comp mrc;
 	atomic_t queue_sends;
+
+	struct netvsc_stats tx_stats;
+	struct netvsc_stats rx_stats;
 };
 
 /* Per netvsc device */
