@@ -355,7 +355,6 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	u32 rndis_msg_size;
 	struct rndis_per_packet_info *ppi;
 	u32 hash;
-	u32 skb_length;
 	struct hv_page_buffer page_buf[MAX_PAGE_BUFFER_COUNT];
 	struct hv_page_buffer *pb = page_buf;
 
@@ -365,7 +364,6 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	 * more pages we try linearizing it.
 	 */
 
-	skb_length = skb->len;
 	num_data_pgs = netvsc_get_slots(skb) + 2;
 
 	if (unlikely(num_data_pgs > MAX_PAGE_BUFFER_COUNT)) {
@@ -404,6 +402,8 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	packet->q_idx = skb_get_queue_mapping(skb);
 
 	packet->total_data_buflen = skb->len;
+	packet->total_bytes = skb->len;
+	packet->total_packets = 1;
 
 	rndis_msg = (struct rndis_message *)skb->head;
 
@@ -529,20 +529,8 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	ret = netvsc_send(net_device_ctx->device_ctx, packet,
 			  rndis_msg, &pb, skb);
 
-	if (likely(ret == 0)) {
-#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
-		struct netvsc_stats *tx_stats = this_cpu_ptr(net_device_ctx->tx_stats);
-
-		u64_stats_update_begin(&tx_stats->syncp);
-		tx_stats->packets++;
-		tx_stats->bytes += skb_length;
-		u64_stats_update_end(&tx_stats->syncp);
-#else
-		net->stats.tx_bytes += skb_length;
-		net->stats.tx_packets++;
-#endif
+	if (likely(ret == 0))
 		return NETDEV_TX_OK;
-	}
 
 	if (ret == -EAGAIN) {
 		++net_device_ctx->eth_stats.tx_busy;
@@ -661,9 +649,11 @@ int netvsc_recv_callback(struct net_device *net,
 			 const struct ndis_pkt_8021q_info *vlan)
 {
 	struct net_device_context *net_device_ctx = netdev_priv(net);
+	struct netvsc_device *net_device = net_device_ctx->nvdev;
 	struct sk_buff *skb;
 	struct sk_buff *vf_skb;
 	struct netvsc_stats *rx_stats;
+	u16 q_idx = channel->offermsg.offer.sub_channel_index;
 	int ret = 0;
 
 	if (!net || net->reg_state != NETREG_REGISTERED)
@@ -703,7 +693,7 @@ int netvsc_recv_callback(struct net_device *net,
 	}
 
 vf_injection_done:
-	rx_stats = this_cpu_ptr(net_device_ctx->rx_stats);
+	rx_stats = &net_device->chan_table[q_idx].rx_stats;
 
 	/* Allocate a skb - TODO direct I/O to pages? */
 	skb = netvsc_alloc_recv_skb(net, csum_info, vlan, data, len);
@@ -711,8 +701,7 @@ vf_injection_done:
 		++net->stats.rx_dropped;
 		return NVSP_STAT_FAIL;
 	}
-	skb_record_rx_queue(skb, channel->
-			    offermsg.offer.sub_channel_index);
+	skb_record_rx_queue(skb, q_idx);
 
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 	u64_stats_update_begin(&rx_stats->syncp);
@@ -928,38 +917,44 @@ out:
 }
 
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
-static struct rtnl_link_stats64 *netvsc_get_stats64(struct net_device *net,
-						    struct rtnl_link_stats64 *t)
+static void *netvsc_get_stats64(struct net_device *net,
+				struct rtnl_link_stats64 *t)
 {
 	struct net_device_context *ndev_ctx = netdev_priv(net);
-	int cpu;
 
-	for_each_possible_cpu(cpu) {
-		struct netvsc_stats *tx_stats = per_cpu_ptr(ndev_ctx->tx_stats,
-							    cpu);
-		struct netvsc_stats *rx_stats = per_cpu_ptr(ndev_ctx->rx_stats,
-							    cpu);
-		u64 tx_packets, tx_bytes, rx_packets, rx_bytes, rx_multicast;
+	struct netvsc_device *nvdev = ndev_ctx->nvdev;
+	int i;
+
+	if (!nvdev)
+		return;
+
+	for (i = 0; i < nvdev->num_chn; i++) {
+		const struct netvsc_channel *nvchan = &nvdev->chan_table[i];
+		const struct netvsc_stats *stats;
+		u64 packets, bytes, multicast;
 		unsigned int start;
 
+		stats = &nvchan->tx_stats;
 		do {
-			start = u64_stats_fetch_begin_irq(&tx_stats->syncp);
-			tx_packets = tx_stats->packets;
-			tx_bytes = tx_stats->bytes;
-		} while (u64_stats_fetch_retry_irq(&tx_stats->syncp, start));
+			start = u64_stats_fetch_begin_irq(&stats->syncp);
+			packets = stats->packets;
+			bytes = stats->bytes;
+		} while (u64_stats_fetch_retry_irq(&stats->syncp, start));
 
+		t->tx_bytes	+= bytes;
+		t->tx_packets	+= packets;
+
+		stats = &nvchan->rx_stats;
 		do {
-			start = u64_stats_fetch_begin_irq(&rx_stats->syncp);
-			rx_packets = rx_stats->packets;
-			rx_bytes = rx_stats->bytes;
-			rx_multicast = rx_stats->multicast + rx_stats->broadcast;
-		} while (u64_stats_fetch_retry_irq(&rx_stats->syncp, start));
+			start = u64_stats_fetch_begin_irq(&stats->syncp);
+			packets = stats->packets;
+			bytes = stats->bytes;
+			multicast = stats->multicast + stats->broadcast;
+		} while (u64_stats_fetch_retry_irq(&stats->syncp, start));
 
-		t->tx_bytes	+= tx_bytes;
-		t->tx_packets	+= tx_packets;
-		t->rx_bytes	+= rx_bytes;
-		t->rx_packets	+= rx_packets;
-		t->multicast	+= rx_multicast;
+		t->rx_bytes	+= bytes;
+		t->rx_packets	+= packets;
+		t->multicast	+= multicast;
 	}
 
 	t->tx_dropped	= net->stats.tx_dropped;
@@ -967,8 +962,6 @@ static struct rtnl_link_stats64 *netvsc_get_stats64(struct net_device *net,
 
 	t->rx_dropped	= net->stats.rx_dropped;
 	t->rx_errors	= net->stats.rx_errors;
-
-	return t;
 }
 #endif
 
@@ -1007,11 +1000,19 @@ static const struct {
 	{ "tx_busy",	  offsetof(struct netvsc_ethtool_stats, tx_busy) },
 };
 
+#define NETVSC_GLOBAL_STATS_LEN	ARRAY_SIZE(netvsc_stats)
+
+/* 4 statistics per queue (rx/tx packets/bytes) */
+#define NETVSC_QUEUE_STATS_LEN(dev) ((dev)->num_chn * 4)
+
 static int netvsc_get_sset_count(struct net_device *dev, int string_set)
 {
+	struct net_device_context *ndc = netdev_priv(dev);
+	struct netvsc_device *nvdev = ndc->nvdev;
+
 	switch (string_set) {
 	case ETH_SS_STATS:
-		return ARRAY_SIZE(netvsc_stats);
+		return NETVSC_GLOBAL_STATS_LEN + NETVSC_QUEUE_STATS_LEN(nvdev);
 	default:
 		return -EINVAL;
 	}
@@ -1021,22 +1022,63 @@ static void netvsc_get_ethtool_stats(struct net_device *dev,
 				     struct ethtool_stats *stats, u64 *data)
 {
 	struct net_device_context *ndc = netdev_priv(dev);
+	struct netvsc_device *nvdev = ndc->nvdev;
 	const void *nds = &ndc->eth_stats;
-	int i;
+	const struct netvsc_stats *qstats;
+	unsigned int start;
+	u64 packets, bytes;
+	int i, j;
 
-	for (i = 0; i < ARRAY_SIZE(netvsc_stats); i++)
+	for (i = 0; i < NETVSC_GLOBAL_STATS_LEN; i++)
 		data[i] = *(unsigned long *)(nds + netvsc_stats[i].offset);
+
+	for (j = 0; j < nvdev->num_chn; j++) {
+		qstats = &nvdev->chan_table[j].tx_stats;
+
+		do {
+			start = u64_stats_fetch_begin_irq(&qstats->syncp);
+			packets = qstats->packets;
+			bytes = qstats->bytes;
+		} while (u64_stats_fetch_retry_irq(&qstats->syncp, start));
+		data[i++] = packets;
+		data[i++] = bytes;
+
+		qstats = &nvdev->chan_table[j].rx_stats;
+		do {
+			start = u64_stats_fetch_begin_irq(&qstats->syncp);
+			packets = qstats->packets;
+			bytes = qstats->bytes;
+		} while (u64_stats_fetch_retry_irq(&qstats->syncp, start));
+		data[i++] = packets;
+		data[i++] = bytes;
+	}
 }
 
 static void netvsc_get_strings(struct net_device *dev, u32 stringset, u8 *data)
 {
+	struct net_device_context *ndc = netdev_priv(dev);
+	struct netvsc_device *nvdev = ndc->nvdev;
+	u8 *p = data;
 	int i;
 
 	switch (stringset) {
 	case ETH_SS_STATS:
 		for (i = 0; i < ARRAY_SIZE(netvsc_stats); i++)
-			memcpy(data + i * ETH_GSTRING_LEN,
+			memcpy(p + i * ETH_GSTRING_LEN,
 			       netvsc_stats[i].name, ETH_GSTRING_LEN);
+
+		p += i * ETH_GSTRING_LEN;
+		for (i = 0; i < nvdev->num_chn; i++) {
+			sprintf(p, "tx_queue_%u_packets", i);
+			p += ETH_GSTRING_LEN;
+			sprintf(p, "tx_queue_%u_bytes", i);
+			p += ETH_GSTRING_LEN;
+			sprintf(p, "rx_queue_%u_packets", i);
+			p += ETH_GSTRING_LEN;
+			sprintf(p, "rx_queue_%u_bytes", i);
+			p += ETH_GSTRING_LEN;
+		}
+
 		break;
 	}
 }
@@ -1306,17 +1348,6 @@ out_unlock:
 	rtnl_unlock();
 }
 
-static void netvsc_free_netdev(struct net_device *netdev)
-{
-#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
-	struct net_device_context *net_device_ctx = netdev_priv(netdev);
-
-	free_percpu(net_device_ctx->tx_stats);
-	free_percpu(net_device_ctx->rx_stats);
-#endif
-	free_netdev(netdev);
-}
-
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,2))
 static void netvsc_notify_peers(struct work_struct *wrk)
 {
@@ -1557,20 +1588,6 @@ static int netvsc_probe(struct hv_device *dev,
 		netdev_dbg(net, "netvsc msg_enable: %d\n",
 			net_device_ctx->msg_enable);
 
-#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
-	net_device_ctx->tx_stats = netdev_alloc_pcpu_stats(struct netvsc_stats);
-	if (!net_device_ctx->tx_stats) {
-		free_netdev(net);
-		return -ENOMEM;
-	}
-	net_device_ctx->rx_stats = netdev_alloc_pcpu_stats(struct netvsc_stats);
-	if (!net_device_ctx->rx_stats) {
-		free_percpu(net_device_ctx->tx_stats);
-		free_netdev(net);
-		return -ENOMEM;
-	}
-#endif
-
 	hv_set_drvdata(dev, net);
 
 	net_device_ctx->start_remove = false;
@@ -1601,7 +1618,7 @@ static int netvsc_probe(struct hv_device *dev,
 	ret = rndis_filter_device_add(dev, &device_info);
 	if (ret != 0) {
 		netdev_err(net, "unable to add netvsc device (ret %d)\n", ret);
-		netvsc_free_netdev(net);
+		free_netdev(net);
 		hv_set_drvdata(dev, NULL);
 		return ret;
 	}
@@ -1632,7 +1649,7 @@ static int netvsc_probe(struct hv_device *dev,
 	if (ret != 0) {
 		pr_err("Unable to register netdev.\n");
 		rndis_filter_device_remove(dev, nvdev);
-		netvsc_free_netdev(net);
+		free_netdev(net);
 	}
 
 	return ret;
@@ -1675,7 +1692,7 @@ static int netvsc_remove(struct hv_device *dev)
 
 	hv_set_drvdata(dev, NULL);
 
-	netvsc_free_netdev(net);
+	free_netdev(net);	
 	return 0;
 }
 
