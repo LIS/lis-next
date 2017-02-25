@@ -1002,7 +1002,7 @@ static struct rtnl_link_stats64 *netvsc_get_stats64(struct net_device *net,
 	int i;
 
 	if (!nvdev)
-		return;
+		return NULL;
 
 	for (i = 0; i < nvdev->num_chn; i++) {
 		const struct netvsc_channel *nvchan = &nvdev->chan_table[i];
