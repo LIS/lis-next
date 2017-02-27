@@ -1269,8 +1269,6 @@ void netvsc_channel_cb(void *context)
 
 		put_pkt_raw(channel, desc);
 		need_to_commit = true;
-
-		init_cached_read_index(channel);
 	}
 
 	if (need_to_commit)
