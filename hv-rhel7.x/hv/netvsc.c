@@ -1239,7 +1239,6 @@ void netvsc_channel_cb(void *context)
 		device = channel->device_obj;
 
 	ndev = hv_get_drvdata(device);
-
 	if (unlikely(!ndev))
 		return;
 
@@ -1247,6 +1246,9 @@ void netvsc_channel_cb(void *context)
 	if (unlikely(net_device->destroy) &&
 		netvsc_channel_idle(net_device, q_idx))
 		return;
+
+	/* commit_rd_index() -> hv_signal_on_read() needs this. */
+	init_cached_read_index(channel);
 
 	while ((desc = get_next_pkt_raw(channel)) != NULL) {
 		netvsc_process_raw_pkt(device, channel, net_device,
