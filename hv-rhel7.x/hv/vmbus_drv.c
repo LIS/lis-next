@@ -716,10 +716,9 @@ static void vmbus_onmessage_work(struct work_struct *work)
 	kfree(ctx);
 }
 
-static void hv_process_timer_expiration(struct hv_message *msg,
-					struct hv_per_cpu_context *hv_cpu)
+static void hv_process_timer_expiration(struct hv_message *msg, int cpu)
 {
-	struct clock_event_device *dev = hv_cpu->clk_evt;
+	struct clock_event_device *dev = hv_context.clk_evt[cpu];
 
 	if (dev->event_handler)
 		dev->event_handler(dev);
@@ -729,8 +728,8 @@ static void hv_process_timer_expiration(struct hv_message *msg,
 
 void vmbus_on_msg_dpc(unsigned long data)
 {
-	struct hv_per_cpu_context *hv_cpu = (void *)data;
-	void *page_addr = hv_cpu->synic_message_page;
+	int cpu = smp_processor_id();
+	void *page_addr = hv_context.synic_message_page[cpu];
 	struct hv_message *msg = (struct hv_message *)page_addr +
 				  VMBUS_MESSAGE_SINT;
 	struct vmbus_channel_message_header *hdr;
@@ -773,14 +772,14 @@ static void vmbus_isr(void)
 static irqreturn_t vmbus_isr(int irq, void *dev_id)
 #endif
 {
-	struct hv_per_cpu_context *hv_cpu
-		= this_cpu_ptr(hv_context.cpu_context);
-	void *page_addr = hv_cpu->synic_event_page;
+	int cpu = smp_processor_id();
+	void *page_addr;
 	struct hv_message *msg;
 	union hv_synic_event_flags *event;
 	bool handled = false;
 
-	if (unlikely(page_addr == NULL))
+	page_addr = hv_context.synic_event_page[cpu];
+	if (page_addr == NULL)
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) /* KYS; we may have to tweak this */
 		return;
 #else
@@ -814,18 +813,18 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id)
 	}
 
 	if (handled)
-		tasklet_schedule(&hv_cpu->event_dpc);
+		tasklet_schedule(hv_context.event_dpc[cpu]);
 
 
-	page_addr = hv_cpu->synic_message_page;
+	page_addr = hv_context.synic_message_page[cpu];
 	msg = (struct hv_message *)page_addr + VMBUS_MESSAGE_SINT;
 
 	/* Check if there are actual msgs to be processed */
 	if (msg->header.message_type != HVMSG_NONE) {
 		if (msg->header.message_type == HVMSG_TIMER_EXPIRED)
-			hv_process_timer_expiration(msg, hv_cpu);
+			hv_process_timer_expiration(msg, cpu);
 		else
-			tasklet_schedule(&hv_cpu->msg_dpc);
+			tasklet_schedule(hv_context.msg_dpc[cpu]);
 	}
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,4)) /* we dont have add_interrupt_randomness symbol in kernel yet in 7.3 */
         add_interrupt_randomness(HYPERVISOR_CALLBACK_VECTOR, 0);
@@ -1530,12 +1529,8 @@ static void __exit vmbus_exit(void)
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8,0)) /* KYS; we may have to tweak this */
 	hv_remove_vmbus_irq();
 #endif
-	for_each_online_cpu(cpu) {
-		struct hv_per_cpu_context *hv_cpu
-			= per_cpu_ptr(hv_context.cpu_context, cpu);
-
-		tasklet_kill(&hv_cpu->msg_dpc);
-	}
+	for_each_online_cpu(cpu)
+		tasklet_kill(hv_context.msg_dpc[cpu]);
 	vmbus_free_channels();
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2))
         if (ms_hyperv.misc_features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
@@ -1548,10 +1543,7 @@ static void __exit vmbus_exit(void)
 	}
 	bus_unregister(&hv_bus);
 	for_each_online_cpu(cpu) {
-		struct hv_per_cpu_context *hv_cpu
-			= per_cpu_ptr(hv_context.cpu_context, cpu);
-
-		tasklet_kill(&hv_cpu->event_dpc);
+		tasklet_kill(hv_context.event_dpc[cpu]);
 		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
 	}
 	hv_synic_free();
