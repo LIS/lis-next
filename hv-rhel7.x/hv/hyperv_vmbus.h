@@ -40,36 +40,6 @@
  */
 #define HV_UTIL_NEGO_TIMEOUT 55
 
-/*
- * The below CPUID leaves are present if VersionAndFeatures.HypervisorPresent
- * is set by CPUID(HVCPUID_VERSION_FEATURES).
- */
-enum hv_cpuid_function {
-	HVCPUID_VERSION_FEATURES		= 0x00000001,
-	HVCPUID_VENDOR_MAXFUNCTION		= 0x40000000,
-	HVCPUID_INTERFACE			= 0x40000001,
-
-	/*
-	 * The remaining functions depend on the value of
-	 * HVCPUID_INTERFACE
-	 */
-	HVCPUID_VERSION			= 0x40000002,
-	HVCPUID_FEATURES			= 0x40000003,
-	HVCPUID_ENLIGHTENMENT_INFO	= 0x40000004,
-	HVCPUID_IMPLEMENTATION_LIMITS		= 0x40000005,
-};
-
-#define  HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE   0x400
-
-#define HV_X64_MSR_CRASH_P0   0x40000100
-#define HV_X64_MSR_CRASH_P1   0x40000101
-#define HV_X64_MSR_CRASH_P2   0x40000102
-#define HV_X64_MSR_CRASH_P3   0x40000103
-#define HV_X64_MSR_CRASH_P4   0x40000104
-#define HV_X64_MSR_CRASH_CTL  0x40000105
-
-#define HV_CRASH_CTL_CRASH_NOTIFY (1ULL << 63)
-
 
 #define HV_SYNIC_VERSION_1		(0x1)
 
@@ -211,22 +181,6 @@ struct hv_input_post_message {
 	u64 payload[HV_MESSAGE_PAYLOAD_QWORD_COUNT];
 };
 
-
-/*
- * Declare the MSR used to setup pages used to communicate with the hypervisor.
- */
-#define HV_X64_MSR_HYPERCALL	0x40000001
-
-union hv_x64_msr_hypercall_contents {
-	u64 as_uint64;
-	struct {
-		u64 enable:1;
-		u64 reserved:11;
-		u64 guest_physical_address:52;
-	};
-};
-
-
 enum {
 	VMBUS_MESSAGE_CONNECTION_ID	= 1,
 	VMBUS_MESSAGE_PORT_ID		= 1,
@@ -238,63 +192,12 @@ enum {
 };
 
 
-/*
- * The guest OS needs to register the guest ID with the hypervisor.
- * The guest ID is a 64 bit entity and the structure of this ID is
- * specified in the Hyper-V specification:
- *
- * http://msdn.microsoft.com/en-us/library/windows/hardware/ff542653%28v=vs.85%29.aspx
- *
- * While the current guideline does not specify how Linux guest ID(s)
- * need to be generated, our plan is to publish the guidelines for
- * Linux and other guest operating systems that currently are hosted
- * on Hyper-V. The implementation here conforms to this yet
- * unpublished guidelines.
- *
- *
- * Bit(s)
- * 63 - Indicates if the OS is Open Source or not; 1 is Open Source
- * 62:56 - Os Type; Linux is 0x100
- * 55:48 - Distro specific identification
- * 47:16 - Linux kernel version number
- * 15:0  - Distro specific identification
- *
- * Distro specific identification are defined as:
- *   SuSE SLE      0x10
- *   RHEL          0x20
- *   CentOS        0x21
- *   Oracle (RHCK) 0x22
- *   Oracle (UEK)  0x40
- *   Debian        0x60
- *   Ubuntu        0x80
- */
-
-#define HV_LINUX_VENDOR_ID		0x8100
-
-/*
- * Generate the guest ID based on the guideline described above.
- */
-
-static inline  __u64 generate_guest_id(__u8 d_info1, __u32 kernel_version,
-					__u16 d_info2)
-{
-	__u64 guest_id = 0;
-
-	guest_id = (((__u64)HV_LINUX_VENDOR_ID) << 48);
-	guest_id |= (((__u64)(d_info1)) << 48);
-	guest_id |= (((__u64)(kernel_version)) << 16);
-	guest_id |= ((__u64)(d_info2));
-
-	return guest_id;
-}
-
 struct hv_context {
 	/* We only support running on top of Hyper-V
 	* So at this point this really can only contain the Hyper-V ID
 	*/
 	u64 guestid;
 
-	void *hypercall_page;
 	void *tsc_page;
 
 	bool synic_initialized;
@@ -340,14 +243,6 @@ struct hv_context {
 
 extern struct hv_context hv_context;
 
-struct ms_hyperv_tsc_page {
-       volatile u32 tsc_sequence;
-       u32 reserved1;
-       volatile u64 tsc_scale;
-       volatile s64 tsc_offset;
-       u64 reserved2[509];
-};
-
 struct hv_ring_buffer_debug_info {
 	u32 current_interrupt_mask;
 	u32 current_read_index;
@@ -359,8 +254,6 @@ struct hv_ring_buffer_debug_info {
 /* Hv Interface */
 
 extern int hv_init(void);
-
-extern void hv_cleanup(bool crash);
 
 extern int hv_post_message(union hv_connection_id connection_id,
 			 enum hv_message_type message_type,
@@ -375,14 +268,6 @@ extern void hv_synic_init(void *irqarg);
 extern void hv_synic_cleanup(void *arg);
 
 extern void hv_synic_clockevents_cleanup(void);
-
-/*
- * Host version information.
- */
-extern unsigned int host_info_eax;
-extern unsigned int host_info_ebx;
-extern unsigned int host_info_ecx;
-extern unsigned int host_info_edx;
 
 /* Interface */
 
@@ -494,41 +379,6 @@ struct vmbus_channel_message_table_entry {
 extern struct vmbus_channel_message_table_entry
 	channel_message_table[CHANNELMSG_COUNT];
 
-/* Free the message slot and signal end-of-message if required */
-static inline void vmbus_signal_eom(struct hv_message *msg, u32 old_msg_type)
-{
-	/*
-	 * On crash we're reading some other CPU's message page and we need
-	 * to be careful: this other CPU may already had cleared the header
-	 * and the host may already had delivered some other message there.
-	 * In case we blindly write msg->header.message_type we're going
-	 * to lose it. We can still lose a message of the same type but
-	 * we count on the fact that there can only be one
-	 * CHANNELMSG_UNLOAD_RESPONSE and we don't care about other messages
-	 * on crash.
-	 */
-	if (cmpxchg(&msg->header.message_type, old_msg_type,
-		    HVMSG_NONE) != old_msg_type)
-		return;
-
-	/*
-	 * Make sure the write to MessageType (ie set to
-	 * HVMSG_NONE) happens before we read the
-	 * MessagePending and EOMing. Otherwise, the EOMing
-	 * will not deliver any more messages since there is
-	 * no empty slot
-	 */
-	mb();
-
-	if (msg->header.message_flags.msg_pending) {
-		/*
-		 * This will cause message queue rescan to
-		 * possibly deliver another msg from the
-		 * hypervisor
-		 */
-		wrmsrl(HV_X64_MSR_EOM, 0);
-	}
-}
 
 /* General vmbus interface */
 

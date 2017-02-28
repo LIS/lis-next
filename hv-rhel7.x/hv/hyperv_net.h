@@ -138,7 +138,10 @@ struct hv_netvsc_packet {
 	u8 rmsg_size; /* RNDIS header and PPI size */
 	u8 rmsg_pgcnt; /* page count of RNDIS header and PPI */
 	u8 page_buf_cnt;
+
  	u16 q_idx;
+	u16 total_packets;
+	u32 total_bytes;
 	u32 send_buf_index;
 	u32 total_data_buflen;
 	void *send_completion_ctx;
@@ -180,7 +183,8 @@ struct rndis_device {
 /* Interface */
 struct rndis_message;
 struct netvsc_device;
-int netvsc_device_add(struct hv_device *device, void *additional_info);
+int netvsc_device_add(struct hv_device *device,
+		      const struct netvsc_device_info *info);
 void netvsc_device_remove(struct hv_device *device);
 int netvsc_send(struct hv_device *device,
 		struct hv_netvsc_packet *packet,
@@ -198,8 +202,9 @@ void netvsc_channel_cb(void *context);
 int rndis_filter_open(struct netvsc_device *nvdev);
 int rndis_filter_close(struct netvsc_device *nvdev);
 int rndis_filter_device_add(struct hv_device *dev,
-			void *additional_info);
-void rndis_filter_device_remove(struct hv_device *dev);
+			    struct netvsc_device_info *info);
+void rndis_filter_device_remove(struct hv_device *dev,
+				struct netvsc_device *nvdev);
 int rndis_filter_set_rss_param(struct rndis_device *rdev,
 			       const u8 *key, int num_queue);
 int rndis_filter_receive(struct net_device *ndev,
@@ -697,8 +702,6 @@ struct net_device_context {
 	u32 msg_enable; /* debug level */
 
 	u32 tx_checksum_mask;
-	struct netvsc_stats __percpu *tx_stats;
-	struct netvsc_stats __percpu *rx_stats;
 
 	/* Ethtool settings */
 	u8 duplex;
@@ -728,13 +731,14 @@ struct netvsc_channel {
 	struct multi_send_data msd;
 	struct multi_recv_comp mrc;
 	atomic_t queue_sends;
+	struct netvsc_stats tx_stats;
+	struct netvsc_stats rx_stats;
 };
 
 /* Per netvsc device */
 struct netvsc_device {
 	u32 nvsp_version;
 
-	atomic_t num_outstanding_sends;
 	wait_queue_head_t wait_drain;
 	bool destroy;
 

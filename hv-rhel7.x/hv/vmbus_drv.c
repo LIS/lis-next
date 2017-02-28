@@ -32,11 +32,11 @@
 #include <linux/acpi.h>
 #include <linux/completion.h>
 #include "include/linux/hyperv.h"
-#include <asm/mshyperv.h>
+#include <lis/asm/mshyperv.h>
 #include <linux/kernel_stat.h>
 #include <linux/clockchips.h>
 #include <linux/cpu.h>
-#include "include/asm/hyperv.h"
+#include <lis/asm/hyperv.h>
 #include <asm/hypervisor.h>
 #include <linux/screen_info.h>
 #include <linux/efi.h>
@@ -53,30 +53,6 @@ static struct completion probe_event;
 static int irq;
 #endif
 
-static void hyperv_report_panic(struct pt_regs *regs)
-{
-	static bool panic_reported;
-
-	/*
-	 * We prefer to report panic on 'die' chain as we have proper
-	 * registers to report, but if we miss it (e.g. on BUG()) we need
-	 * to report it on 'panic'.
-	 */
-	if (panic_reported)
-		return;
-	panic_reported = true;
-
-	wrmsrl(HV_X64_MSR_CRASH_P0, regs->ip);
-	wrmsrl(HV_X64_MSR_CRASH_P1, regs->ax);
-	wrmsrl(HV_X64_MSR_CRASH_P2, regs->bx);
-	wrmsrl(HV_X64_MSR_CRASH_P3, regs->cx);
-	wrmsrl(HV_X64_MSR_CRASH_P4, regs->dx);
-
-	/*
-	 * Let Hyper-V know there is crash data available
-	 */
-	wrmsrl(HV_X64_MSR_CRASH_CTL, HV_CRASH_CTL_CRASH_NOTIFY);
-}
 static int hyperv_panic_event(struct notifier_block *nb, unsigned long val,
 			      void *args)
 {
@@ -939,7 +915,7 @@ static int vmbus_bus_init(int irq)
 
 	ret = bus_register(&hv_bus);
 	if (ret)
-		goto err_cleanup;
+		return ret;
 
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) /* KYS; we may have to tweak this */
 	hv_setup_vmbus_irq(vmbus_isr);
@@ -1005,9 +981,6 @@ err_alloc:
 err_unregister:
 #endif
 	bus_unregister(&hv_bus);
-
-err_cleanup:
-	hv_cleanup(false);
 
 	return ret;
 }
@@ -1477,7 +1450,7 @@ static void hv_kexec_handler(void)
 	vmbus_initiate_unload(false);
 	for_each_online_cpu(cpu)
 		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
-	hv_cleanup(false);
+	hyperv_cleanup();
 };
 #endif
 
@@ -1491,7 +1464,7 @@ static void hv_crash_handler(struct pt_regs *regs)
 	 * for kdump.
 	 */
 	hv_synic_cleanup(NULL);
-	hv_cleanup(true);
+	hyperv_cleanup();
 };
 #endif
 
@@ -1569,7 +1542,6 @@ static void __exit vmbus_exit(void)
 						 &hyperv_panic_block);
 	}
 	bus_unregister(&hv_bus);
-	hv_cleanup(false);
 	for_each_online_cpu(cpu) {
 		tasklet_kill(hv_context.event_dpc[cpu]);
 		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
