@@ -132,7 +132,9 @@ hv_get_next_readlocation_withoffset(struct hv_ring_buffer_info *ring_info,
 	u32 next = ring_info->ring_buffer->read_index;
 
 	next += offset;
-	next %= ring_info->ring_datasize;
+	if (next >= ring_info->ring_datasize)
+		next -= ring_info->ring_datasize;
+ 
 
 	return next;
 }
@@ -176,7 +178,9 @@ static u32 hv_copyfrom_ringbuffer(
 	memcpy(dest, ring_buffer + start_read_offset, destlen);
 
 	start_read_offset += destlen;
-	start_read_offset %= ring_buffer_size;
+	if (start_read_offset >= ring_buffer_size)
+		start_read_offset -= ring_buffer_size;
+
 
 	return start_read_offset;
 }
@@ -198,7 +202,9 @@ static u32 hv_copyto_ringbuffer(
 	memcpy(ring_buffer + start_write_offset, src, srclen);
 
 	start_write_offset += srclen;
-	start_write_offset %= ring_buffer_size;
+	if (start_write_offset >= ring_buffer_size)
+		start_write_offset -= ring_buffer_size;
+ 
 
 	return start_write_offset;
 }
