@@ -1034,7 +1034,7 @@ static struct rtnl_link_stats64 *netvsc_get_stats64(struct net_device *net,
 	}
 
 	t->tx_dropped	= net->stats.tx_dropped;
-	t->tx_errors	= net->stats.tx_dropped;
+	t->tx_errors	= net->stats.tx_errors;
 
 	t->rx_dropped	= net->stats.rx_dropped;
 	t->rx_errors	= net->stats.rx_errors;
