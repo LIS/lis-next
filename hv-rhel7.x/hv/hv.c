@@ -51,20 +51,6 @@ struct hv_context hv_context = {
  */
 int hv_init(void)
 {
-
-	memset(hv_context.synic_event_page, 0, sizeof(void *) * NR_CPUS);
-	memset(hv_context.synic_message_page, 0,
-	       sizeof(void *) * NR_CPUS);
-	memset(hv_context.post_msg_page, 0,
-	       sizeof(void *) * NR_CPUS);
-	memset(hv_context.vp_index, 0,
-	       sizeof(int) * NR_CPUS);
-	memset(hv_context.event_dpc, 0,
-	       sizeof(void *) * NR_CPUS);
-	memset(hv_context.msg_dpc, 0,
-	       sizeof(void *) * NR_CPUS);
-	memset(hv_context.clk_evt, 0,
-	       sizeof(void *) * NR_CPUS);
 	/*
 	 * This initialization is normally done at
 	 * early boot time in the upstream kernel.
@@ -78,6 +64,10 @@ int hv_init(void)
 	if (!hv_is_hypercall_page_setup())
 		return -ENOTSUPP;
 
+	hv_context.cpu_context = alloc_percpu(struct hv_per_cpu_context);
+	if (!hv_context.cpu_context)
+		return -ENOMEM;
+
 	return 0;
 }
 
@@ -90,25 +80,24 @@ int hv_post_message(union hv_connection_id connection_id,
 		  enum hv_message_type message_type,
 		  void *payload, size_t payload_size)
 {
-
 	struct hv_input_post_message *aligned_msg;
+	struct hv_per_cpu_context *hv_cpu;
 	u64 status;
 
 	if (payload_size > HV_MESSAGE_PAYLOAD_BYTE_COUNT)
 		return -EMSGSIZE;
 
-	aligned_msg = (struct hv_input_post_message *)
-			hv_context.post_msg_page[get_cpu()];
-
+	hv_cpu = get_cpu_ptr(hv_context.cpu_context);
+	aligned_msg = hv_cpu->post_msg_page;
 	aligned_msg->connectionid = connection_id;
 	aligned_msg->reserved = 0;
 	aligned_msg->message_type = message_type;
 	aligned_msg->payload_size = payload_size;
 	memcpy((void *)aligned_msg->payload, payload, payload_size);
+	put_cpu_ptr(hv_cpu);
 
 	status = hv_do_hypercall(HVCALL_POST_MESSAGE, aligned_msg, NULL);
 
-	put_cpu();
 	return status & 0xFFFF;
 }
 
@@ -172,8 +161,6 @@ static void hv_init_clockevent_device(struct clock_event_device *dev, int cpu)
 
 int hv_synic_alloc(void)
 {
-	size_t size = sizeof(struct tasklet_struct);
-	size_t ced_size = sizeof(struct clock_event_device);
 	int cpu;
 
 	hv_context.hv_numa_map = kzalloc(sizeof(struct cpumask) * nr_node_ids,
@@ -184,52 +171,44 @@ int hv_synic_alloc(void)
 	}
 
 	for_each_present_cpu(cpu) {
-		hv_context.event_dpc[cpu] = kmalloc(size, GFP_ATOMIC);
-		if (hv_context.event_dpc[cpu] == NULL) {
-			pr_err("Unable to allocate event dpc\n");
-			goto err;
-		}
-		tasklet_init(hv_context.event_dpc[cpu], vmbus_on_event, cpu);
+		struct hv_per_cpu_context *hv_cpu
+			= per_cpu_ptr(hv_context.cpu_context, cpu);
 
-		hv_context.msg_dpc[cpu] = kmalloc(size, GFP_ATOMIC);
-		if (hv_context.msg_dpc[cpu] == NULL) {
-			pr_err("Unable to allocate event dpc\n");
-			goto err;
-		}
-		tasklet_init(hv_context.msg_dpc[cpu], vmbus_on_msg_dpc, cpu);
+		memset(hv_cpu, 0, sizeof(*hv_cpu));
+		tasklet_init(&hv_cpu->event_dpc,
+			     vmbus_on_event, (unsigned long) hv_cpu);
+		tasklet_init(&hv_cpu->msg_dpc,
+			     vmbus_on_msg_dpc, (unsigned long) hv_cpu);
 
-		hv_context.clk_evt[cpu] = kzalloc(ced_size, GFP_ATOMIC);
-		if (hv_context.clk_evt[cpu] == NULL) {
+		hv_cpu->clk_evt = kzalloc(sizeof(struct clock_event_device),
+					  GFP_KERNEL);
+		if (hv_cpu->clk_evt == NULL) {
 			pr_err("Unable to allocate clock event device\n");
 			goto err;
 		}
-		hv_init_clockevent_device(hv_context.clk_evt[cpu], cpu);
+		hv_init_clockevent_device(hv_cpu->clk_evt, cpu);
 
-		hv_context.synic_message_page[cpu] =
+		hv_cpu->synic_message_page =
 			(void *)get_zeroed_page(GFP_ATOMIC);
 
-		if (hv_context.synic_message_page[cpu] == NULL) {
+		if (hv_cpu->synic_message_page == NULL) {
 			pr_err("Unable to allocate SYNIC message page\n");
 			goto err;
 		}
 
-		hv_context.synic_event_page[cpu] =
-			(void *)get_zeroed_page(GFP_ATOMIC);
-
-		if (hv_context.synic_event_page[cpu] == NULL) {
+		hv_cpu->synic_event_page = (void *)get_zeroed_page(GFP_ATOMIC);
+		if (hv_cpu->synic_event_page == NULL) {
 			pr_err("Unable to allocate SYNIC event page\n");
 			goto err;
 		}
 
-		hv_context.post_msg_page[cpu] =
-			(void *)get_zeroed_page(GFP_ATOMIC);
-
-		if (hv_context.post_msg_page[cpu] == NULL) {
+		hv_cpu->post_msg_page = (void *)get_zeroed_page(GFP_ATOMIC);
+		if (hv_cpu->post_msg_page == NULL) {
 			pr_err("Unable to allocate post msg page\n");
 			goto err;
 		}
 
-		INIT_LIST_HEAD(&hv_context.percpu_list[cpu]);
+		INIT_LIST_HEAD(&hv_cpu->chan_list);
 	}
 
 	return 0;
@@ -237,26 +216,24 @@ err:
 	return -ENOMEM;
 }
 
-static void hv_synic_free_cpu(int cpu)
-{
-	kfree(hv_context.event_dpc[cpu]);
-	kfree(hv_context.msg_dpc[cpu]);
-	kfree(hv_context.clk_evt[cpu]);
-	if (hv_context.synic_event_page[cpu])
-		free_page((unsigned long)hv_context.synic_event_page[cpu]);
-	if (hv_context.synic_message_page[cpu])
-		free_page((unsigned long)hv_context.synic_message_page[cpu]);
-	if (hv_context.post_msg_page[cpu])
-		free_page((unsigned long)hv_context.post_msg_page[cpu]);
-}
 
 void hv_synic_free(void)
 {
 	int cpu;
 
+	for_each_present_cpu(cpu) {
+		struct hv_per_cpu_context *hv_cpu
+			= per_cpu_ptr(hv_context.cpu_context, cpu);
+
+		if (hv_cpu->synic_event_page)
+			free_page((unsigned long)hv_cpu->synic_event_page);
+		if (hv_cpu->synic_message_page)
+			free_page((unsigned long)hv_cpu->synic_message_page);
+		if (hv_cpu->post_msg_page)
+			free_page((unsigned long)hv_cpu->post_msg_page);
+	}
+
 	kfree(hv_context.hv_numa_map);
-	for_each_present_cpu(cpu)
-		hv_synic_free_cpu(cpu);
 }
 
 /*
@@ -275,12 +252,14 @@ void hv_synic_init(void *arg)
 	u64 vp_index;
 
 	int cpu = smp_processor_id();
+	struct hv_per_cpu_context *hv_cpu
+		= per_cpu_ptr(hv_context.cpu_context, cpu);
 
 	/* Setup the Synic's message page */
 	hv_get_simp(simp.as_uint64);
 
 	simp.simp_enabled = 1;
-	simp.base_simp_gpa = virt_to_phys(hv_context.synic_message_page[cpu])
+	simp.base_simp_gpa = virt_to_phys(hv_cpu->synic_message_page)
 		>> PAGE_SHIFT;
 
 	hv_set_simp(simp.as_uint64);
@@ -288,7 +267,7 @@ void hv_synic_init(void *arg)
 	/* Setup the Synic's event page */
 	hv_get_siefp(siefp.as_uint64);
 	siefp.siefp_enabled = 1;
-	siefp.base_siefp_gpa = virt_to_phys(hv_context.synic_event_page[cpu])
+	siefp.base_siefp_gpa = virt_to_phys(hv_cpu->synic_event_page)
 		>> PAGE_SHIFT;
 
 	hv_set_siefp(siefp.as_uint64);
@@ -326,7 +305,7 @@ void hv_synic_init(void *arg)
 	 * Register the per-cpu clockevent source.
 	 */
 	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
-		clockevents_config_and_register(hv_context.clk_evt[cpu],
+		clockevents_config_and_register(hv_cpu->clk_evt,
 						HV_TIMER_FREQUENCY,
 						HV_MIN_DELTA_TICKS,
 						HV_MAX_MAX_DELTA_TICKS);
@@ -345,8 +324,12 @@ void hv_synic_clockevents_cleanup(void)
 	if (!(ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE))
 		return;
 
-	for_each_present_cpu(cpu)
-		clockevents_unbind_device(hv_context.clk_evt[cpu], cpu);
+	for_each_present_cpu(cpu) {
+		struct hv_per_cpu_context *hv_cpu
+			= per_cpu_ptr(hv_context.cpu_context, cpu);
+
+		clockevents_unbind_device(hv_cpu->clk_evt, cpu);
+	}
 }
 #endif
 /*
@@ -366,14 +349,21 @@ void hv_synic_cleanup(void *arg)
 	/* Turn off clockevent device */
 #if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,2))
 	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE) {
-		clockevents_unbind_device(hv_context.clk_evt[cpu], cpu);
-		hv_ce_setmode(CLOCK_EVT_MODE_SHUTDOWN,
-			      hv_context.clk_evt[cpu]);
+		struct hv_per_cpu_context *hv_cpu
+			= this_cpu_ptr(hv_context.cpu_context);
+
+		clockevents_unbind_device(hv_cpu->clk_evt, cpu);
+		hv_ce_setmode(CLOCK_EVT_MODE_SHUTDOWN, hv_cpu->clk_evt);
+		put_cpu_ptr(hv_cpu);
 	}
 #else
-	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
-                hv_ce_setmode(CLOCK_EVT_MODE_SHUTDOWN,
-                              hv_context.clk_evt[cpu]);
+	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE) {
+		struct hv_per_cpu_context *hv_cpu
+			= this_cpu_ptr(hv_context.cpu_context);
+
+		hv_ce_setmode(CLOCK_EVT_MODE_SHUTDOWN, hv_cpu->clk_evt);
+		put_cpu_ptr(hv_cpu);
+	}
 #endif
 
 	hv_get_synint_state(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT,
