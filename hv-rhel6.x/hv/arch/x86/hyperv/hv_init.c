@@ -139,7 +139,7 @@ void hyperv_init(void)
 	wrmsrl(HV_X64_MSR_GUEST_OS_ID, guest_id);
 
 #ifdef CONFIG_X86_64
-	hypercall_pg = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL_EXEC);
+	hypercall_pg  = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL_RX);
 #else
 	hypercall_pg = __vmalloc(PAGE_SIZE, GFP_KERNEL,
                              __pgprot(__PAGE_KERNEL & (~_PAGE_NX)));
