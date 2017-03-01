@@ -548,6 +548,11 @@ static struct ib_pd *hvnd_allocate_pd(struct ib_device *ibdev,
 	int ret;
 	struct hvnd_ib_pd *hvnd_pd;
 
+	if (!context) {
+		hvnd_error("kernel mode context not supported\n");
+		return ERR_PTR(-EINVAL);
+	}
+
 
 	hvnd_pd = kzalloc(sizeof(struct hvnd_ib_pd), GFP_KERNEL);
 
@@ -623,7 +628,11 @@ static int hvnd_query_device(struct ib_device *ibdev,
 
 	if (!nd_dev->query_pkt_set) {
 		hvnd_error("query packet not received yet\n");
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
+		return 0;
+#else
 		return -ENODATA;
+#endif
 	}
 
 	adap_info = &nd_dev->query_pkt.ioctl.ad_info;
