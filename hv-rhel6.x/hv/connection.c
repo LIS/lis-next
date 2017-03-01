@@ -258,29 +258,6 @@ void vmbus_disconnect(void)
 }
 
 /*
- * Map the given relid to the corresponding channel based on the
- * per-cpu list of channels that have been affinitized to this CPU.
- * This will be used in the channel callback path as we can do this
- * mapping in a lock-free fashion.
- */
-static struct vmbus_channel *pcpu_relid2channel(u32 relid)
-{
-	struct hv_per_cpu_context *hv_cpu
-		= this_cpu_ptr(hv_context.cpu_context);
-	struct vmbus_channel *found_channel = NULL;
-	struct vmbus_channel *channel;
-
-	list_for_each_entry(channel, &hv_cpu->chan_list, percpu_list) {
-		if (channel->offermsg.child_relid == relid) {
-			found_channel = channel;
-			break;
-		}
-	}
-
-	return found_channel;
-}
-
-/*
  * relid2channel - Get the channel object given its
  * child relative id (ie channel id)
  */
@@ -316,24 +293,13 @@ struct vmbus_channel *relid2channel(u32 relid)
 }
 
 /*
- * process_chn_event - Process a channel event notification
+ * vmbus_on_event - Process a channel event notification
  */
-static void process_chn_event(u32 relid)
+void vmbus_on_event(unsigned long data)
 {
-	struct vmbus_channel *channel;
-	void *arg;
-	bool read_state;
-	u32 bytes_to_read;
+	struct vmbus_channel *channel = (void *) data;
+	void (*callback_fn)(void *);
 
-	/*
-	 * Find the channel based on this relid and invokes the
-	 * channel callback to process the event
-	 */
-	channel = pcpu_relid2channel(relid);
-
-	if (!channel)
-		return;
-	
 	/*
 	 * A channel once created is persistent even when there
 	 * is no driver handling the device. An unloading driver
@@ -342,10 +308,13 @@ static void process_chn_event(u32 relid)
 	 * Thus, checking and invoking the driver specific callback takes
 	 * care of orderly unloading of the driver.
 	 */
+	callback_fn = READ_ONCE(channel->onchannel_callback);
+	if (unlikely(callback_fn == NULL))
+		return;
 
-	if (channel->onchannel_callback != NULL) {
-		arg = channel->channel_callback_context;
-		read_state = channel->batched_reading;
+	(*callback_fn)(channel->channel_callback_context);
+
+	if (channel->callback_mode == HV_CALL_BATCHED) {
 		/*
 		 * This callback reads the messages sent by the host.
 		 * We can optimize host to guest signaling by ensuring:
@@ -358,57 +327,12 @@ static void process_chn_event(u32 relid)
 		 *    available to read. In this case we repeat the process.
 		 */
 
-		do {
-			if (read_state)
-				hv_begin_read(&channel->inbound);
-			channel->onchannel_callback(arg);
-			if (read_state)
-				bytes_to_read = hv_end_read(&channel->inbound);
-			else
-				bytes_to_read = 0;
-		} while (read_state && (bytes_to_read != 0));
-
-	}
-
-}
-
-/*
- * vmbus_on_event - Handler for events
- */
-void vmbus_on_event(unsigned long data)
-{
-	struct hv_per_cpu_context *hv_cpu = (void *)data;
-	unsigned long *recv_int_page;
-	u32 maxbits, relid;
-
-	if (vmbus_proto_version < VERSION_WIN8) {
-		maxbits = MAX_NUM_CHANNELS_SUPPORTED;
-		recv_int_page = vmbus_connection.recv_int_page;
-	} else {
-		/*
- 		 * When the host is win8 and beyond, the event page
-		 * can be directly checked to get the id of the channel
-		 * that has the interrupt pending.
-		 */
-		void *page_addr = hv_cpu->synic_event_page;
-		union hv_synic_event_flags *event
-			= (union hv_synic_event_flags *)page_addr +
-						 VMBUS_MESSAGE_SINT;
-
-		maxbits = HV_EVENT_FLAGS_COUNT;
-		recv_int_page = event->flags;
-	}
-
-	if (unlikely(!recv_int_page))
-		return;
-
-	for_each_set_bit(relid, recv_int_page, maxbits) {
-		if (sync_test_and_clear_bit(relid, recv_int_page)) {
-			/* Special case - vmbus channel protocol msg */
-			if (relid != 0)
-				process_chn_event(relid);
+		if (hv_end_read(&channel->inbound) != 0) {
+			hv_begin_read(&channel->inbound);
+			tasklet_schedule(&channel->callback_event);
 		}
 	}
+
 }
 
 /*
