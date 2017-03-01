@@ -44,8 +44,9 @@
 
 #define HV_SYNIC_VERSION_1		(0x1)
 
-#define HV_EVENT_FLAGS_BYTE_COUNT	(256)
-#define HV_EVENT_FLAGS_DWORD_COUNT	(256 / sizeof(u32))
+/* Define synthetic interrupt controller flag constants. */
+#define HV_EVENT_FLAGS_COUNT		(256 * 8)
+#define HV_EVENT_FLAGS_LONG_COUNT	(256 / sizeof(unsigned long))
 
 /*
  * Timer configuration register.
@@ -66,8 +67,7 @@ union hv_timer_config {
 
 /* Define the synthetic interrupt controller event flags format. */
 union hv_synic_event_flags {
-	u8 flags8[HV_EVENT_FLAGS_BYTE_COUNT];
-	u32 flags32[HV_EVENT_FLAGS_DWORD_COUNT];
+	unsigned long flags[HV_EVENT_FLAGS_LONG_COUNT];
 };
 
 /* Define SynIC control register. */
@@ -370,6 +370,11 @@ struct vmbus_msginfo {
 
 
 extern struct vmbus_connection vmbus_connection;
+
+static inline void vmbus_send_interrupt(u32 relid)
+{
+	sync_set_bit(relid, vmbus_connection.send_int_page);
+}
 
 enum vmbus_message_handler_type {
 	/* The related handler can sleep. */
