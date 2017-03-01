@@ -36,7 +36,7 @@
 #include <linux/completion.h>
 #include <linux/device.h>
 #include <linux/mod_devicetable.h>
-
+#include <linux/interrupt.h>
 
 #define MAX_PAGE_BUFFER_COUNT				32
 #define MAX_MULTIPAGE_BUFFER_COUNT			32 /* 128K */
@@ -781,9 +781,8 @@ struct vmbus_channel {
 
 	struct vmbus_close_msg close_msg;
 
-	/* Channel callback are invoked in this workqueue context */
-	/* HANDLE dataWorkQueue; */
-
+	/* Channel callback's invoked in softirq context */
+	struct tasklet_struct callback_event;
 	void (*onchannel_callback)(void *context);
 	void *channel_callback_context;
 
