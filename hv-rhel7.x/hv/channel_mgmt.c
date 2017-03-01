@@ -339,12 +339,14 @@ static struct vmbus_channel *alloc_channel(void)
 	if (!channel)
 		return NULL;
 
-	channel->acquire_ring_lock = true;
 	spin_lock_init(&channel->inbound_lock);
 	spin_lock_init(&channel->lock);
 
 	INIT_LIST_HEAD(&channel->sc_list);
 	INIT_LIST_HEAD(&channel->percpu_list);
+
+	tasklet_init(&channel->callback_event,
+		     vmbus_on_event, (unsigned long)channel);
 
 	return channel;
 }
@@ -354,6 +356,7 @@ static struct vmbus_channel *alloc_channel(void)
  */
 static void free_channel(struct vmbus_channel *channel)
 {
+	tasklet_kill(&channel->callback_event);
 	kfree(channel);
 }
 
@@ -386,21 +389,15 @@ static void vmbus_release_relid(u32 relid)
 
 void hv_event_tasklet_disable(struct vmbus_channel *channel)
 {
-	struct hv_per_cpu_context *hv_cpu;
-
-	hv_cpu = per_cpu_ptr(hv_context.cpu_context, channel->target_cpu);
-	tasklet_disable(&hv_cpu->event_dpc);
+	tasklet_disable(&channel->callback_event);
 }
 
 void hv_event_tasklet_enable(struct vmbus_channel *channel)
 {
-	struct hv_per_cpu_context *hv_cpu;
-
-	hv_cpu = per_cpu_ptr(hv_context.cpu_context, channel->target_cpu);
-	tasklet_enable(&hv_cpu->event_dpc);
+	tasklet_enable(&channel->callback_event);
 
 	/* In case there is any pending event */
-	tasklet_schedule(&hv_cpu->event_dpc);
+	tasklet_schedule(&channel->callback_event);
 }
 
 void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid)
@@ -834,13 +831,6 @@ static void vmbus_onoffer(struct vmbus_channel_message_header *hdr)
 		pr_err("Unable to allocate channel object\n");
 		return;
 	}
-
-	/*
-	 * By default we setup state to enable batched
-	 * reading. A specific service can choose to
-	 * disable this prior to opening the channel.
-	 */
-	newchannel->batched_reading = true;
 
 	/*
 	 * Setup state for signalling the host.
