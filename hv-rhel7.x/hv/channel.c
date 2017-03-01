@@ -47,12 +47,8 @@ void vmbus_setevent(struct vmbus_channel *channel)
 	 * For channels marked as in "low latency" mode
 	 * bypass the monitor page mechanism.
 	 */
-	if ((channel->offermsg.monitor_allocated) &&
-	    (!channel->low_latency)) {
-		/* Each u32 represents 32 channels */
-		sync_set_bit(channel->offermsg.child_relid & 31,
-			(unsigned long *) vmbus_connection.send_int_page +
-			(channel->offermsg.child_relid >> 5));
+	if (channel->offermsg.monitor_allocated && !channel->low_latency) {
+		vmbus_send_interrupt(channel->offermsg.child_relid);
 
 		/* Get the child to parent monitor page */
 		monitorpage = vmbus_connection.monitor_pages[1];
@@ -673,8 +669,7 @@ int vmbus_sendpacket_ctl(struct vmbus_channel *channel, void *buffer,
 	bufferlist[2].iov_base = &aligned_data;
 	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
 
-	return hv_ringbuffer_write(channel, bufferlist, 3,
-				   lock, kick_q);
+	return hv_ringbuffer_write(channel, bufferlist, 3, lock);
 }
 EXPORT_SYMBOL(vmbus_sendpacket_ctl);
 
@@ -759,8 +754,7 @@ int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
 	bufferlist[2].iov_base = &aligned_data;
 	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
 
-	return hv_ringbuffer_write(channel, bufferlist, 3,
-				   lock, kick_q);
+	return hv_ringbuffer_write(channel, bufferlist, 3, lock);
 }
 EXPORT_SYMBOL_GPL(vmbus_sendpacket_pagebuffer_ctl);
 
@@ -801,8 +795,7 @@ int vmbus_sendpacket_hvsock(struct vmbus_channel *channel, void *buf, u32 len)
 	bufferlist[3].iov_base = &aligned_data;
 	bufferlist[3].iov_len  = packetlen_aligned - packetlen;
 
-	return hv_ringbuffer_write(channel, bufferlist, 4,
-				   lock, true);
+	return hv_ringbuffer_write(channel, bufferlist, 4, lock);
 }
 EXPORT_SYMBOL_GPL(vmbus_sendpacket_hvsock);
 
@@ -858,8 +851,7 @@ int vmbus_sendpacket_mpb_desc(struct vmbus_channel *channel,
 	bufferlist[2].iov_base = &aligned_data;
 	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
 
-	return hv_ringbuffer_write(channel, bufferlist, 3,
-				   lock, true);
+	return hv_ringbuffer_write(channel, bufferlist, 3, lock);
 }
 EXPORT_SYMBOL_GPL(vmbus_sendpacket_mpb_desc);
 
@@ -917,8 +909,7 @@ int vmbus_sendpacket_multipagebuffer(struct vmbus_channel *channel,
 	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
 
 
-	return hv_ringbuffer_write(channel, bufferlist, 3,
-				   lock, true);
+	return hv_ringbuffer_write(channel, bufferlist, 3, lock);
 }
 EXPORT_SYMBOL_GPL(vmbus_sendpacket_multipagebuffer);
 
