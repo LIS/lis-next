@@ -710,11 +710,6 @@ struct hv_input_signal_event_buffer {
 	struct hv_input_signal_event event;
 };
 
-enum hv_signal_policy {
-	HV_SIGNAL_POLICY_DEFAULT = 0,
-	HV_SIGNAL_POLICY_EXPLICIT,
-};
-
 enum hv_numa_policy {
 	HV_BALANCED = 0,
 	HV_LOCALIZED,
@@ -897,13 +892,6 @@ struct vmbus_channel {
 	 */
 	struct list_head percpu_list;
 	/*
-	 * Host signaling policy: The default policy will be
-	 * based on the ring buffer state. We will also support
-	 * a policy where the client driver can have explicit
-	 * signaling control.
-	 */
-	enum hv_signal_policy  signal_policy;
-	/*
 	 * On the channel send side, many of the VMBUS
 	 * device drivers explicitly serialize access to the
 	 * outgoing ring buffer. Give more control to the
@@ -956,12 +944,6 @@ struct vmbus_channel {
 static inline void set_channel_lock_state(struct vmbus_channel *c, bool state)
 {
 	c->acquire_ring_lock = state;
-}
-
-static inline void set_channel_signal_state(struct vmbus_channel *c,
-					    enum hv_signal_policy policy)
-{
-	c->signal_policy = policy;
 }
 
 static inline bool is_hvsock_channel(const struct vmbus_channel *c)
