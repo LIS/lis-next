@@ -28,6 +28,7 @@
 #include <linux/list.h>
 #include <asm/sync_bitops.h>
 #include <linux/atomic.h>
+#include <linux/interrupt.h>
 #include "include/linux/hyperv.h"
 
 /*
@@ -64,8 +65,9 @@
 /* Define the expected SynIC version. */
 #define HV_SYNIC_VERSION_1		(0x1)
 
-#define HV_EVENT_FLAGS_BYTE_COUNT	(256)
-#define HV_EVENT_FLAGS_DWORD_COUNT	(256 / sizeof(u32))
+/* Define synthetic interrupt controller flag constants. */
+#define HV_EVENT_FLAGS_COUNT		(256 * 8)
+#define HV_EVENT_FLAGS_LONG_COUNT	(256 / sizeof(unsigned long))
 
 /*
  * Timer configuration register.
@@ -86,8 +88,7 @@ union hv_timer_config {
 
 /* Define the synthetic interrupt controller event flags format. */
 union hv_synic_event_flags {
-	u8 flags8[HV_EVENT_FLAGS_BYTE_COUNT];
-	u32 flags32[HV_EVENT_FLAGS_DWORD_COUNT];
+	unsigned long flags[HV_EVENT_FLAGS_LONG_COUNT];
 };
 
 /* Define SynIC control register. */
@@ -213,6 +214,32 @@ enum {
 };
 
 
+/*
+ * Per cpu state for channel handling
+ */
+struct hv_per_cpu_context {
+	void *synic_message_page;
+	void *synic_event_page;
+	/*
+	 * buffer to post messages to the host.
+	 */
+	void *post_msg_page;
+
+	/*
+	 * Starting with win8, we can take channel interrupts on any CPU;
+	 * we will manage the tasklet that handles events messages on a per CPU
+	 * basis.
+	 */
+	struct tasklet_struct msg_dpc;
+
+	/*
+	 * To optimize the mapping of relid to channel, maintain
+	 * per-cpu list of the channels based on their CPU affinity.
+	 */
+	struct list_head chan_list;
+	struct clock_event_device *clk_evt;
+};
+
 struct hv_context {
 	/* We only support running on top of Hyper-V
 	* So at this point this really can only contain the Hyper-V ID
@@ -223,8 +250,8 @@ struct hv_context {
 
 	bool synic_initialized;
 
-	void *synic_message_page[NR_CPUS];
-	void *synic_event_page[NR_CPUS];
+	struct hv_per_cpu_context __percpu *cpu_context;
+
 	/*
 	 * Hypervisor's notion of virtual processor ID is different from
 	 * Linux' notion of CPU ID. This information can only be retrieved
@@ -235,26 +262,7 @@ struct hv_context {
 	 * Linux cpuid 'a'.
 	 */
 	u32 vp_index[NR_CPUS];
-	/*
-	 * Starting with win8, we can take channel interrupts on any CPU;
-	 * we will manage the tasklet that handles events messages on a per CPU
-	 * basis.
-	 */
-	struct tasklet_struct *event_dpc[NR_CPUS];
-	struct tasklet_struct *msg_dpc[NR_CPUS];
-	/*
-	 * To optimize the mapping of relid to channel, maintain
-	 * per-cpu list of the channels based on their CPU affinity.
-	 */
-	struct list_head percpu_list[NR_CPUS];
-	/*
-	 * buffer to post messages to the host.
-	 */
-	void *post_msg_page[NR_CPUS];
-	/*
-	 * Support PV clockevent device.
-	 */
-	struct clock_event_device *clk_evt[NR_CPUS];
+
 	/*
          * To manage allocations in a NUMA node.
          * Array indexed by numa node ID.
@@ -291,9 +299,7 @@ int hv_ringbuffer_init(struct hv_ring_buffer_info *ring_info,
 void hv_ringbuffer_cleanup(struct hv_ring_buffer_info *ring_info);
 
 int hv_ringbuffer_write(struct vmbus_channel *channel,
-			struct kvec *kv_list,
-			u32 kv_count, bool lock,
-			bool kick_q);
+			const struct kvec *kv_list, u32 kv_count);
 
 void hv_get_ringbuffer_available_space(struct hv_ring_buffer_info *inring_info,
 				       u32 *bytes_avail_toread,
@@ -303,12 +309,8 @@ int hv_ringbuffer_read(struct vmbus_channel *channel,
 		       void *buffer, u32 buflen, u32 *buffer_actual_len,
 		       u64 *requestid, bool raw);
 
-void hv_ringbuffer_get_debuginfo(struct hv_ring_buffer_info *ring_info,
+void hv_ringbuffer_get_debuginfo(const struct hv_ring_buffer_info *ring_info,
 			    struct hv_ring_buffer_debug_info *debug_info);
-
-void hv_begin_read(struct hv_ring_buffer_info *rbi);
-
-u32 hv_end_read(struct hv_ring_buffer_info *rbi);
 
 /*
  * Maximum channels is determined by the size of the interrupt page
@@ -374,6 +376,11 @@ struct vmbus_msginfo {
 
 
 extern struct vmbus_connection vmbus_connection;
+
+static inline void vmbus_send_interrupt(u32 relid)
+{
+	sync_set_bit(relid, vmbus_connection.send_int_page);
+}
 
 enum vmbus_message_handler_type {
 	/* The related handler can sleep. */
