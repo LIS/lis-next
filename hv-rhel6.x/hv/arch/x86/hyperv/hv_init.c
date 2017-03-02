@@ -124,8 +124,10 @@ void hyperv_init(void)
 	u64 guest_id;
 	union hv_x64_msr_hypercall_contents hypercall_msr;
 
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,4))
 	if (x86_hyper != &x86_hyper_ms_hyperv)
 		return;
+#endif
 
 	/*
 	 * Setup the hypercall page and enable hypercalls.
@@ -136,7 +138,7 @@ void hyperv_init(void)
 	wrmsrl(HV_X64_MSR_GUEST_OS_ID, guest_id);
 
 #ifdef CONFIG_X86_64
-	hypercall_pg = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL_EXEC);
+	hypercall_pg  = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL_RX);
 #else
 	hypercall_pg = __vmalloc(PAGE_SIZE, GFP_KERNEL,
                              __pgprot(__PAGE_KERNEL & (~_PAGE_NX)));
@@ -160,7 +162,11 @@ void hyperv_init(void)
 
 		tsc_pg = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL);
 		if (!tsc_pg) {
+#if  (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,3))
+			clocksource_register(&hyperv_cs_msr);
+#else
 			clocksource_register_hz(&hyperv_cs_msr, NSEC_PER_SEC/100);
+#endif
 			return;
 		}
 
