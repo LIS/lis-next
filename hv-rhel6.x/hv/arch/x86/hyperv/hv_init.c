@@ -127,8 +127,10 @@ void hyperv_init(void)
 	u64 guest_id;
 	union hv_x64_msr_hypercall_contents hypercall_msr;
 
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,4))
 	if (x86_hyper != &x86_hyper_ms_hyperv)
 		return;
+#endif
 
 	/*
 	 * Setup the hypercall page and enable hypercalls.
