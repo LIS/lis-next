@@ -461,7 +461,7 @@ static inline void dev_consume_skb_any(struct sk_buff *skb)
 #endif
 
 
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
 /* This helper checks if a socket is a full socket,
  * ie _not_ a timewait socket.
  */
