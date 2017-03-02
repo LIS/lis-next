@@ -162,7 +162,11 @@ void hyperv_init(void)
 
 		tsc_pg = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL);
 		if (!tsc_pg) {
+#if  (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,3))
+			clocksource_register(&hyperv_cs_msr);
+#else
 			clocksource_register_hz(&hyperv_cs_msr, NSEC_PER_SEC/100);
+#endif
 			return;
 		}
 
