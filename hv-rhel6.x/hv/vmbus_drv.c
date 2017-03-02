@@ -52,7 +52,7 @@ EXPORT_SYMBOL(using_null_legacy_pic);
 #endif
 
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
-#include <asm/mshyperv.h>
+#include <lis/asm/mshyperv.h>
 
 int x86_hyper_ms_hyperv;
 EXPORT_SYMBOL(x86_hyper_ms_hyperv);
