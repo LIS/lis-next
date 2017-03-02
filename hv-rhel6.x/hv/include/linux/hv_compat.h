@@ -436,6 +436,22 @@ static inline void u64_stats_init(struct u64_stats_sync *syncp)
 
 #if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(6,0))
 #define this_cpu_ptr(ptr) SHIFT_PERCPU_PTR((ptr), my_cpu_offset)
+
+#define get_cpu_ptr(var) ({	\
+	preempt_disable();	\
+	this_cpu_ptr(var); })
+
+#define put_cpu_ptr(var) do {	\
+	(void)(var);		\
+        preempt_enable();	\
+} while (0)
+
+
+#define __percpu
+#endif
+
+#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(6,2))
+#define for_each_set_bit(bit, addr, size) for_each_bit(bit, addr, size)
 #endif
 
 
