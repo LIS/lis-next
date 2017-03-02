@@ -99,6 +99,9 @@ static struct clocksource hyperv_cs_msr = {
 };
 
 static void *hypercall_pg;
+struct clocksource *hyperv_cs;
+EXPORT_SYMBOL_GPL(hyperv_cs);
+
 /*
  * This function is to be invoked early in the boot sequence after the
  * hypervisor has been detected.
@@ -122,7 +125,7 @@ void hyperv_init(void)
 	guest_id = generate_guest_id(0, LINUX_VERSION_CODE, 0);
 	wrmsrl(HV_X64_MSR_GUEST_OS_ID, guest_id);
 
-	hypercall_pg  = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL_EXEC);
+	hypercall_pg  = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL_RX);
 	if (hypercall_pg == NULL) {
 		wrmsrl(HV_X64_MSR_GUEST_OS_ID, 0);
 		return;
@@ -141,10 +144,10 @@ void hyperv_init(void)
 		union hv_x64_msr_hypercall_contents tsc_msr;
 
 		tsc_pg = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL);
-		if (!tsc_pg) {
-			clocksource_register_hz(&hyperv_cs_msr, NSEC_PER_SEC/100);
-			return;
-		}
+		if (!tsc_pg)
+			goto register_msr_cs;
+
+		hyperv_cs = &hyperv_cs_tsc;
 
 		rdmsrl(HV_X64_MSR_REFERENCE_TSC, tsc_msr.as_uint64);
 
@@ -161,6 +164,8 @@ void hyperv_init(void)
 	 * the partition counter.
 	 */
 
+register_msr_cs:
+	hyperv_cs = &hyperv_cs_msr;
 	if (ms_hyperv.features & HV_X64_MSR_TIME_REF_COUNT_AVAILABLE)
 		clocksource_register_hz(&hyperv_cs_msr, NSEC_PER_SEC/100);
 }

@@ -334,12 +334,14 @@ static struct vmbus_channel *alloc_channel(void)
 	if (!channel)
 		return NULL;
 
-	channel->acquire_ring_lock = true;
 	spin_lock_init(&channel->inbound_lock);
 	spin_lock_init(&channel->lock);
 
 	INIT_LIST_HEAD(&channel->sc_list);
 	INIT_LIST_HEAD(&channel->percpu_list);
+
+	tasklet_init(&channel->callback_event,
+		     vmbus_on_event, (unsigned long)channel);
 
 	return channel;
 }
@@ -349,15 +351,17 @@ static struct vmbus_channel *alloc_channel(void)
  */
 static void free_channel(struct vmbus_channel *channel)
 {
+	tasklet_kill(&channel->callback_event);
 	kfree(channel);
 }
 
 static void percpu_channel_enq(void *arg)
 {
 	struct vmbus_channel *channel = arg;
-	int cpu = smp_processor_id();
+	struct hv_per_cpu_context *hv_cpu
+		= this_cpu_ptr(hv_context.cpu_context);
 
-	list_add_tail(&channel->percpu_list, &hv_context.percpu_list[cpu]);
+	list_add_tail(&channel->percpu_list, &hv_cpu->chan_list);
 }
 
 static void percpu_channel_deq(void *arg)
@@ -379,19 +383,15 @@ static void vmbus_release_relid(u32 relid)
 
 void hv_event_tasklet_disable(struct vmbus_channel *channel)
 {
-	struct tasklet_struct *tasklet;
-	tasklet = hv_context.event_dpc[channel->target_cpu];
-	tasklet_disable(tasklet);
+	tasklet_disable(&channel->callback_event);
 }
 
 void hv_event_tasklet_enable(struct vmbus_channel *channel)
 {
-	struct tasklet_struct *tasklet;
-	tasklet = hv_context.event_dpc[channel->target_cpu];
-	tasklet_enable(tasklet);
+	tasklet_enable(&channel->callback_event);
 
 	/* In case there is any pending event */
-	tasklet_schedule(tasklet);
+	tasklet_schedule(&channel->callback_event);
 }
 
 void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid)
@@ -732,9 +732,12 @@ static void vmbus_wait_for_unload(void)
 			break;
 
 		for_each_online_cpu(cpu) {
-			page_addr = hv_context.synic_message_page[cpu];
-			msg = (struct hv_message *)page_addr +
-				VMBUS_MESSAGE_SINT;
+			struct hv_per_cpu_context *hv_cpu
+				= per_cpu_ptr(hv_context.cpu_context, cpu);
+
+			page_addr = hv_cpu->synic_message_page;
+			msg = (struct hv_message *)page_addr
+				+ VMBUS_MESSAGE_SINT;
 
 			message_type = READ_ONCE(msg->header.message_type);
 			if (message_type == HVMSG_NONE)
@@ -758,7 +761,10 @@ static void vmbus_wait_for_unload(void)
 	 * messages after we reconnect.
 	 */
 	for_each_online_cpu(cpu) {
-		page_addr = hv_context.synic_message_page[cpu];
+		struct hv_per_cpu_context *hv_cpu
+			= per_cpu_ptr(hv_context.cpu_context, cpu);
+
+		page_addr = hv_cpu->synic_message_page;
 		msg = (struct hv_message *)page_addr + VMBUS_MESSAGE_SINT;
 		msg->header.message_type = HVMSG_NONE;
 	}
@@ -816,13 +822,6 @@ static void vmbus_onoffer(struct vmbus_channel_message_header *hdr)
 		pr_err("Unable to allocate channel object\n");
 		return;
 	}
-
-	/*
-	 * By default we setup state to enable batched
-	 * reading. A specific service can choose to
-	 * disable this prior to opening the channel.
-	 */
-	newchannel->batched_reading = true;
 
 	/*
 	 * Setup state for signalling the host.

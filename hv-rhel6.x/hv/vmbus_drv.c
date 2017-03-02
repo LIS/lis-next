@@ -557,9 +557,10 @@ static void vmbus_onmessage_work(struct work_struct *work)
 	kfree(ctx);
 }
 
-static void hv_process_timer_expiration(struct hv_message *msg, int cpu)
+static void hv_process_timer_expiration(struct hv_message *msg,
+					struct hv_per_cpu_context *hv_cpu)
 {
-	struct clock_event_device *dev = hv_context.clk_evt[cpu];
+	struct clock_event_device *dev = hv_cpu->clk_evt;
 
 	if (dev->event_handler)
 		dev->event_handler(dev);
@@ -569,8 +570,8 @@ static void hv_process_timer_expiration(struct hv_message *msg, int cpu)
 
 void vmbus_on_msg_dpc(unsigned long data)
 {
-	int cpu = smp_processor_id();
-	void *page_addr = hv_context.synic_message_page[cpu];
+	struct hv_per_cpu_context *hv_cpu = (void *)data;
+	void *page_addr = hv_cpu->synic_message_page;
 	struct hv_message *msg = (struct hv_message *)page_addr +
 				  VMBUS_MESSAGE_SINT;
 	struct vmbus_channel_message_header *hdr;
@@ -606,20 +607,91 @@ msg_handled:
 	vmbus_signal_eom(msg, message_type);
 }
 
+/*
+ * Direct callback for channels using other deferred processing
+ */
+static void vmbus_channel_isr(struct vmbus_channel *channel)
+{
+	void (*callback_fn)(void *);
+
+	callback_fn = READ_ONCE(channel->onchannel_callback);
+	if (likely(callback_fn != NULL))
+		(*callback_fn)(channel->channel_callback_context);
+}
+
+/*
+ * Schedule all channels with events pending
+ */
+static void vmbus_chan_sched(struct hv_per_cpu_context *hv_cpu)
+{
+	unsigned long *recv_int_page;
+	u32 maxbits, relid;
+
+	if (vmbus_proto_version < VERSION_WIN8) {
+		maxbits = MAX_NUM_CHANNELS_SUPPORTED;
+		recv_int_page = vmbus_connection.recv_int_page;
+	} else {
+		/*
+		 * When the host is win8 and beyond, the event page
+		 * can be directly checked to get the id of the channel
+		 * that has the interrupt pending.
+		 */
+		void *page_addr = hv_cpu->synic_event_page;
+		union hv_synic_event_flags *event
+			= (union hv_synic_event_flags *)page_addr +
+						 VMBUS_MESSAGE_SINT;
+
+		maxbits = HV_EVENT_FLAGS_COUNT;
+		recv_int_page = event->flags;
+	}
+
+	if (unlikely(!recv_int_page))
+		return;
+
+	for_each_set_bit(relid, recv_int_page, maxbits) {
+		struct vmbus_channel *channel;
+
+		if (!sync_test_and_clear_bit(relid, recv_int_page))
+			continue;
+
+		/* Special case - vmbus channel protocol msg */
+		if (relid == 0)
+			continue;
+
+		/* Find channel based on relid */
+		list_for_each_entry(channel, &hv_cpu->chan_list, percpu_list) {
+			if (channel->offermsg.child_relid != relid)
+				continue;
+
+			switch (channel->callback_mode) {
+			case HV_CALL_ISR:
+				vmbus_channel_isr(channel);
+				break;
+
+			case HV_CALL_BATCHED:
+				hv_begin_read(&channel->inbound);
+				/* fallthrough */
+			case HV_CALL_DIRECT:
+				tasklet_schedule(&channel->callback_event);
+			}
+		}
+	}
+}
+
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 static irqreturn_t vmbus_isr(int irq, void *dev_id)
 #else
 static void vmbus_isr(void)
 #endif
 {
-	int cpu = smp_processor_id();
-	void *page_addr;
+	struct hv_per_cpu_context *hv_cpu
+		= this_cpu_ptr(hv_context.cpu_context);
+	void *page_addr = hv_cpu->synic_event_page;
 	struct hv_message *msg;
 	union hv_synic_event_flags *event;
 	bool handled = false;
 
-	page_addr = hv_context.synic_event_page[cpu];
-	if (page_addr == NULL)
+	if (unlikely(page_addr == NULL))
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 		return IRQ_NONE;
 #else
@@ -638,10 +710,8 @@ static void vmbus_isr(void)
 		(vmbus_proto_version == VERSION_WIN7)) {
 
 		/* Since we are a child, we only need to check bit 0 */
-		if (sync_test_and_clear_bit(0,
-			(unsigned long *) &event->flags32[0])) {
+		if (sync_test_and_clear_bit(0, event->flags))
 			handled = true;
-		}
 	} else {
 		/*
 		 * Our host is win8 or above. The signaling mechanism
@@ -653,18 +723,17 @@ static void vmbus_isr(void)
 	}
 
 	if (handled)
-		tasklet_schedule(hv_context.event_dpc[cpu]);
+		vmbus_chan_sched(hv_cpu);
 
-
-	page_addr = hv_context.synic_message_page[cpu];
+	page_addr = hv_cpu->synic_message_page;
 	msg = (struct hv_message *)page_addr + VMBUS_MESSAGE_SINT;
 
 	/* Check if there are actual msgs to be processed */
 	if (msg->header.message_type != HVMSG_NONE) {
 		if (msg->header.message_type == HVMSG_TIMER_EXPIRED)
-			hv_process_timer_expiration(msg, cpu);
+			hv_process_timer_expiration(msg, hv_cpu);
 		else
-			tasklet_schedule(hv_context.msg_dpc[cpu]);
+			tasklet_schedule(&hv_cpu->msg_dpc);
 	}
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3)) /* we dont have add_interrupt_randomness symbol in kernel yet in 7.2 */
         add_interrupt_randomness(HYPERVISOR_CALLBACK_VECTOR, 0);
@@ -1367,18 +1436,20 @@ static void __exit vmbus_exit(void)
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	free_irq(irq, hv_acpi_dev);
 #endif
-	for_each_online_cpu(cpu)
-		tasklet_kill(hv_context.msg_dpc[cpu]);
+	for_each_online_cpu(cpu) {
+		struct hv_per_cpu_context *hv_cpu
+			= per_cpu_ptr(hv_context.cpu_context, cpu);
+
+		tasklet_kill(&hv_cpu->msg_dpc);
+	}
 	vmbus_free_channels();
 	if (mshyperv_misc_features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
 		atomic_notifier_chain_unregister(&panic_notifier_list,
 						 &hyperv_panic_block);
 	}
 	bus_unregister(&hv_bus);
-	for_each_online_cpu(cpu) {
-		tasklet_kill(hv_context.event_dpc[cpu]);
+	for_each_online_cpu(cpu)
 		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
-	}
 	hv_synic_free();
 	acpi_bus_unregister_driver(&vmbus_acpi_driver);
 	hv_cpu_hotplug_quirk(false);
