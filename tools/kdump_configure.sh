@@ -63,9 +63,9 @@ LogMsg()
 UpdateSummary()
 {
     echo "${1}" >> ~/summary.log
-	if [ $1 == "ABORTED" ]; then
-		exit -1
-	fi
+    if [ $1 == "ABORTED" ]; then
+        exit -1
+    fi
 }
 #######################################################################
 #
@@ -82,13 +82,13 @@ function get_host_version ()
     
     if [ x$Server_version != "x" ]; then
         if [ $Server_version == "6.2" ];then
-	        echo "WS2012"
+            echo "WS2012"
         elif [ $Server_version == "6.3" ];then
-	        echo "WS2012R2"
+            echo "WS2012R2"
         elif [ $Server_version == "10.0" ];then
-	        echo "WS2016"
+            echo "WS2016"
         else
-	        echo "Unknown host OS version: $Server_version"
+            echo "Unknown host OS version: $Server_version"
         fi
     else
         LogMsg "Unable to ditect hostOS version :|"
@@ -180,11 +180,11 @@ function detect_distribution()
 function updaterepos()
 {
    if [ `which yum 2>/dev/null` ]; then
-    	yum makecache
+        yum makecache
     elif [ `which apt-get 2>/dev/null` ]; then
-    	apt-get update
-	elif [ `which zypper 2>/dev/null` ]; then
-		zypper refresh
+        apt-get update
+    elif [ `which zypper 2>/dev/null` ]; then
+        zypper refresh
     fi
 }
 #######################################################################
@@ -253,11 +253,11 @@ function install_package ()
     local package_name=$@
 
     if [ `which yum` ]; then
-    	yum_install "$package_name"
+        yum_install "$package_name"
     elif [ `which apt-get` ]; then
-    	apt_get_install "$package_name"
-	elif [ `which zypper` ]; then
-		zypper_install "$package_name"
+        apt_get_install "$package_name"
+    elif [ `which zypper` ]; then
+        zypper_install "$package_name"
     fi
 }
 #######################################################################
@@ -267,23 +267,23 @@ function install_package ()
 #######################################################################
 function config_kdump_RHEL
 {
-    LogMsg "Configuring Kdump on RHEL60"
+    local distro_version=`detect_linux_ditribution_version`
+    
+    LogMsg "Configuring Kdump on RHEL $distro_version"
     if [ x$host_version == "x" ]; then
-	$host_version=`dmesg | grep "Host Build" | sed "s/.*Host Build://"|sed "s/^.*-\([0-9]*\.[0-9]*\)-.*/\1 /"`
-	if [ x$host_version == "x" ]; then
-		LogMsg "Unable to find Host version"
-		UpdateSummary "ABORTED"
-	fi
+        $host_version=`dmesg | grep "Host Build" | sed "s/.*Host Build://"|sed "s/^.*-\([0-9]*\.[0-9]*\)-.*/\1 /"`
+        if [ x$host_version == "x" ]; then
+            LogMsg "Unable to find Host version"
+            UpdateSummary "ABORTED"
+        fi
     fi
     LogMsg "Installing required packages"
     install_package "kexec-tool crash"
-    local distro_version=`detect_linux_ditribution_version`
-    if [ $distro_version == "6.0" ] || [ $distro_version == "6.3" ] ; then
+    if [ $distro_version == "6.0" ] || [ $distro_version == "6.3" ] || [ $distro_version == "6.4" ] ; then
         if [ $host_version == "6.2" ]; then
             LogMsg "Configuring Kdump for `detect_distribution`-$distro_version VM running on `get_host_version $host_version`"
             sed -i "s/\(^default.*\)/#\1/" /etc/kdump.conf
             LogMsg "/etc/kdump.conf 'default' action is commented to boot from 'initrd-...kdump.img'."
-
 
             if [ `cat /etc/kdump.conf | grep -v "#"| grep "path /var/crash" | wc -l` == 0 ]; then
                 echo "path /var/crash" >> /boot/grub/grub.conf
@@ -308,7 +308,6 @@ function config_kdump_RHEL
             fi
 
             sed -i "s/\(^disk_timeout.*\)/#\1/" /etc/kdump.conf
-
             if [ `cat /etc/kdump.conf | grep -v "#"| grep "disk_timeout 100" | wc -l` == 0 ]; then
                 echo "disk_timeout 100" >> /etc/kdump.conf
                 LogMsg "Configured '/etc/kdump.conf' with 'disk_timeout 100'"
@@ -316,12 +315,32 @@ function config_kdump_RHEL
                 LogMsg "'/etc/kdump.conf' already configured with 'disk_timeout 100' skipping ..."
             fi
 
-            sed -i "s/\(^KDUMP_COMMANDLINE_APPEND.*\)/#\1/" /etc/sysconfig/kdump
-            if [ `cat /etc/sysconfig/kdump | grep -v "#"| grep "KDUMP_COMMANDLINE_APPEND" | wc -l` == 0 ]; then
-                echo 'KDUMP_COMMANDLINE_APPEND="irqpoll maxcpus=1 reset_devices ide_core.prefer_ms_hyperv=0"' >> /etc/sysconfig/kdump
-                LogMsg "Configured '/etc/sysconfig/kdump' with 'KDUMP_COMMANDLINE_APPEND=irqpoll maxcpus=1 reset_devices ide_core.prefer_ms_hyperv=0'"
-            else
-                LogMsg "'/etc/sysconfig/kdump' already configured with 'KDUMP_COMMANDLINE_APPEND=irqpoll maxcpus=1 reset_devices ide_core.prefer_ms_hyperv=0' skipping ..."
+            if [ $distro_version == "6.0" ] || [ $distro_version == "6.3" ] ; then
+                sed -i "s/\(^KDUMP_COMMANDLINE_APPEND.*\)/#\1/" /etc/sysconfig/kdump
+                if [ `cat /etc/sysconfig/kdump | grep -v "#"| grep "KDUMP_COMMANDLINE_APPEND" | wc -l` == 0 ]; then
+                    echo 'KDUMP_COMMANDLINE_APPEND="irqpoll maxcpus=1 reset_devices ide_core.prefer_ms_hyperv=0"' >> /etc/sysconfig/kdump
+                    LogMsg "Configured '/etc/sysconfig/kdump' with 'KDUMP_COMMANDLINE_APPEND=irqpoll maxcpus=1 reset_devices ide_core.prefer_ms_hyperv=0'"
+                else
+                    LogMsg "'/etc/sysconfig/kdump' already configured with 'KDUMP_COMMANDLINE_APPEND=irqpoll maxcpus=1 reset_devices ide_core.prefer_ms_hyperv=0' skipping ..."
+                fi
+            fi
+
+            if [ $distro_version == "6.4" ] ; then
+                sed -i "s/\(^extra_modules.*\)/#\1/" /etc/kdump.conf
+                if [ `cat /etc/kdump.conf | grep -v "#"| grep "extra_modules ata_piix sr_mod sd_mod" | wc -l` == 0 ]; then
+                    echo "extra_modules ata_piix sr_mod sd_mod" >> /etc/kdump.conf
+                    LogMsg "Configured '/etc/kdump.conf' with 'extra_modules ata_piix sr_mod sd_mod'"
+                else
+                    LogMsg "'/etc/kdump.conf' already configured with 'extra_modules ata_piix sr_mod sd_mod' skipping ..."
+                fi
+
+                sed -i "s/\(^options.*\)/#\1/" /etc/kdump.conf
+                if [ `cat /etc/kdump.conf | grep -v "#"| grep "options ata_piix prefer_ms_hyperv=0" | wc -l` == 0 ]; then
+                    echo "options ata_piix prefer_ms_hyperv=0" >> /etc/kdump.conf
+                    LogMsg "Configured '/etc/kdump.conf' with 'options ata_piix prefer_ms_hyperv=0'"
+                else
+                    LogMsg "'/etc/kdump.conf' already configured with 'options ata_piix prefer_ms_hyperv=0' skipping ..."
+                fi
             fi
 
             sed -i "s/crashkernel=auto//" /boot/grub/grub.conf
@@ -334,7 +353,7 @@ function config_kdump_RHEL
         else
             LogMsg "Unsupported Host version $host_version"
             UpdateSummary "ABORTED"
-        fi		
+        fi
     else
         LogMsg "Unsupported OS version $distro_version"
         UpdateSummary "ABORTED"
@@ -385,15 +404,15 @@ fi
 linux_ditribution_type=`detect_distribution`
 
 if [ `detect_distribution` == "Ubuntu" ]; then
-	result=`config_kdump_Ubuntu`
+    result=`config_kdump_Ubuntu`
 elif [ `detect_distribution` == "RHEL" ]; then
-	result=`config_kdump_RHEL`
+    result=`config_kdump_RHEL`
 elif [ `detect_distribution` == "CentOS" ]; then
-	result=`config_kdump_CentOS`
+    result=`config_kdump_CentOS`
 fi
 
 if echo $result | grep "KDUMP_CONFIGURED" ; then
-	UpdateSummary "KDUMP_CONFIGURED"
+    UpdateSummary "KDUMP_CONFIGURED"
 else
-	UpdateSummary "KDUMP_CONFIG_FAILED"    
+    UpdateSummary "KDUMP_CONFIG_FAILED"    
 fi
