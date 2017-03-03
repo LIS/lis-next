@@ -617,6 +617,7 @@ static void netvsc_send_tx_complete(struct netvsc_device *net_device,
 	struct net_device *ndev = hv_get_drvdata(device);
 	struct net_device_context *net_device_ctx = netdev_priv(ndev);
 	struct vmbus_channel *channel = device->channel;
+	struct netvsc_stats *tx_stats;
 	u16 q_idx = 0;
 	int queue_sends;
 
@@ -629,20 +630,15 @@ static void netvsc_send_tx_complete(struct netvsc_device *net_device,
 			netvsc_free_send_slot(net_device, send_index);
 		q_idx = packet->q_idx;
 		channel = incoming_channel;
-
-#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
-		struct netvsc_stats *tx_stats;
-
 		tx_stats = &net_device->chan_table[q_idx].tx_stats;
 
 		u64_stats_update_begin(&tx_stats->syncp);
 		tx_stats->packets += packet->total_packets;
 		tx_stats->bytes += packet->total_bytes;
 		u64_stats_update_end(&tx_stats->syncp);
-#else
+
 		ndev->stats.tx_bytes += packet->total_bytes;
 		ndev->stats.tx_packets += packet->total_packets;
-#endif
 
 		dev_consume_skb_any(skb);
 	}
