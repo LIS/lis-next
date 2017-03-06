@@ -554,20 +554,27 @@ void kvp_get_os_info(void)
 		if (regcomp(&regex, regex_str, REG_EXTENDED) != 0)
 		{
 			syslog(LOG_ERR, "error compiling regex\n");
+			fclose(file);
 			return;
 		}
 
 		/* Perform a regex match - return if no match */
 		sts = regexec(&regex, buf, nmatch, match, 0);
 		if (sts != 0)
+		{
+			fclose(file);
 			return;
+		}
 
 		if (match[0].rm_so == -1 || match[0].rm_eo == -1 ||
 		    match[1].rm_so == -1 || match[1].rm_eo == -1 ||
 		    match[2].rm_so == -1 || match[2].rm_eo == -1 ||
 		    match[3].rm_so == -1 || match[3].rm_eo == -1 ||
 		    match[4].rm_so == -1 || match[4].rm_eo == -1 )
+		{
+			fclose(file);
 			return;
+		}
 
 		/* Copy the OS Major version - e.g. "7" */
 		if (os_major[0] == '\0')
