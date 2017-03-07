@@ -279,7 +279,7 @@ function config_kdump_RHEL
     fi
     LogMsg "Installing required packages"
     install_package "kexec-tool crash"
-    if [ $distro_version == "6.0" ] || [ $distro_version == "6.3" ] || [ $distro_version == "6.4" ] ; then
+    if [ $distro_version == "6.0" ] || [ $distro_version == "6.3" ] || [ $distro_version == "6.4" || [ $distro_version == "6.5" ] ; then
         if [ $host_version == "6.2" ]; then
             LogMsg "Configuring Kdump for `detect_distribution`-$distro_version VM running on `get_host_version $host_version`"
             sed -i "s/\(^default.*\)/#\1/" /etc/kdump.conf
@@ -325,7 +325,7 @@ function config_kdump_RHEL
                 fi
             fi
 
-            if [ $distro_version == "6.4" ] ; then
+            if [ $distro_version == "6.4" || [ $distro_version == "6.5" ] ; then
                 sed -i "s/\(^extra_modules.*\)/#\1/" /etc/kdump.conf
                 if [ `cat /etc/kdump.conf | grep -v "#"| grep "extra_modules ata_piix sr_mod sd_mod" | wc -l` == 0 ]; then
                     echo "extra_modules ata_piix sr_mod sd_mod" >> /etc/kdump.conf
