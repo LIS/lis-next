@@ -54,6 +54,11 @@
 #define HB_MAJOR_1	1
 #define HB_VERSION_1	(HB_MAJOR_1 << 16 | HB_MINOR)
 
+static bool timesync_mode;
+module_param(timesync_mode, bool, 0644);
+MODULE_PARM_DESC(timesync_mode,
+       "If set, continuously discipline the local clock with timesync.");
+
 static int sd_srv_version;
 static int ts_srv_version;
 static int hb_srv_version;
@@ -247,11 +252,14 @@ static void hv_set_host_time(struct work_struct *work)
  *
  * ICTIMESYNCFLAG_SAMPLE bit indicates a time sample from host. This is
  * typically used as a hint to the guest. The guest is under no obligation
- * to discipline the clock.
+ * to discipline the clock. If timesync_mode is set, then we always discipline
+ * the clock. Otherwise, we only discipline the clock for the first 50 samples
+ * to do initial time setting.
  */
 static struct adj_time_work  wrk;
 static inline void adj_guesttime(u64 hosttime, u64 reftime, u8 flags)
 {
+	static int remaining_samples = 50;
 
 	/*
 	 * This check is safe since we are executing in the
@@ -264,7 +272,14 @@ static inline void adj_guesttime(u64 hosttime, u64 reftime, u8 flags)
 	wrk.host_time = hosttime;
 	wrk.ref_time = reftime;
 	wrk.flags = flags;
-	if ((flags & (ICTIMESYNCFLAG_SYNC | ICTIMESYNCFLAG_SAMPLE)) != 0) {
+
+	if (timesync_mode || (flags & ICTIMESYNCFLAG_SYNC) != 0) {
+		schedule_work(&wrk.work);
+		return;
+	}
+
+	if ((flags & ICTIMESYNCFLAG_SAMPLE) != 0 && remaining_samples > 0) {
+		remaining_samples--;
 		schedule_work(&wrk.work);
 	}
 }
@@ -294,9 +309,11 @@ static void timesync_onchannelcallback(void *context)
 						fw_versions, FW_VER_COUNT,
 						ts_versions, TS_VER_COUNT,
 						NULL, &ts_srv_version)) {
-				pr_info("TimeSync IC version %d.%d\n",
+				pr_info("TimeSync IC version %d.%d. Mode: %s\n",
 					ts_srv_version >> 16,
-					ts_srv_version & 0xFFFF);
+					ts_srv_version & 0xFFFF,
+					timesync_mode ?
+					"Always" : "Only On Init");
 			}
 		} else {
 			if (ts_srv_version > TS_VERSION_3) {
