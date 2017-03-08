@@ -703,7 +703,6 @@ vf_injection_done:
 	}
 	skb_record_rx_queue(skb, q_idx);
 
-#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 	u64_stats_update_begin(&rx_stats->syncp);
 	rx_stats->packets++;
 	rx_stats->bytes += len;
@@ -713,10 +712,9 @@ vf_injection_done:
 	else if (skb->pkt_type == PACKET_MULTICAST)
 		++rx_stats->multicast;
 	u64_stats_update_end(&rx_stats->syncp);
-#else
+
 	net->stats.rx_packets++;
 	net->stats.rx_bytes += len;
-#endif
 
 	/*
 	 * Pass the skb back up. Network stack will deallocate the skb when it
