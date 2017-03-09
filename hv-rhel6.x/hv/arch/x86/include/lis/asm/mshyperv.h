@@ -3,6 +3,7 @@
 
 #include <linux/types.h>
 #include <linux/interrupt.h>
+#include <linux/clocksource.h>
 #include <lis/asm/hyperv.h>
 
 /*
@@ -160,6 +161,8 @@ void hv_setup_kexec_handler(void (*handler)(void));
 void hv_remove_kexec_handler(void);
 void hv_setup_crash_handler(void (*handler)(struct pt_regs *regs));
 void hv_remove_crash_handler(void);
+
+extern struct clocksource *hyperv_cs;
 
 void hyperv_init(void);
 void hyperv_report_panic(struct pt_regs *regs);
