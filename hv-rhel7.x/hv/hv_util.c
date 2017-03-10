@@ -439,7 +439,8 @@ static int util_probe(struct hv_device *dev,
 	 * Turn off batched reading for all util drivers before we open the
 	 * channel.
 	 */
-	set_channel_read_mode(dev->channel, HV_CALL_DIRECT);
+
+	set_channel_read_state(dev->channel, false);
 
 	hv_set_drvdata(dev, srv);
 
