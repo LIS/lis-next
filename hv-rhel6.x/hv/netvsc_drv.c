@@ -1622,15 +1622,14 @@ static int netvsc_probe(struct hv_device *dev,
 	}
 	memcpy(net->dev_addr, device_info.mac_adr, ETH_ALEN);
 
-	/* hw_features computed in rndis_filter_device_add */
 #ifdef NOTYET
+	/* hw_features computed in rndis_filter_device_add */
 	net->features = net->hw_features |
 		NETIF_F_HIGHDMA | NETIF_F_SG |
 		NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_HW_VLAN_CTAG_RX;
 #endif
-	net->features = NETIF_F_HIGHDMA | NETIF_F_SG |
-                NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_TSO | NETIF_F_TSO6 |
-		NETIF_F_HW_CSUM;
+	net->features |= NETIF_F_HIGHDMA | NETIF_F_SG |
+	NETIF_F_HW_VLAN_CTAG_TX;
 
 	net->vlan_features = net->features;
 
