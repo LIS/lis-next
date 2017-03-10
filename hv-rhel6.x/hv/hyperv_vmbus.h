@@ -230,6 +230,7 @@ struct hv_per_cpu_context {
 	 * we will manage the tasklet that handles events messages on a per CPU
 	 * basis.
 	 */
+	struct tasklet_struct event_dpc;
 	struct tasklet_struct msg_dpc;
 
 	/*
