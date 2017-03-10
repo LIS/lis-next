@@ -869,6 +869,16 @@ struct vmbus_channel {
 	 */
 	struct list_head percpu_list;
 	/*
+	 * On the channel send side, many of the VMBUS
+	 * device drivers explicitly serialize access to the
+	 * outgoing ring buffer. Give more control to the
+	 * VMBUS device drivers in terms of how to serialize
+	 * access to the outgoing ring bufer.
+	 * The default behavior will be to aquire the
+	 * ring lock to preserve the current behavior.
+	 */
+	bool acquire_ring_lock;
+	/*
 	 * For performance critical channels (storage, networking
 	 * etc,), Hyper-V has a mechanism to enhance the throughput
 	 * at the expense of latency:
@@ -907,6 +917,11 @@ struct vmbus_channel {
 	enum hv_numa_policy affinity_policy;
 
 };
+
+static inline void set_channel_lock_state(struct vmbus_channel *c, bool state)
+{
+	c->acquire_ring_lock = state;
+}
 
 static inline bool is_hvsock_channel(const struct vmbus_channel *c)
 {

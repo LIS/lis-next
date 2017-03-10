@@ -281,7 +281,7 @@ void hv_ringbuffer_cleanup(struct hv_ring_buffer_info *ring_info)
 
 /* Write to the ring buffer */
 int hv_ringbuffer_write(struct vmbus_channel *channel,
-		   struct kvec *kv_list, u32 kv_count)
+		   struct kvec *kv_list, u32 kv_count, bool lock)
 {
 	int i = 0;
 	u32 bytes_avail_towrite;
@@ -301,7 +301,8 @@ int hv_ringbuffer_write(struct vmbus_channel *channel,
 
 	totalbytes_towrite += sizeof(u64);
 
-	spin_lock_irqsave(&outring_info->ring_lock, flags);
+	if (lock)
+		spin_lock_irqsave(&outring_info->ring_lock, flags);
 
 	bytes_avail_towrite = hv_get_bytes_to_write(outring_info);
 
@@ -311,7 +312,8 @@ int hv_ringbuffer_write(struct vmbus_channel *channel,
 	 * is empty since the read index == write index
 	 */
 	if (bytes_avail_towrite <= totalbytes_towrite) {
-		spin_unlock_irqrestore(&outring_info->ring_lock, flags);
+		if (lock)
+			spin_unlock_irqrestore(&outring_info->ring_lock, flags);
 		return -EAGAIN;
 	}
 
@@ -341,7 +343,8 @@ int hv_ringbuffer_write(struct vmbus_channel *channel,
 	/* Now, update the write location */
 	hv_set_next_write_location(outring_info, next_write_location);
 
-	spin_unlock_irqrestore(&outring_info->ring_lock, flags);
+	if (lock)
+		spin_unlock_irqrestore(&outring_info->ring_lock, flags);
 
 	hv_signal_on_write(old_write, channel);
 
