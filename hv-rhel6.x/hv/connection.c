@@ -298,7 +298,9 @@ struct vmbus_channel *relid2channel(u32 relid)
 void vmbus_on_event(unsigned long data)
 {
 	struct vmbus_channel *channel = (void *) data;
-	void (*callback_fn)(void *);
+	void *arg;
+	bool read_state;
+	u32 bytes_to_read;
 
 	/*
 	 * A channel once created is persistent even when there
@@ -308,13 +310,9 @@ void vmbus_on_event(unsigned long data)
 	 * Thus, checking and invoking the driver specific callback takes
 	 * care of orderly unloading of the driver.
 	 */
-	callback_fn = READ_ONCE(channel->onchannel_callback);
-	if (unlikely(callback_fn == NULL))
-		return;
-
-	(*callback_fn)(channel->channel_callback_context);
-
-	if (channel->callback_mode == HV_CALL_BATCHED) {
+	if (channel->onchannel_callback != NULL) {
+		arg = channel->channel_callback_context;
+		read_state = channel->batched_reading;
 		/*
 		 * This callback reads the messages sent by the host.
 		 * We can optimize host to guest signaling by ensuring:
@@ -327,10 +325,16 @@ void vmbus_on_event(unsigned long data)
 		 *    available to read. In this case we repeat the process.
 		 */
 
-		if (hv_end_read(&channel->inbound) != 0) {
-			hv_begin_read(&channel->inbound);
-			tasklet_schedule(&channel->callback_event);
-		}
+		do {
+			if (read_state)
+				hv_begin_read(&channel->inbound);
+			channel->onchannel_callback(arg);
+			if (read_state)
+				bytes_to_read = hv_end_read(&channel->inbound);
+			else
+				bytes_to_read = 0;
+		} while (read_state && (bytes_to_read != 0));
+
 	}
 
 }
