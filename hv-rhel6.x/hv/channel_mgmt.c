@@ -388,13 +388,22 @@ void hv_event_tasklet_disable(struct vmbus_channel *channel)
 
 void hv_event_tasklet_enable(struct vmbus_channel *channel)
 {
-	struct hv_per_cpu_context *hv_cpu;
+	struct hv_per_cpu_context *hv_cpu
+		 = per_cpu_ptr(hv_context.cpu_context, channel->target_cpu);
+	struct tasklet_struct *tasklet = &hv_cpu->event_dpc;
 
-	hv_cpu = per_cpu_ptr(hv_context.cpu_context, channel->target_cpu);
-	tasklet_enable(&hv_cpu->event_dpc);
-
-	/* In case there is any pending event */
-	tasklet_schedule(&hv_cpu->event_dpc);
+	tasklet_enable(tasklet);
+	/*
+	 * In case there is any pending event schedule a rescan
+	 * but must be on the correct CPU for the channel.
+	 */
+	if (channel->target_cpu == get_cpu())
+		tasklet_schedule(tasklet);
+	else
+		smp_call_function_single(channel->target_cpu,
+					 (smp_call_func_t)tasklet_schedule,
+					 tasklet, false);
+	put_cpu();
 }
 
 void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid)
