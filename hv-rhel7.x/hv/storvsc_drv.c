@@ -1699,16 +1699,21 @@ static int storvsc_device_alloc(struct scsi_device *sdevice)
 	struct stor_mem_pools *memp;
 	int number = STORVSC_MIN_BUF_NR;
 
+#ifdef BLIST_TRY_VPD_PAGES
 	/*
 	 * Add blist flags to permit the reading of the VPD pages even when
 	 * the target may claim SPC-2 compliance. MSFT targets currently
 	 * claim SPC-2 compliance while they implement post SPC-2 features.
 	 * With this patch we can correctly handle WRITE_SAME_16 issues.
+	 */
+	sdevice->sdev_bflags |= BLIST_TRY_VPD_PAGES;
+#endif
+	/*
 	 *
 	 * Hypervisor reports SCSI_UNKNOWN type for DVD ROM device but
 	 * still supports REPORT LUN.
 	 */
-	sdevice->sdev_bflags |= BLIST_REPORTLUN2 | BLIST_TRY_VPD_PAGES;
+	sdevice->sdev_bflags |= BLIST_REPORTLUN2;
 
 	memp = kzalloc(sizeof(struct stor_mem_pools), GFP_KERNEL);
 	if (!memp)
@@ -1756,7 +1761,12 @@ static void storvsc_device_destroy(struct scsi_device *sdevice)
 
 static int storvsc_device_configure(struct scsi_device *sdevice)
 {
-
+#ifndef BLIST_TRY_VPD_PAGES
+	/*
+	 * On older kernels, do same thing as what TRY_VPD_PAGES does.
+	 */
+	sdevice->try_vpd_pages = 1;
+#endif
 	blk_queue_bounce_limit(sdevice->request_queue, BLK_BOUNCE_ANY);
 
 	blk_queue_rq_timeout(sdevice->request_queue, (storvsc_timeout * HZ));
