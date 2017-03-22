@@ -357,13 +357,26 @@ static void free_channel(struct vmbus_channel *channel)
 	kfree(channel);
 }
 
-static void percpu_channel_enq(void *arg)
+static void percpu_channel_enable(void *arg)
 {
 	struct vmbus_channel *channel = arg;
 	struct hv_per_cpu_context *hv_cpu
 		= this_cpu_ptr(hv_context.cpu_context);
 
 	list_add_tail(&channel->percpu_list, &hv_cpu->chan_list);
+
+	tasklet_enable(&hv_cpu->event_dpc);
+
+	/* In case there is any pending event */
+	tasklet_schedule(&hv_cpu->event_dpc);
+
+	/*
+	 * This state is used to indicate a successful open
+	 * so that when we do close the channel normally, we
+	 * can cleanup properly
+	 */
+	channel->state = CHANNEL_OPEN_STATE;
+
 }
 
 static void percpu_channel_deq(void *arg)
@@ -430,8 +443,6 @@ void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid)
 		percpu_channel_deq(channel);
 		put_cpu();
 	}
-
-	hv_event_tasklet_enable(channel);
 
 	if (channel->primary_channel == NULL) {
 		list_del(&channel->listentry);
@@ -530,21 +541,13 @@ static void vmbus_process_offer(struct vmbus_channel *newchannel)
 	if (newchannel->target_cpu != get_cpu()) {
 		put_cpu();
 		smp_call_function_single(newchannel->target_cpu,
-					 percpu_channel_enq,
+					 percpu_channel_enable,
 					 newchannel, true);
 	} else {
-		percpu_channel_enq(newchannel);
+		percpu_channel_enable(newchannel);
 		put_cpu();
 
 	}
-	hv_event_tasklet_enable(newchannel);
-
-	/*
-	 * This state is used to indicate a successful open
-	 * so that when we do close the channel normally, we
-	 * can cleanup properly
-	 */
-	newchannel->state = CHANNEL_OPEN_STATE;
 
 	if (!fnew) {
 		if (channel->sc_creation_callback != NULL)

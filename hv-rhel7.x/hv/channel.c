@@ -606,7 +606,15 @@ static int vmbus_close_internal(struct vmbus_channel *channel)
 		get_order(channel->ringbuffer_pagecount * PAGE_SIZE));
 
 out:
-	hv_event_tasklet_enable(channel);
+	if (channel->target_cpu != get_cpu()) {
+		smp_call_function_single(channel->target_cpu,
+					 (smp_call_func_t)hv_event_tasklet_enable,
+					 channel, true);
+		put_cpu();
+	} else {
+		put_cpu();
+		hv_event_tasklet_enable(channel);
+	}
 
 	return ret;
 }
