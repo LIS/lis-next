@@ -401,7 +401,7 @@ void hv_event_tasklet_enable(struct vmbus_channel *channel)
 		tasklet_schedule(tasklet);
 	else
 		smp_call_function_single(channel->target_cpu,
-					 (smp_call_func_t)tasklet_schedule,
+					 (void (*)(void *))tasklet_schedule,
 					 tasklet, false);
 	put_cpu();
 }
