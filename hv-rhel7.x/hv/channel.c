@@ -588,7 +588,7 @@ static int vmbus_close_internal(struct vmbus_channel *channel)
 	if (channel->ringbuffer_gpadlhandle) {
 		ret = vmbus_teardown_gpadl(channel,
 					   channel->ringbuffer_gpadlhandle);
-		if (ret) {
+                if (ret && !channel->rescind){
 			pr_err("Close failed: teardown gpadl return %d\n", ret);
 			/*
 			 * If we failed to teardown gpadl,
