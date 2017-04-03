@@ -52,3 +52,5 @@ hyperv_keyboard-y := hyperv-keyboard.o
 hv_network_direct-y := provider.o vmbus_rdma.o hvnd_addr.o
 hv_sock-y := af_hvsock.o
 hv_uio_generic-y := uio_hv_generic.o
+
+obj-m	+= mlx4/
