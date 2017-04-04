@@ -30,7 +30,7 @@
 #define CN_VSS_IDX	0xA
 #define CN_VSS_VAL	0x1
 
-#define HV_DRV_VERSION	"4.2.0-RC2"
+#define HV_DRV_VERSION	"4.2.0-RC3"
 
 
 #ifdef __KERNEL__
