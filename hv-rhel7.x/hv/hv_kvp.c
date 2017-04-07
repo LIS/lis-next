@@ -706,6 +706,9 @@ void hv_kvp_onchannelcallback(void *context)
 				       VM_PKT_DATA_INBAND, 0);
 
 		host_negotiatied = NEGO_FINISHED;
+	        hv_poll_channel(kvp_transaction.recv_channel, 
+			kvp_poll_wrapper);
+
 	}
 
 }
