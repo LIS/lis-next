@@ -294,22 +294,18 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 #endif
 {
 	struct net_device_context *net_device_ctx = netdev_priv(ndev);
-	struct netvsc_device *nvsc_dev = net_device_ctx->nvdev;
 	u32 hash;
 	u16 q_idx = 0;
 
-	if (nvsc_dev == NULL || ndev->real_num_tx_queues <= 1)
+	if (ndev->real_num_tx_queues <= 1)
 		return 0;
 
 	if (netvsc_set_hash(&hash, skb)) {
-		q_idx = nvsc_dev->send_table[hash % VRSS_SEND_TAB_SIZE] %
+		q_idx = net_device_ctx->tx_send_table[hash % VRSS_SEND_TAB_SIZE] %
 			ndev->real_num_tx_queues;
 		skb_set_hash(skb, hash, PKT_HASH_TYPE_L3);
 	}
 
-	if (unlikely(!nvsc_dev->chan_table[q_idx].channel))
-		q_idx = 0;
-	
 	return q_idx;
 }
 
