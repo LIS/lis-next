@@ -113,7 +113,7 @@ static void kvp_poll_wrapper(void *channel)
 {
 	/* Transaction is finished, reset the state here to avoid races. */
 	kvp_transaction.state =HVUTIL_READY;
-	hv_kvp_onchannelcallback(channel);
+	tasklet_schedule(channel);
 }
 
 static void kvp_register_done(void)
