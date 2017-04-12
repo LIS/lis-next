@@ -167,6 +167,8 @@ struct hv_fc_wwn_packet {
  */
 static int sense_buffer_size = PRE_WIN8_STORVSC_SENSE_BUFFER_SIZE;
 
+static struct mutex probe_mutex;
+
 /*
  * The storage protocol version is determined during the
  * initial exchange with the host.  It will indicate which
@@ -2199,6 +2201,7 @@ static int storvsc_probe(struct hv_device *device,
 	int max_channels;
 	int max_sub_channels = 0;
 
+	mutex_lock(&probe_mutex);
 	/*
 	 * Based on the windows host we are running on,
 	 * set state to properly communicate with the host.
@@ -2225,8 +2228,10 @@ static int storvsc_probe(struct hv_device *device,
 
 	host = scsi_host_alloc(&scsi_driver,
 			       sizeof(struct hv_host_device));
-	if (!host)
+	if (!host) {
+		mutex_unlock(&probe_mutex);
 		return -ENOMEM;
+	}
 
 	host_dev = shost_priv(host);
 	memset(host_dev, 0, sizeof(struct hv_host_device));
@@ -2319,6 +2324,7 @@ static int storvsc_probe(struct hv_device *device,
 		fc_host_port_name(host) = stor_device->port_name;
 	}
 #endif
+	mutex_unlock(&probe_mutex);
 	return 0;
 
 err_out2:
@@ -2337,6 +2343,7 @@ err_out1:
 
 err_out0:
 	scsi_host_put(host);
+	mutex_unlock(&probe_mutex);
 	return ret;
 }
 
@@ -2412,6 +2419,8 @@ static int __init storvsc_drv_init(void)
 	if (ret)
 		fc_release_transport(fc_transport_template);
 #endif
+
+	mutex_init(&probe_mutex);
 	return ret;
 }
 
