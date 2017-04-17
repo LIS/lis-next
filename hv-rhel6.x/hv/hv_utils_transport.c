@@ -348,8 +348,12 @@ void hvutil_transport_destroy(struct hvutil_transport *hvt)
 	spin_lock(&hvt_list_lock);
 	list_del(&hvt->list);
 	spin_unlock(&hvt_list_lock);
-	if (hvt->cn_id.idx > 0 && hvt->cn_id.val > 0)
+	if (hvt->cn_id.idx > 0 && hvt->cn_id.val > 0){
 		cn_del_callback(&hvt->cn_id);
+	        if (hvt->on_reset)
+        	    hvt->on_reset();
+       }
+
 
 	if (mode_old != HVUTIL_TRANSPORT_CHARDEV)
 		hvt_transport_free(hvt);
