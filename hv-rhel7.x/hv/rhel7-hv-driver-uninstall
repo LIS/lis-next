@@ -12,6 +12,9 @@ rm -rf /usr/sbin/hv_set_ifconfig
 echo "Removing lsvmbus tool"
 rm -rf /usr/sbin/lsvmbus
 
+echo "Removing bondvf.sh"
+rm -rf /usr/sbin/bondvf.sh
+
 depmod
 
 echo "Create and install initramfs without Hyper-V drivers"
