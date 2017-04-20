@@ -448,9 +448,8 @@ static inline void hv_poll_channel(struct vmbus_channel *channel,
 	if (!channel)
 		return;
 	
-	if (channel->target_cpu == get_cpu()) {
+	if (in_interrupt() && (channel->target_cpu == smp_processor_id())) {
                cb(channel);
-               put_cpu();
                return;
 	}
 
