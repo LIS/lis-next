@@ -34,6 +34,10 @@ echo "Copying lsvmbus tool"
 \cp ./tools/lsvmbus /usr/sbin/
 [ $? -eq 0 ] || exit 1
 
+echo "Copying bondvf.sh"
+\cp ./tools/bondvf.sh /usr/sbin/
+[ $? -eq 0 ] || exit 1
+
 echo "Generating initramfs"
 dracut --force  "initramfs-$(uname -r).img" $(uname -r)
 [ $? -eq 0 ] || exit 1
