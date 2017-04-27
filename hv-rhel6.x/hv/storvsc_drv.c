@@ -2406,6 +2406,7 @@ static int __init storvsc_drv_init(void)
 	fc_transport_template->user_scan = NULL;
 #endif
 
+	mutex_init(&probe_mutex);
 	ret = vmbus_driver_register(&storvsc_drv);
 
 #if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
@@ -2413,7 +2414,6 @@ static int __init storvsc_drv_init(void)
 		fc_release_transport(fc_transport_template);
 #endif
 
-	mutex_init(&probe_mutex);
 	return ret;
 }
 
