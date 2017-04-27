@@ -187,6 +187,8 @@ int hv_synic_alloc(void)
 			= per_cpu_ptr(hv_context.cpu_context, cpu);
 
 		memset(hv_cpu, 0, sizeof(*hv_cpu));
+		tasklet_init(&hv_cpu->event_dpc,
+			     vmbus_on_event, (unsigned long) hv_cpu);
 		tasklet_init(&hv_cpu->msg_dpc,
 			     vmbus_on_msg_dpc, (unsigned long) hv_cpu);
 
@@ -357,7 +359,6 @@ void hv_synic_cleanup(void *arg)
 	union hv_synic_simp simp;
 	union hv_synic_siefp siefp;
 	union hv_synic_scontrol sctrl;
-	int cpu = smp_processor_id();
 
 	if (!hv_context.synic_initialized)
 		return;
