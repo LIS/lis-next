@@ -422,12 +422,6 @@ MODULE_PARM_DESC(storvsc_vcpus_per_sub_channel, "Ratio of VCPUs to subchannels")
  */
 static int storvsc_timeout = 180;
 
-#ifdef NOTYET
-// Divergence from upstream commit:
-// f3cfabce7a2e92564d380de3aad4b43901fb7ae6
-static int msft_blist_flags = BLIST_TRY_VPD_PAGES;
-#endif
-
 #if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 static struct scsi_transport_template *fc_transport_template;
 #endif
@@ -1301,7 +1295,6 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request,
 				       struct storvsc_device *stor_dev)
 {
 	struct scsi_cmnd *scmnd = cmd_request->cmd;
-	void (*scsi_done_fn)(struct scsi_cmnd *);
 	struct scsi_sense_hdr sense_hdr;
 	struct vmscsi_request *vm_srb;
 	u32 data_transfer_length;
@@ -1356,37 +1349,7 @@ static void storvsc_command_completion(struct storvsc_cmd_request *cmd_request,
 	scsi_set_resid(scmnd,
 		cmd_request->payload->range.len - data_transfer_length);
 
-	/* If this is an INQUIRY when SCSI is trying to probe a LUN, return a proper 
-	 * SCSI level and vendor/device names to trigger REPORT_LUNS scan
-	 * note: on probing LUN0, SCSI sets all the fields  to zero except for the length at [4]
-	 * the SCSI layer expects at least 36 bytes returned on INQUIRY response
-	 */
-	if (scmnd->cmnd[0] == INQUIRY
-	    && !(scmnd->cmnd[1] | scmnd->cmnd[2] | scmnd->cmnd[3] | scmnd->cmnd[5])
-	    && scsi_bufflen(scmnd) >= 32) {
-
-		struct scatterlist *sgl = scsi_sglist(scmnd);
-		char *data = kmap_atomic(sg_page(sgl)) + sgl->offset;
-
-		/* if the host doesn't return any data (0 length), set them properly */
-		if (!data[4]) {
-			/* if host doesn't return SCSI level, set to SCSI_2 minimal required for REPORT_LUNS */
-			if (!data[2])
-				data[2] = SCSI_2;
-
-			sprintf(&data[8], "MSFT"); 	// vendor name, max 8 bytes
-			sprintf(&data[16], "LUN");	// device name, max 16 bytes
-		}
-
-		kunmap_atomic((void *)data - sgl->offset);
-	}
-
-	scsi_done_fn = scmnd->scsi_done;
-
-	scmnd->host_scribble = NULL;
-	scmnd->scsi_done = NULL;
-
-	scsi_done_fn(scmnd);
+	scmnd->scsi_done(scmnd);
 
 	if (payload_sz >
 		sizeof(struct vmbus_channel_packet_multipage_buffer))
@@ -1461,8 +1424,6 @@ static void storvsc_on_io_completion(struct storvsc_device *stor_device,
 	if (atomic_dec_and_test(&stor_device->num_outstanding_req) &&
 		stor_device->drain_notify)
 		wake_up(&stor_device->waiting_to_drain);
-
-
 }
 
 static void storvsc_on_receive(struct storvsc_device *stor_device,
@@ -1740,6 +1701,17 @@ static int storvsc_device_alloc(struct scsi_device *sdevice)
 	struct stor_mem_pools *memp;
 	int number = STORVSC_MIN_BUF_NR;
 
+	/*
+	 * Add blist flags to permit the reading of the VPD pages even when
+	 * the target may claim SPC-2 compliance. MSFT targets currently
+	 * claim SPC-2 compliance while they implement post SPC-2 features.
+	 * With this patch we can correctly handle WRITE_SAME_16 issues.
+	 *
+	 * Hypervisor reports SCSI_UNKNOWN type for DVD ROM device but
+	 * still supports REPORT LUN.
+	 */
+	sdevice->sdev_bflags |= BLIST_REPORTLUN2 | BLIST_TRY_VPD_PAGES;
+
 	memp = kzalloc(sizeof(struct stor_mem_pools), GFP_KERNEL);
 	if (!memp)
 		return -ENOMEM;
@@ -1792,18 +1764,6 @@ static int storvsc_device_configure(struct scsi_device *sdevice)
 	blk_queue_rq_timeout(sdevice->request_queue, (storvsc_timeout * HZ));
 
 	sdevice->no_write_same = 1;
-
-#ifdef NOTYET
-	// Divergence from upstream commit:
-	// f3cfabce7a2e92564d380de3aad4b43901fb7ae6
-	/*
-	 * Add blist flags to permit the reading of the VPD pages even when
-	 * the target may claim SPC-2 compliance. MSFT targets currently
-	 * claim SPC-2 compliance while they implement post SPC-2 features.
-	 * With this patch we can correctly handle WRITE_SAME_16 issues.
-	 */
-	sdevice->sdev_bflags |= msft_blist_flags;
-#endif
 
 	/*
 	 * If the host is WIN8 or WIN8 R2, claim conformance to SPC-3

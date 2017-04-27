@@ -653,7 +653,7 @@ static int hvsock_open_connection(struct vmbus_channel *channel)
 
 		hvsk = sk_to_hvsock(sk);
 		hvsk->channel = channel;
-		set_channel_read_mode(channel, HV_CALL_DIRECT);
+		set_channel_read_state(channel, false);
 		vmbus_set_chn_rescind_callback(channel,
 					       hvsock_close_connection);
 		ret = vmbus_open(channel, VMBUS_RINGBUFFER_SIZE_HVSOCK_SEND,
@@ -699,7 +699,7 @@ static int hvsock_open_connection(struct vmbus_channel *channel)
 	hvsock_addr_init(&new_hvsk->local_addr, *service_id);
 	hvsock_addr_init(&new_hvsk->remote_addr, *instance);
 
-	set_channel_read_mode(channel, HV_CALL_DIRECT);
+	set_channel_read_state(channel, false);
 	new_hvsk->channel = channel;
 	vmbus_set_chn_rescind_callback(channel, hvsock_close_connection);
 	ret = vmbus_open(channel, VMBUS_RINGBUFFER_SIZE_HVSOCK_SEND,
