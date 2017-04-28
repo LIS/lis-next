@@ -690,7 +690,7 @@ static struct sk_buff *netvsc_alloc_recv_skb(struct net_device *net,
 {
 	struct sk_buff *skb;
 
-	skb = netdev_alloc_skb_ip_align(net, buflen);
+	skb = napi_alloc_skb(napi, buflen);
 	if (!skb)
 		return skb;
 
@@ -759,7 +759,8 @@ int netvsc_recv_callback(struct net_device *net,
 		net = vf_netdev;
 
 	/* Allocate a skb - TODO direct I/O to pages? */
-	skb = netvsc_alloc_recv_skb(net, csum_info, vlan, data, len);
+	skb = netvsc_alloc_recv_skb(net, &nvchan->napi,
+				    csum_info, vlan, data, len);
 	if (unlikely(!skb)) {
 		++net->stats.rx_dropped;
 		rcu_read_unlock();
