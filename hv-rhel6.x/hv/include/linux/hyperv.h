@@ -35,7 +35,7 @@
 #include <linux/completion.h>
 #include <linux/device.h>
 #include <linux/mod_devicetable.h>
-#include <linux/interrupt.h>
+
 
 #define MAX_PAGE_BUFFER_COUNT				32
 #define MAX_MULTIPAGE_BUFFER_COUNT			32 /* 128K */
@@ -146,8 +146,8 @@ struct hv_ring_buffer_debug_info {
  * for the specified ring buffer
  */
 static inline void
-hv_get_ringbuffer_availbytes(const struct hv_ring_buffer_info *rbi,
-			     u32 *read, u32 *write)
+hv_get_ringbuffer_availbytes(struct hv_ring_buffer_info *rbi,
+			  u32 *read, u32 *write)
 {
 	u32 read_loc, write_loc, dsize;
 
@@ -161,7 +161,7 @@ hv_get_ringbuffer_availbytes(const struct hv_ring_buffer_info *rbi,
 	*read = dsize - *write;
 }
 
-static inline u32 hv_get_bytes_to_read(const struct hv_ring_buffer_info *rbi)
+static inline u32 hv_get_bytes_to_read(struct hv_ring_buffer_info *rbi)
 {
 	u32 read_loc, write_loc, dsize, read;
 
@@ -175,7 +175,7 @@ static inline u32 hv_get_bytes_to_read(const struct hv_ring_buffer_info *rbi)
 	return read;
 }
 
-static inline u32 hv_get_bytes_to_write(const struct hv_ring_buffer_info *rbi)
+static inline u32 hv_get_bytes_to_write(struct hv_ring_buffer_info *rbi)
 {
 	u32 read_loc, write_loc, dsize, write;
 
@@ -780,27 +780,26 @@ struct vmbus_channel {
 
 	struct vmbus_close_msg close_msg;
 
-	/* Channel callback's invoked in softirq context */
-	struct tasklet_struct callback_event;
+	/* Channel callback are invoked in this workqueue context */
+	/* HANDLE dataWorkQueue; */
+
 	void (*onchannel_callback)(void *context);
 	void *channel_callback_context;
 
 	/*
-	 * A channel can be marked for one of three modes of reading:
-	 *   BATCHED - callback called from taslket and should read
-	 *            channel until empty. Interrupts from the host
-	 *            are masked while read is in process (default).
-	 *   DIRECT - callback called from tasklet (softirq).
-	 *   ISR - callback called in interrupt context and must
-	 *         invoke its own deferred processing.
-	 *         Host interrupts are disabled and must be re-enabled
-	 *         when ring is empty.
+	 * A channel can be marked for efficient (batched)
+	 * reading:
+	 * If batched_reading is set to "true", we read until the
+	 * channel is empty and hold off interrupts from the host
+	 * during the entire read process.
+	 * If batched_reading is set to "false", the client is not
+	 * going to perform batched reading.
+	 *
+	 * By default we will enable batched reading; specific
+	 * drivers that don't want this behavior can turn it off.
 	 */
-	enum hv_callback_mode {
-		HV_CALL_BATCHED,
-		HV_CALL_DIRECT,
-		HV_CALL_ISR
-	} callback_mode;
+
+	bool batched_reading;
 
 	bool is_dedicated_interrupt;
 	struct hv_input_signal_event_buffer sig_buf;
@@ -892,6 +891,16 @@ struct vmbus_channel {
 	 */
 	struct list_head percpu_list;
 	/*
+	 * On the channel send side, many of the VMBUS
+	 * device drivers explicitly serialize access to the
+	 * outgoing ring buffer. Give more control to the
+	 * VMBUS device drivers in terms  how to serialize
+	 * access to the outgoing ring buffer.
+	 * The default behavior will be to aquire the
+	 * ring lock to preserve the current behavior.
+	 */
+	bool acquire_ring_lock;
+	/*
 	 * For performance critical channels (storage, networking
 	 * etc,), Hyper-V has a mechanism to enhance the throughput
 	 * at the expense of latency:
@@ -931,6 +940,11 @@ struct vmbus_channel {
 
 };
 
+static inline void set_channel_lock_state(struct vmbus_channel *c, bool state)
+{
+	c->acquire_ring_lock = state;
+}
+
 static inline bool is_hvsock_channel(const struct vmbus_channel *c)
 {
 	return !!(c->offermsg.offer.chn_flags &
@@ -943,10 +957,9 @@ static inline void set_channel_affinity_state(struct vmbus_channel *c,
 	c->affinity_policy = policy;
 }
 
-static inline void set_channel_read_mode(struct vmbus_channel *c,
-					enum hv_callback_mode mode)
+static inline void set_channel_read_state(struct vmbus_channel *c, bool state)
 {
-	c->callback_mode = mode;
+	c->batched_reading = state;
 }
 
 static inline void set_per_channel_state(struct vmbus_channel *c, void *s)
@@ -1555,9 +1568,9 @@ void vmbus_set_event(struct vmbus_channel *channel);
 
 /* Get the start of the ring buffer. */
 static inline void *
-hv_get_ring_buffer(const struct hv_ring_buffer_info *ring_info)
+hv_get_ring_buffer(struct hv_ring_buffer_info *ring_info)
 {
-	return ring_info->ring_buffer->buffer;
+	return (void *)ring_info->ring_buffer->buffer;
 }
 
 /*  
@@ -1609,36 +1622,6 @@ static inline void hv_signal_on_read(struct vmbus_channel *channel)
 		vmbus_setevent(channel);
 
 	return;
-}
-
-/*
- * Mask off host interrupt callback notifications
- */
-static inline void hv_begin_read(struct hv_ring_buffer_info *rbi)
-{
-	rbi->ring_buffer->interrupt_mask = 1;
-
-	/* make sure mask update is not reordered */
-	mb();
-}
-
-/*
- * Re-enable host callback and return number of outstanding bytes
- */
-static inline u32 hv_end_read(struct hv_ring_buffer_info *rbi)
-{
-
-	rbi->ring_buffer->interrupt_mask = 0;
-
-	/* make sure mask update is not reordered */
-	mb();
-
-	/*
-	 * Now check to see if the ring buffer is still empty.
-	 * If it is not, we raced and we need to process new
-	 * incoming messages.
-	 */
-	return hv_get_bytes_to_read(rbi);
 }
 
 /*

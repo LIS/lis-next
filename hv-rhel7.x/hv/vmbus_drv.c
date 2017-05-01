@@ -767,77 +767,6 @@ msg_handled:
 	vmbus_signal_eom(msg, message_type);
 }
 
-/*
- * Direct callback for channels using other deferred processing
- */
-static void vmbus_channel_isr(struct vmbus_channel *channel)
-{
-	void (*callback_fn)(void *);
-
-	callback_fn = READ_ONCE(channel->onchannel_callback);
-	if (likely(callback_fn != NULL))
-		(*callback_fn)(channel->channel_callback_context);
-}
-
-/*
- * Schedule all channels with events pending
- */
-static void vmbus_chan_sched(struct hv_per_cpu_context *hv_cpu)
-{
-	unsigned long *recv_int_page;
-	u32 maxbits, relid;
-
-	if (vmbus_proto_version < VERSION_WIN8) {
-		maxbits = MAX_NUM_CHANNELS_SUPPORTED;
-		recv_int_page = vmbus_connection.recv_int_page;
-	} else {
-		/*
-		 * When the host is win8 and beyond, the event page
-		 * can be directly checked to get the id of the channel
-		 * that has the interrupt pending.
-		 */
-		void *page_addr = hv_cpu->synic_event_page;
-		union hv_synic_event_flags *event
-			= (union hv_synic_event_flags *)page_addr +
-						 VMBUS_MESSAGE_SINT;
-
-		maxbits = HV_EVENT_FLAGS_COUNT;
-		recv_int_page = event->flags;
-	}
-
-	if (unlikely(!recv_int_page))
-		return;
-
-	for_each_set_bit(relid, recv_int_page, maxbits) {
-		struct vmbus_channel *channel;
-
-		if (!sync_test_and_clear_bit(relid, recv_int_page))
-			continue;
-
-		/* Special case - vmbus channel protocol msg */
-		if (relid == 0)
-			continue;
-
-		/* Find channel based on relid */
-		list_for_each_entry(channel, &hv_cpu->chan_list, percpu_list) {
-			if (channel->offermsg.child_relid != relid)
-				continue;
-
-			switch (channel->callback_mode) {
-			case HV_CALL_ISR:
-				vmbus_channel_isr(channel);
-				break;
-
-			case HV_CALL_BATCHED:
-				hv_begin_read(&channel->inbound);
-				/* fallthrough */
-			case HV_CALL_DIRECT:
-				tasklet_schedule(&channel->callback_event);
-			}
-		}
-	}
-}
-
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) /* KYS; we may have to tweak this */
 static void vmbus_isr(void)
 #else
@@ -883,7 +812,8 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id)
 	}
 
 	if (handled)
-		vmbus_chan_sched(hv_cpu);
+		tasklet_schedule(&hv_cpu->event_dpc);
+
 
 	page_addr = hv_cpu->synic_message_page;
 	msg = (struct hv_message *)page_addr + VMBUS_MESSAGE_SINT;
@@ -1615,8 +1545,13 @@ static void __exit vmbus_exit(void)
 						 &hyperv_panic_block);
 	}
 	bus_unregister(&hv_bus);
-	for_each_online_cpu(cpu)
+	for_each_online_cpu(cpu) {
+		struct hv_per_cpu_context *hv_cpu
+			= per_cpu_ptr(hv_context.cpu_context, cpu);
+
+		tasklet_kill(&hv_cpu->event_dpc);
 		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
+	}
 	hv_synic_free();
 	acpi_bus_unregister_driver(&vmbus_acpi_driver);
 	hv_cpu_hotplug_quirk(false);

@@ -209,6 +209,7 @@ struct hv_per_cpu_context {
 	 * we will manage the tasklet that handles events messages on a per CPU
 	 * basis.
 	 */
+	struct tasklet_struct event_dpc;
 	struct tasklet_struct msg_dpc;
 
 	/*
@@ -286,7 +287,8 @@ int hv_ringbuffer_init(struct hv_ring_buffer_info *ring_info,
 void hv_ringbuffer_cleanup(struct hv_ring_buffer_info *ring_info);
 
 int hv_ringbuffer_write(struct vmbus_channel *channel,
-			const struct kvec *kv_list, u32 kv_count);
+			struct kvec *kv_list,
+			u32 kv_count, bool lock);
 
 void hv_get_ringbuffer_available_space(struct hv_ring_buffer_info *inring_info,
 				       u32 *bytes_avail_toread,
@@ -296,8 +298,12 @@ int hv_ringbuffer_read(struct vmbus_channel *channel,
 		   void *buffer, u32 buflen, u32 *buffer_actual_len,
 		   u64 *requestid, bool raw);
 
-void hv_ringbuffer_get_debuginfo(const struct hv_ring_buffer_info *ring_info,
+void hv_ringbuffer_get_debuginfo(struct hv_ring_buffer_info *ring_info,
 			    struct hv_ring_buffer_debug_info *debug_info);
+
+void hv_begin_read(struct hv_ring_buffer_info *rbi);
+
+u32 hv_end_read(struct hv_ring_buffer_info *rbi);
 
 /*
  * Maximum channels is determined by the size of the interrupt page
@@ -429,6 +435,11 @@ static inline void hv_poll_channel(struct vmbus_channel *channel,
 {
 	if (!channel)
 		return;
+
+	if (in_interrupt() && (channel->target_cpu == smp_processor_id())) {
+               cb(channel);
+               return;
+       }
 
 	smp_call_function_single(channel->target_cpu, cb, channel, true);
 }

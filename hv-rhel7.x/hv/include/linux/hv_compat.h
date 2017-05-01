@@ -17,7 +17,7 @@
 #define rdtscll(now)    do { (now) = rdtsc_ordered(); } while (0)
 #endif
 
-#define HV_DRV_VERSION	"4.2.0-Beta-01"
+#define HV_DRV_VERSION	"4.2.0"
 
 
 #ifdef __KERNEL__
