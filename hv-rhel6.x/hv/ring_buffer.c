@@ -68,7 +68,7 @@ static void hv_signal_on_write(u32 old_write, struct vmbus_channel *channel)
 		return;
 
 	/* check interrupt_mask before read_index */
-	mb();
+	rmb();
 	/*
 	 * This is the only case we need to signal when the
 	 * ring transitions from being empty to non-empty.
