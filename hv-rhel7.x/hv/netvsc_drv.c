@@ -691,7 +691,11 @@ static struct sk_buff *netvsc_alloc_recv_skb(struct net_device *net,
 {
 	struct sk_buff *skb;
 
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
 	skb = napi_alloc_skb(napi, buflen);
+#else
+	skb = netdev_alloc_skb_ip_align(net, buflen);
+#endif
 	if (!skb)
 		return skb;
 
