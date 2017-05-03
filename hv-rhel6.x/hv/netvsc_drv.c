@@ -712,11 +712,6 @@ vf_injection_done:
 	net->stats.rx_packets++;
 	net->stats.rx_bytes += len;
 
-	/*
-	 * Pass the skb back up. Network stack will deallocate the skb when it
-	 * is done.
-	 * TODO - use NAPI?
-	 */
 	netif_receive_skb(skb);
 
 	return 0;
