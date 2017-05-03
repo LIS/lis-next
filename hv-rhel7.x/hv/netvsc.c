@@ -1177,7 +1177,6 @@ static int netvsc_process_raw_pkt(struct hv_device *device,
 				  struct vmbus_channel *channel,
 				  struct netvsc_device *net_device,
 				  struct net_device *ndev,
-				  u64 request_id,
 				  const struct vmpacket_descriptor *desc)
 {
 	struct net_device_context *net_device_ctx = netdev_priv(ndev);
@@ -1199,7 +1198,7 @@ static int netvsc_process_raw_pkt(struct hv_device *device,
 
 	default:
 		netdev_err(ndev, "unhandled packet type %d, tid %llx\n",
-			   desc->type, request_id);
+			   desc->type, desc->trans_id);
 		break;
 	}
 
@@ -1222,27 +1221,23 @@ int netvsc_poll(struct napi_struct *napi, int budget)
 	u16 q_idx = channel->offermsg.offer.sub_channel_index;
 	struct net_device *ndev = hv_get_drvdata(device);
 	struct netvsc_device *net_device = net_device_to_netvsc_device(ndev);
-	const struct vmpacket_descriptor *desc;
 	int work_done = 0;
 
-	desc = hv_pkt_iter_first(channel);
-	while (desc) {
-		int count;
+	/* If starting a new interval */
+	if (!nvchan->desc)
+		nvchan->desc = hv_pkt_iter_first(channel);
 
-		count = netvsc_process_raw_pkt(device, channel, net_device,
-					       ndev, desc->trans_id, desc);
-		work_done += count;
-		desc = __hv_pkt_iter_next(channel, desc);
-
-		/* If receive packet budget is exhausted, reschedule */
-		if (work_done >= budget) {
-			work_done = budget;
-			break;
-		}
+	while (nvchan->desc && work_done < budget) {
+		work_done += netvsc_process_raw_pkt(device, channel, net_device,
+						    ndev, nvchan->desc);
+		nvchan->desc = hv_pkt_iter_next(channel, nvchan->desc);
 	}
-	hv_pkt_iter_close(channel);
 
-	/* If ring is empty and NAPI is not doing polling */
+	/* If receive ring was exhausted
+	 * and not doing busy poll
+	 * then re-enable host interrupts
+	 *  and reschedule if ring is not empty.
+	 */
 	if (work_done < budget) {
 		napi_complete(napi);
 		if (hv_end_read(&channel->inbound) != 0) {
@@ -1253,7 +1248,9 @@ int netvsc_poll(struct napi_struct *napi, int budget)
        }
 
 	netvsc_chk_recv_comp(net_device, channel, q_idx);
-	return work_done;
+
+	/* Driver may overshoot since multiple packets per descriptor */
+	return min(work_done, budget);
 }
 
 void netvsc_channel_cb(void *context)
@@ -1263,6 +1260,7 @@ void netvsc_channel_cb(void *context)
 	u16 q_idx = channel->offermsg.offer.sub_channel_index;
 	struct netvsc_device *net_device;
 	struct net_device *ndev;
+	struct netvsc_channel *nvchan = context;
 
 	ndev = hv_get_drvdata(device);
 	if (unlikely(!ndev))
@@ -1273,9 +1271,12 @@ void netvsc_channel_cb(void *context)
 		netvsc_channel_idle(net_device, q_idx))
 		return;
 
-	/* disable interupts from host */
-	hv_begin_read(&channel->inbound);
-	napi_schedule(&net_device->chan_table[q_idx].napi);
+	if (napi_schedule_prep(&nvchan->napi)) {
+		/* disable interupts from host */
+		hv_begin_read(&nvchan->channel->inbound);
+
+		__napi_schedule(&nvchan->napi);
+	}
 }
 
 /*
