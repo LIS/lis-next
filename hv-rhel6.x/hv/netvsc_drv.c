@@ -646,10 +646,11 @@ int netvsc_recv_callback(struct net_device *net,
 {
 	struct net_device_context *net_device_ctx = netdev_priv(net);
 	struct netvsc_device *net_device = net_device_ctx->nvdev;
+	u16 q_idx = channel->offermsg.offer.sub_channel_index;
+	struct netvsc_channel *nvchan = &net_device->chan_table[q_idx];
 	struct sk_buff *skb;
 	struct sk_buff *vf_skb;
 	struct netvsc_stats *rx_stats;
-	u16 q_idx = channel->offermsg.offer.sub_channel_index;
 	int ret = 0;
 
 	if (!net || net->reg_state != NETREG_REGISTERED)
@@ -689,7 +690,7 @@ int netvsc_recv_callback(struct net_device *net,
 	}
 
 vf_injection_done:
-	rx_stats = &net_device->chan_table[q_idx].rx_stats;
+	rx_stats = &nvchan->rx_stats;
 
 	/* Allocate a skb - TODO direct I/O to pages? */
 	skb = netvsc_alloc_recv_skb(net, csum_info, vlan, data, len);
@@ -712,7 +713,7 @@ vf_injection_done:
 	net->stats.rx_packets++;
 	net->stats.rx_bytes += len;
 
-	netif_receive_skb(skb);
+	napi_gro_receive(&nvchan->napi, skb);
 
 	return 0;
 }
