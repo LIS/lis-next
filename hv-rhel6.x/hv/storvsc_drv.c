@@ -416,12 +416,6 @@ MODULE_PARM_DESC(storvsc_vcpus_per_sub_channel, "Ratio of VCPUs to subchannels")
  */
 static int storvsc_timeout = 180;
 
-#ifdef NOTYET
-// Divergence from upstream commit:
-// f3cfabce7a2e92564d380de3aad4b43901fb7ae6
-static int msft_blist_flags = BLIST_TRY_VPD_PAGES;
-#endif
-
 #if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 static struct scsi_transport_template *fc_transport_template;
 #endif
@@ -1753,6 +1747,17 @@ static int storvsc_device_alloc(struct scsi_device *sdevice)
 
 	sdevice->hostdata = memp;
 
+	/*
+	 * Set blist flag to permit the reading of the VPD pages even when
+	 * the target may claim SPC-2 compliance. MSFT targets currently
+	 * claim SPC-2 compliance while they implement post SPC-2 features.
+	 * With this flag we can correctly handle WRITE_SAME_16 issues.
+	 *
+	 * Hypervisor reports SCSI_UNKNOWN type for DVD ROM device but
+	 * still supports REPORT LUN.
+	 */
+	sdevice->sdev_bflags = BLIST_REPORTLUN2;
+
 	return 0;
 
 err1:
@@ -1785,18 +1790,6 @@ static int storvsc_device_configure(struct scsi_device *sdevice)
 
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 	sdevice->no_write_same = 1;
-#endif
-
-#ifdef NOTYET
-	// Divergence from upstream commit:
-	// f3cfabce7a2e92564d380de3aad4b43901fb7ae6
-	/*
-	 * Add blist flags to permit the reading of the VPD pages even when
-	 * the target may claim SPC-2 compliance. MSFT targets currently
-	 * claim SPC-2 compliance while they implement post SPC-2 features.
-	 * With this patch we can correctly handle WRITE_SAME_16 issues.
-	 */
-	sdevice->sdev_bflags |= msft_blist_flags;
 #endif
 
 	/*
