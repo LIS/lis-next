@@ -1205,6 +1205,10 @@ static struct hv_device *netvsc_channel_to_device(struct vmbus_channel *channel)
 	return primary ? primary->device_obj : channel->device_obj;
 }
 
+/* Network processing softirq
+ * Process data in incoming ring buffer from host
+ * Stops when ring is empty or budget is met or exceeded.
+ */
 int netvsc_poll(struct napi_struct *napi, int budget)
 {
 	struct netvsc_channel *nvchan
@@ -1231,13 +1235,12 @@ int netvsc_poll(struct napi_struct *napi, int budget)
 	 * then re-enable host interrupts
 	 *  and reschedule if ring is not empty.
 	 */
-	if (work_done < budget) {
-		napi_complete(napi);
-		if (hv_end_read(&channel->inbound) != 0) {
-                        /* special case if new messages are available */
-                        hv_begin_read(&channel->inbound);
-                        napi_reschedule(napi);
-	          }
+	if (work_done < budget &&
+	    napi_complete_done(napi, work_done) &&
+	    hv_end_read(&channel->inbound) != 0) {
+		/* special case if new messages are available */
+		hv_begin_read(&channel->inbound);
+		napi_reschedule(napi);
        }
 
 	netvsc_chk_recv_comp(net_device, channel, q_idx);
@@ -1246,6 +1249,9 @@ int netvsc_poll(struct napi_struct *napi, int budget)
 	return min(work_done, budget);
 }
 
+/* Call back when data is available in host ring buffer.
+ * Processing is deferred until network softirq (NAPI)
+ */
 void netvsc_channel_cb(void *context)
 {
 	struct netvsc_channel *nvchan = context;
