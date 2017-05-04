@@ -89,14 +89,6 @@ static void free_netvsc_device(struct netvsc_device *nvdev)
 	kfree(nvdev);
 }
 
-static inline bool netvsc_channel_idle(const struct netvsc_device *net_device,
-				       u16 q_idx)
-{
-	const struct netvsc_channel *nvchan = &net_device->chan_table[q_idx];
-
-	return atomic_read(&net_device->num_outstanding_recvs) == 0 &&
-		           atomic_read(&nvchan->queue_sends) == 0;
-}
 
 static struct netvsc_device *get_outbound_net_device(struct hv_device *device)
 {
@@ -582,7 +574,7 @@ void netvsc_device_remove(struct hv_device *device)
 	/* Now, we can close the channel safely */
 	vmbus_close(device->channel);
 
-	for (i = 0; i < VRSS_CHANNEL_MAX; i++)
+	for (i = 0; i < net_device->num_chn; i++)
 		napi_disable(&net_device->chan_table[0].napi);
 
 	/* Release all resources */
@@ -1222,6 +1214,10 @@ static struct hv_device *netvsc_channel_to_device(struct vmbus_channel *channel)
 	return primary ? primary->device_obj : channel->device_obj;
 }
 
+/* Network processing softirq
+ * Process data in incoming ring buffer from host
+ * Stops when ring is empty or budget is met or exceeded.
+ */
 int netvsc_poll(struct napi_struct *napi, int budget)
 {
 	struct netvsc_channel *nvchan
@@ -1251,40 +1247,33 @@ int netvsc_poll(struct napi_struct *napi, int budget)
 	}
 	hv_pkt_iter_close(channel);
 
-	/* If ring is empty and NAPI is not doing polling */
-	if (work_done < budget) {
-		napi_complete(napi);
-		if (hv_end_read(&channel->inbound) != 0) {
-                        /* special case if new messages are available */
-                        hv_begin_read(&channel->inbound);
-                        napi_reschedule(napi);
-	          }
-       }
+	/* If budget was not exhausted and
+	 * not doing busy poll
+	 * then re-enable host interrupts
+	 *  and reschedule if ring is not empty.
+	 */
+	if (work_done < budget &&
+	    napi_complete_done(napi, work_done) &&
+	    hv_end_read(&channel->inbound) != 0) {
+		/* special case if new messages are available */
+		hv_begin_read(&channel->inbound);
+		napi_reschedule(napi);
+	}
 
 	netvsc_chk_recv_comp(net_device, channel, q_idx);
 	return work_done;
 }
 
+/* Call back when data is available in host ring buffer.
+ * Processing is deferred until network softirq (NAPI)
+ */
 void netvsc_channel_cb(void *context)
 {
-	struct vmbus_channel *channel = context;
-	struct hv_device *device = netvsc_channel_to_device(channel);
-	u16 q_idx = channel->offermsg.offer.sub_channel_index;
-	struct netvsc_device *net_device;
-	struct net_device *ndev;
-
-	ndev = hv_get_drvdata(device);
-	if (unlikely(!ndev))
-		return;
-
-	net_device = net_device_to_netvsc_device(ndev);
-	if (unlikely(net_device->destroy) &&
-		netvsc_channel_idle(net_device, q_idx))
-		return;
+	struct netvsc_channel *nvchan = context;
 
 	/* disable interupts from host */
-	hv_begin_read(&channel->inbound);
-	napi_schedule(&net_device->chan_table[q_idx].napi);
+	hv_begin_read(&nvchan->channel->inbound);
+	napi_schedule(&nvchan->napi);
 }
 
 /*
@@ -1314,7 +1303,8 @@ int netvsc_device_add(struct hv_device *device,
 	/* Open the channel */
 	ret = vmbus_open(device->channel, ring_size * PAGE_SIZE,
 			 ring_size * PAGE_SIZE, NULL, 0,
-			 netvsc_channel_cb, device->channel);
+			 netvsc_channel_cb,
+			 net_device->chan_table);
 
 	if (ret != 0) {
 		netdev_err(ndev, "unable to open channel: %d\n", ret);
