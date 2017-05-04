@@ -1018,6 +1018,11 @@ static void netvsc_sc_open(struct vmbus_channel *new_sc)
 	if (!nvchan->mrc.buf)
 		return;
 
+	/* Because the device uses NAPI, all the interrupt batching and
+	 * control is done via Net softirq, not the channel handling
+	 */
+	set_channel_read_mode(new_sc, HV_CALL_ISR);
+
 	ret = vmbus_open(new_sc, nvscdev->ring_size * PAGE_SIZE,
 			 nvscdev->ring_size * PAGE_SIZE, NULL, 0,
 			 netvsc_channel_cb, nvchan);
@@ -1205,33 +1210,28 @@ int rndis_filter_device_add(struct hv_device *dev,
 	if (ret || rsscap.num_recv_que < 2)
 		goto out;
 
-	net_device->max_chn = min_t(u32, VRSS_CHANNEL_MAX, rsscap.num_recv_que);
-
-	num_rss_qs = min(device_info->max_num_vrss_chns, net_device->max_chn);
-
 	/*
 	 * We will limit the VRSS channels to the number CPUs in the NUMA node
 	 * the primary channel is currently bound to.
+	 *
+	 * This also guarantees that num_possible_rss_qs <= num_online_cpus
 	 */
 	node_cpu_mask = cpumask_of_node(cpu_to_node(dev->channel->target_cpu));
-	num_possible_rss_qs = cpumask_weight(node_cpu_mask);
+	num_possible_rss_qs = min_t(u32, cpumask_weight(node_cpu_mask),
+				    rsscap.num_recv_que);
+
+	net_device->max_chn = min_t(u32, VRSS_CHANNEL_MAX, num_possible_rss_qs);
 
 	/* We will use the given number of channels if available. */
-	if (device_info->num_chn && device_info->num_chn < net_device->max_chn)
-		net_device->num_chn = device_info->num_chn;
-	else
-		net_device->num_chn = min(num_possible_rss_qs, num_rss_qs);
-
-	num_rss_qs = net_device->num_chn - 1;
+	net_device->num_chn = min(net_device->max_chn, device_info->num_chn);
 
 	for (i = 0; i < ITAB_NUM; i++)
 		rndis_device->ind_table[i] = ethtool_rxfh_indir_default(i,
 							net_device->num_chn);
 
-	net_device->num_sc_offered = num_rss_qs;
-
-	if (net_device->num_chn == 1)
-		goto out;
+	num_rss_qs = net_device->num_chn - 1;
+	if (num_rss_qs == 0)
+		return 0;
 
 	vmbus_set_sc_create_callback(dev->channel, netvsc_sc_open);
 
