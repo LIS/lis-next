@@ -591,7 +591,7 @@ void netvsc_device_remove(struct hv_device *device)
 	vmbus_close(device->channel);
 
 	for (i = 0; i < net_device->num_chn; i++)
-		napi_disable(&net_device->chan_table[0].napi);
+		napi_disable(&net_device->chan_table[i].napi);
 
 	/* Release all resources */
 	free_netvsc_device(net_device);
