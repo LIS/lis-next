@@ -675,12 +675,6 @@ static inline u32 ethtool_rxfh_indir_default(u32 index, u32 n_rx_rings)
 }
 #endif
 
-static inline bool napi_complete_done(struct napi_struct *n, int work_done)
-{
-        napi_complete(n);
-        return true;
-}
-
 #define timespec64 timespec
 #define ns_to_timespec64 ns_to_timespec
 #define do_settimeofday64 do_settimeofday
