@@ -79,8 +79,10 @@ static struct netvsc_device *alloc_net_device(void)
 	return net_device;
 }
 
-static void free_netvsc_device(struct netvsc_device *nvdev)
+static void free_netvsc_device(struct rcu_head *head)
 {
+	struct netvsc_device *nvdev
+		= container_of(head, struct netvsc_device, rcu);
 	int i;
 
 	for (i = 0; i < VRSS_CHANNEL_MAX; i++)
@@ -89,6 +91,10 @@ static void free_netvsc_device(struct netvsc_device *nvdev)
 	kfree(nvdev);
 }
 
+static void free_netvsc_device_rcu(struct netvsc_device *nvdev)
+{
+	call_rcu(&nvdev->rcu, free_netvsc_device);
+}
 
 static struct netvsc_device *get_outbound_net_device(struct hv_device *device)
 {
@@ -579,7 +585,7 @@ void netvsc_device_remove(struct hv_device *device)
 
 	netvsc_disconnect_vsp(device);
 
-	net_device_ctx->nvdev = NULL;
+	RCU_INIT_POINTER(net_device_ctx->nvdev, NULL);
 
 	/*
 	 * At this point, no one should be accessing net_device
@@ -590,11 +596,12 @@ void netvsc_device_remove(struct hv_device *device)
 	/* Now, we can close the channel safely */
 	vmbus_close(device->channel);
 
+	/* And dissassociate NAPI context from device */
 	for (i = 0; i < net_device->num_chn; i++)
-		napi_disable(&net_device->chan_table[i].napi);
+		netif_napi_del(&net_device->chan_table[i].napi);
 
 	/* Release all resources */
-	free_netvsc_device(net_device);
+	free_netvsc_device_rcu(net_device);
 }
 
 #define RING_AVAIL_PERCENT_HIWATER 20
@@ -627,7 +634,6 @@ static void netvsc_send_tx_complete(struct netvsc_device *net_device,
 {
 	struct sk_buff *skb = (struct sk_buff *)(unsigned long)desc->trans_id;
 	struct net_device *ndev = hv_get_drvdata(device);
-	struct net_device_context *net_device_ctx = netdev_priv(ndev);
 	struct vmbus_channel *channel = device->channel;
 	struct netvsc_stats *tx_stats;
 	u16 q_idx = 0;
@@ -662,7 +668,6 @@ static void netvsc_send_tx_complete(struct netvsc_device *net_device,
 		wake_up(&net_device->wait_drain);
 
 	if (netif_tx_queue_stopped(netdev_get_tx_queue(ndev, q_idx)) &&
-	    !net_device_ctx->start_remove &&
 	    (hv_ringbuf_avail_percent(&channel->outbound) > RING_AVAIL_PERCENT_HIWATER ||
 	     queue_sends < 1))
 		netif_tx_wake_queue(netdev_get_tx_queue(ndev, q_idx));
@@ -1259,12 +1264,13 @@ int netvsc_poll(struct napi_struct *napi, int budget)
 	 * then re-enable host interrupts
 	 *  and reschedule if ring is not empty.
 	 */
-	if (work_done < budget &&
-	    napi_complete_done(napi, work_done) &&
-	    hv_end_read(&channel->inbound) != 0) {
-		/* special case if new messages are available */
-		hv_begin_read(&channel->inbound);
-		napi_reschedule(napi);
+	if (work_done < budget) {
+		napi_complete(napi);
+		if (hv_end_read(&channel->inbound) != 0) {
+			/* special case if new messages are available */
+			hv_begin_read(&channel->inbound);
+			napi_reschedule(napi);
+		}
 	}
 
 	netvsc_chk_recv_comp(net_device, channel, q_idx);
@@ -1312,6 +1318,19 @@ int netvsc_device_add(struct hv_device *device,
 	 */
 	set_channel_read_mode(device->channel, HV_CALL_ISR);
 
+	/* If we're reopening the device we may have multiple queues, fill the
+	 * chn_table with the default channel to use it before subchannels are
+	 * opened.
+	 * Initialize the channel state before we open;
+	 * we can be interrupted as soon as we open the channel.
+	 */
+
+	for (i = 0; i < VRSS_CHANNEL_MAX; i++) {
+		struct netvsc_channel *nvchan = &net_device->chan_table[i];
+
+		nvchan->channel = device->channel;
+	}
+
 	/* Open the channel */
 	ret = vmbus_open(device->channel, ring_size * PAGE_SIZE,
 			 ring_size * PAGE_SIZE, NULL, 0,
@@ -1326,27 +1345,15 @@ int netvsc_device_add(struct hv_device *device,
 	/* Channel is opened */
 	netdev_dbg(ndev, "hv_netvsc channel opened successfully\n");
 
-	/* If we're reopening the device we may have multiple queues, fill the
-	 * chn_table with the default channel to use it before subchannels are
-	 * opened.
-	 */
-	for (i = 0; i < VRSS_CHANNEL_MAX; i++) {
-		struct netvsc_channel *nvchan = &net_device->chan_table[i];
-
-		nvchan->channel = device->channel;
-		netif_napi_add(ndev, &nvchan->napi,
-			       netvsc_poll, NAPI_POLL_WEIGHT);
-	}
-
 	/* Enable NAPI handler for init callbacks */
+	netif_napi_add(ndev, &net_device->chan_table[0].napi,
+		       netvsc_poll, NAPI_POLL_WEIGHT);
 	napi_enable(&net_device->chan_table[0].napi);
 
 	/* Writing nvdev pointer unlocks netvsc_send(), make sure chn_table is
 	 * populated.
 	 */
-	wmb();
-
-	net_device_ctx->nvdev = net_device;
+	rcu_assign_pointer(net_device_ctx->nvdev, net_device);
 
 	/* Connect with the NetVsp */
 	ret = netvsc_connect_vsp(device);
@@ -1359,13 +1366,13 @@ int netvsc_device_add(struct hv_device *device,
 	return ret;
 
 close:
-	napi_disable(&net_device->chan_table[0].napi);
+	netif_napi_del(&net_device->chan_table[0].napi);
 
 	/* Now, we can close the channel safely */
 	vmbus_close(device->channel);
 
 cleanup:
-	free_netvsc_device(net_device);
+	free_netvsc_device(&net_device->rcu);
 
 	return ret;
 }

@@ -698,7 +698,7 @@ struct net_device_context {
 	/* point back to our device context */
 	struct hv_device *device_ctx;
 	/* netvsc_device */
-	struct netvsc_device *nvdev;
+	struct netvsc_device __rcu *nvdev;
 	/* reconfigure work */
 	struct delayed_work dwork;
 	/* last reconfig time */
@@ -723,9 +723,6 @@ struct net_device_context {
 	u8 duplex;
 	u32 speed;
 	struct netvsc_ethtool_stats eth_stats;
-
-	/* the device is going away */
-	bool start_remove;
 
 	/* State to manage the associated VF interface. */
 	struct net_device *vf_netdev;
@@ -802,6 +799,8 @@ struct netvsc_device {
 	atomic_t open_cnt;
 
 	struct netvsc_channel chan_table[VRSS_CHANNEL_MAX];
+
+	struct rcu_head rcu;
 };
 
 static inline struct netvsc_device *
