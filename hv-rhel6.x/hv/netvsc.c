@@ -79,8 +79,10 @@ static struct netvsc_device *alloc_net_device(void)
 	return net_device;
 }
 
-static void free_netvsc_device(struct netvsc_device *nvdev)
+static void free_netvsc_device(struct rcu_head *head)
 {
+	struct netvsc_device *nvdev
+		= container_of(head, struct netvsc_device, rcu);
 	int i;
 
 	for (i = 0; i < VRSS_CHANNEL_MAX; i++)
@@ -89,6 +91,10 @@ static void free_netvsc_device(struct netvsc_device *nvdev)
 	kfree(nvdev);
 }
 
+static void free_netvsc_device_rcu(struct netvsc_device *nvdev)
+{
+	call_rcu(&nvdev->rcu, free_netvsc_device);
+}
 
 static struct netvsc_device *get_outbound_net_device(struct hv_device *device)
 {
@@ -579,7 +585,7 @@ void netvsc_device_remove(struct hv_device *device)
 
 	netvsc_disconnect_vsp(device);
 
-	net_device_ctx->nvdev = NULL;
+	RCU_INIT_POINTER(net_device_ctx->nvdev, NULL);
 
 	/*
 	 * At this point, no one should be accessing net_device
@@ -594,7 +600,7 @@ void netvsc_device_remove(struct hv_device *device)
 		napi_disable(&net_device->chan_table[i].napi);
 
 	/* Release all resources */
-	free_netvsc_device(net_device);
+	free_netvsc_device_rcu(net_device);
 }
 
 #define RING_AVAIL_PERCENT_HIWATER 20
@@ -1347,7 +1353,7 @@ int netvsc_device_add(struct hv_device *device,
 	 */
 	wmb();
 
-	net_device_ctx->nvdev = net_device;
+	rcu_assign_pointer(net_device_ctx->nvdev, net_device);
 
 	/* Connect with the NetVsp */
 	ret = netvsc_connect_vsp(device);
@@ -1366,7 +1372,7 @@ close:
 	vmbus_close(device->channel);
 
 cleanup:
-	free_netvsc_device(net_device);
+	free_netvsc_device(&net_device->rcu);
 
 	return ret;
 }
