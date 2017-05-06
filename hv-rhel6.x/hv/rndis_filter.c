@@ -1023,14 +1023,18 @@ static void netvsc_sc_open(struct vmbus_channel *new_sc)
 	 */
 	set_channel_read_mode(new_sc, HV_CALL_ISR);
 
+	/* Set the channel before opening.*/
+	nvchan->channel = new_sc;
+	netif_napi_add(ndev, &nvchan->napi,
+		       netvsc_poll, NAPI_POLL_WEIGHT);
+
 	ret = vmbus_open(new_sc, nvscdev->ring_size * PAGE_SIZE,
 			 nvscdev->ring_size * PAGE_SIZE, NULL, 0,
 			 netvsc_channel_cb, nvchan);
-
 	if (ret == 0)
-		nvchan->channel = new_sc;
-
-	napi_enable(&nvchan->napi);
+		napi_enable(&nvchan->napi);
+	else
+		netdev_err(ndev, "sub channel open failed (%d)\n", ret);
 
 	spin_lock_irqsave(&nvscdev->sc_lock, flags);
         nvscdev->num_sc_offered--;

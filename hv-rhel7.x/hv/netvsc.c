@@ -729,8 +729,12 @@ static u32 netvsc_copy_to_send_buf(struct netvsc_device *net_device,
 		packet->page_buf_cnt;
 
 	/* Add padding */
-	if (skb && packet->xmit_more && remain &&
-	    !packet->cp_partial) {
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+        if (skb->xmit_more && remain && !packet->cp_partial) {
+#else
+        if (skb && packet->xmit_more && remain &&
+            !packet->cp_partial) {
+#endif
 		padding = net_device->pkt_align - remain;
 		rndis_msg->msg_len += padding;
 		packet->total_data_buflen += padding;
@@ -880,9 +884,7 @@ int netvsc_send(struct hv_device *device,
 	if (msdp->pkt)
 		msd_len = msdp->pkt->total_data_buflen;
 
-	try_batch = (skb != NULL) && msd_len > 0 && msdp->count <
-		    net_device->max_pkt;
-
+	try_batch =  msd_len > 0 && msdp->count < net_device->max_pkt;
 	if (try_batch && msd_len + pktlen + net_device->pkt_align <
 	    net_device->send_section_size) {
 		section_index = msdp->pkt->send_buf_index;
@@ -892,7 +894,7 @@ int netvsc_send(struct hv_device *device,
 		section_index = msdp->pkt->send_buf_index;
 		packet->cp_partial = true;
 
-	} else if ((skb != NULL) && pktlen + net_device->pkt_align <
+	} else if (pktlen + net_device->pkt_align <
 		   net_device->send_section_size) {
 		section_index = netvsc_get_next_send_section(net_device);
 		if (section_index != NETVSC_INVALID_INDEX) {
