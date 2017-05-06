@@ -675,6 +675,10 @@ static inline u32 ethtool_rxfh_indir_default(u32 index, u32 n_rx_rings)
 }
 #endif
 
+#ifndef NAPI_POLL_WEIGHT
+#define NAPI_POLL_WEIGHT 64
+#endif
+
 #define timespec64 timespec
 #define ns_to_timespec64 ns_to_timespec
 #define do_settimeofday64 do_settimeofday

@@ -471,6 +471,11 @@ static inline bool sk_fullsock(const struct sock *sk)
 }
 #endif
 
+static inline struct cpumask *irq_data_get_affinity_mask(struct irq_data *d)
+{
+	return d->affinity;
+}
+
 #define timespec64 timespec
 #define ns_to_timespec64 ns_to_timespec
 #define do_settimeofday64 do_settimeofday
