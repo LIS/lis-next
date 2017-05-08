@@ -620,7 +620,8 @@ static inline void netvsc_free_send_slot(struct netvsc_device *net_device,
 static void netvsc_send_tx_complete(struct netvsc_device *net_device,
 				    struct vmbus_channel *incoming_channel,
 				    struct hv_device *device,
-				    const struct vmpacket_descriptor *desc)
+				    const struct vmpacket_descriptor *desc,
+				    int budget)
 {
 	struct sk_buff *skb = (struct sk_buff *)(unsigned long)desc->trans_id;
 	struct net_device *ndev = hv_get_drvdata(device);
@@ -652,7 +653,7 @@ static void netvsc_send_tx_complete(struct netvsc_device *net_device,
 		ndev->stats.tx_packets += packet->total_packets;
 #endif 
 
-		dev_consume_skb_any(skb);
+		napi_consume_skb(skb, budget);
 	}
 
 	queue_sends =
@@ -670,7 +671,8 @@ static void netvsc_send_tx_complete(struct netvsc_device *net_device,
 static void netvsc_send_completion(struct netvsc_device *net_device,
                                    struct vmbus_channel *incoming_channel,
 				   struct hv_device *device,
-				   const struct vmpacket_descriptor *desc)
+				   const struct vmpacket_descriptor *desc,
+				   int budget)
 {
 	struct nvsp_message *nvsp_packet = hv_pkt_data(desc);
 	struct net_device *ndev = hv_get_drvdata(device);
@@ -688,7 +690,7 @@ static void netvsc_send_completion(struct netvsc_device *net_device,
 
 	case NVSP_MSG1_TYPE_SEND_RNDIS_PKT_COMPLETE:
 		netvsc_send_tx_complete(net_device, incoming_channel,
-					device, desc);
+					device, desc, budget);
 		break;
 
 	default:
@@ -1195,14 +1197,16 @@ static int netvsc_process_raw_pkt(struct hv_device *device,
 				  struct vmbus_channel *channel,
 				  struct netvsc_device *net_device,
 				  struct net_device *ndev,
-				  const struct vmpacket_descriptor *desc)
+				  const struct vmpacket_descriptor *desc,
+				  int budget)
 {
 	struct net_device_context *net_device_ctx = netdev_priv(ndev);
 	struct nvsp_message *nvmsg = hv_pkt_data(desc);
 
 	switch (desc->type) {
 	case VM_PKT_COMP:
-		netvsc_send_completion(net_device, channel, device, desc);
+		netvsc_send_completion(net_device, channel, device,
+				       desc, budget);
 		break;
 
 	case VM_PKT_DATA_USING_XFER_PAGES:
@@ -1251,7 +1255,7 @@ int netvsc_poll(struct napi_struct *napi, int budget)
 
 	while (nvchan->desc && work_done < budget) {
 		work_done += netvsc_process_raw_pkt(device, channel, net_device,
-						    ndev, nvchan->desc);
+						    ndev, nvchan->desc, budget);
 		nvchan->desc = hv_pkt_iter_next(channel, nvchan->desc);
 	}
 
