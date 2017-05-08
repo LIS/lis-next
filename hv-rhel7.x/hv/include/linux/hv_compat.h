@@ -73,6 +73,10 @@
 #define skb_vlan_tag_present(__skb)	((__skb)->vlan_tci & VLAN_TAG_PRESENT)
 #endif
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
+#define napi_consume_skb(skb, budget)     dev_consume_skb_any(skb)
+#endif
+
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,3))
 static inline struct page *skb_frag_page(const skb_frag_t *frag)
 {
