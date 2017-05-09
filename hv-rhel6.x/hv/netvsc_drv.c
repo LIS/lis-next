@@ -780,7 +780,7 @@ static int netvsc_set_channels(struct net_device *net,
 	if (count > net->num_tx_queues || count > net->num_rx_queues)
 		return -EINVAL;
 
-	if (!nvdev || nvdev->destroy)
+	if (net_device_ctx->start_remove || !nvdev || nvdev->destroy)
 		return -ENODEV;
 
 	if (nvdev->nvsp_version < NVSP_PROTOCOL_VERSION_5)
@@ -796,6 +796,7 @@ static int netvsc_set_channels(struct net_device *net,
 			return ret;
 	}
 
+	net_device_ctx->start_remove = true;
 	rndis_filter_device_remove(dev, nvdev);
 
 	ret = netvsc_set_queues(net, dev, count);
@@ -803,6 +804,8 @@ static int netvsc_set_channels(struct net_device *net,
 		nvdev->num_chn = count;
 	else
 		netvsc_set_queues(net, dev, nvdev->num_chn);
+
+	net_device_ctx->start_remove = false;
 
 	if (was_running)
 		ret = netvsc_open(net);
@@ -876,7 +879,7 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 	bool was_running;
 	int ret = 0;
 
-	if (!nvdev || nvdev->destroy)
+	if (ndevctx->start_remove || !nvdev || nvdev->destroy)
 		return -ENODEV;
 
 	if (nvdev->nvsp_version >= NVSP_PROTOCOL_VERSION_2)
@@ -897,6 +900,7 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 	device_info.num_chn = nvdev->num_chn;
 	device_info.max_num_vrss_chns = nvdev->num_chn;
 
+	ndevctx->start_remove = true;
 	rndis_filter_device_remove(hdev, nvdev);
 
 	/* 'nvdev' has been freed in rndis_filter_device_remove() ->
@@ -909,6 +913,8 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 	ndev->mtu = mtu;
 
 	rndis_filter_device_add(hdev, &device_info);
+
+	ndevctx->start_remove = false;
 
 	if (was_running)
 		ret = netvsc_open(ndev);
@@ -1284,10 +1290,10 @@ static void netvsc_link_change(struct work_struct *w)
 	unsigned long flags, next_reconfig, delay;
 
 	rtnl_lock();
-	net_device = rtnl_dereference(ndev_ctx->nvdev);
-	if (!net_device)
+	if (ndev_ctx->start_remove)
 		goto out_unlock;
 
+	net_device = rtnl_dereference(ndev_ctx->nvdev);
 	rdev = net_device->extension;
 
 	next_reconfig = ndev_ctx->last_reconfig + LINKCHANGE_INT;
@@ -1611,6 +1617,8 @@ static int netvsc_probe(struct hv_device *dev,
 
 	hv_set_drvdata(dev, net);
 
+	net_device_ctx->start_remove = false;
+
 	net_device_ctx->synthetic_data_path = true;
 
 	INIT_DELAYED_WORK(&net_device_ctx->dwork, netvsc_link_change);
@@ -1687,20 +1695,26 @@ static int netvsc_remove(struct hv_device *dev)
 
 	ndev_ctx = netdev_priv(net);
 
-	netif_device_detach(net);
+	/* Avoid racing with netvsc_change_mtu()/netvsc_set_channels()
+	 * removing the device.
+	 */
+	rtnl_lock();
+	ndev_ctx->start_remove = true;
+	rtnl_unlock();
 
 	cancel_delayed_work_sync(&ndev_ctx->dwork);
 	cancel_work_sync(&ndev_ctx->work);
 
-	/*
-	 * Call to the vsc driver to let it know that the device is being
-	 * removed. Also blocks mtu and channel changes.
-	 */
-	rtnl_lock();
-	rndis_filter_device_remove(dev, ndev_ctx->nvdev);
-	rtnl_unlock();
+	/* Stop outbound asap */
+	netif_tx_disable(net);
 
 	unregister_netdev(net);
+
+	/*
+	 * Call to the vsc driver to let it know that the device is being
+	 * removed
+	 */
+	rndis_filter_device_remove(dev, ndev_ctx->nvdev);
 
 	hv_set_drvdata(dev, NULL);
 
