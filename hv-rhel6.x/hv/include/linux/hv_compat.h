@@ -677,10 +677,6 @@ static inline u32 ethtool_rxfh_indir_default(u32 index, u32 n_rx_rings)
 
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
 #define rtnl_dereference(ptr) (ptr)
-
-#ifdef rcu_dereference_rtnl
-#define rcu_dereference_rtnl(p)  rcu_dereference(p)
-#endif
 #endif
 
 #ifndef NAPI_POLL_WEIGHT
