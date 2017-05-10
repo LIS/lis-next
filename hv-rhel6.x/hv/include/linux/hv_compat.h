@@ -675,6 +675,10 @@ static inline u32 ethtool_rxfh_indir_default(u32 index, u32 n_rx_rings)
 }
 #endif
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
+#define rtnl_dereference(ptr) (ptr)
+#endif
+
 #ifndef NAPI_POLL_WEIGHT
 #define NAPI_POLL_WEIGHT 64
 #endif

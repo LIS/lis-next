@@ -698,7 +698,7 @@ struct net_device_context {
 	/* point back to our device context */
 	struct hv_device *device_ctx;
 	/* netvsc_device */
-	struct netvsc_device __rcu *nvdev;
+	struct netvsc_device *nvdev;
 	/* reconfigure work */
 	struct delayed_work dwork;
 	/* last reconfig time */
@@ -799,8 +799,6 @@ struct netvsc_device {
 	atomic_t open_cnt;
 
 	struct netvsc_channel chan_table[VRSS_CHANNEL_MAX];
-
-	struct rcu_head rcu;
 };
 
 static inline struct netvsc_device *
