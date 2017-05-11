@@ -287,7 +287,7 @@ struct pci_packet {
 
 struct pci_version_request {
 	struct pci_message message_type;
-	enum pci_message_type protocol_version;
+	u32 protocol_version;
 } __packed;
 
 /*
@@ -387,17 +387,42 @@ static int pci_ring_size = (4 * PAGE_SIZE);
 #define HV_PARTITION_ID_SELF		((u64)-1)
 #define HVCALL_RETARGET_INTERRUPT	0x7e
 
-struct retarget_msi_interrupt {
-	u64	partition_id;		/* use "self" */
-	u64	device_id;
+struct hv_interrupt_entry {
 	u32	source;			/* 1 for MSI(-X) */
 	u32	reserved1;
 	u32	address;
 	u32	data;
-	u64	reserved2;
+};
+
+#define HV_VP_SET_BANK_COUNT_MAX	5 /* current implementation limit */
+
+struct hv_vp_set {
+	u64	format;			/* 0 (HvGenericSetSparse4k) */
+	u64	valid_banks;
+	u64	masks[HV_VP_SET_BANK_COUNT_MAX];
+};
+
+/*
+ * flags for hv_device_interrupt_target.flags
+ */
+#define HV_DEVICE_INTERRUPT_TARGET_MULTICAST		1
+#define HV_DEVICE_INTERRUPT_TARGET_PROCESSOR_SET	2
+
+struct hv_device_interrupt_target {
 	u32	vector;
 	u32	flags;
-	u64	vp_mask;
+	union {
+		u64		 vp_mask;
+		struct hv_vp_set vp_set;
+	};
+};
+
+struct retarget_msi_interrupt {
+	u64 partition_id;		/* use "self" */
+	u64 device_id;
+	struct hv_interrupt_entry int_entry;
+	u64 reserved2;
+	struct hv_device_interrupt_target int_target;
 } __packed;
 
 /*
@@ -434,8 +459,11 @@ struct hv_pcibus_device {
 
 	struct list_head children;
 	struct list_head dr_list;
+
+	/* hypercall arg, must not cross page boundary */
 	struct retarget_msi_interrupt retarget_msi_interrupt_params;
-	spinlock_t retarget_msi_interrupt_lock;;
+
+	spinlock_t retarget_msi_interrupt_lock;
 };
 
 /*
@@ -769,9 +797,11 @@ static int hv_set_affinity(struct irq_data *data, const struct cpumask *dest,
 	struct hv_pcibus_device *hbus;
 	struct pci_bus *pbus;
 	struct pci_dev *pdev;
-	int cpu, ret;
+	int cpu, ret, cpu_vmbus;
 	unsigned int dest_id;
 	unsigned long flags;
+	u64 res;
+	u32 var_size = 0;
 
 	ret = __ioapic_set_affinity(data, dest, &dest_id);
 	if (ret)
@@ -786,24 +816,74 @@ static int hv_set_affinity(struct irq_data *data, const struct cpumask *dest,
 	params = &hbus->retarget_msi_interrupt_params;
 	memset(params, 0, sizeof(*params));
 	params->partition_id = HV_PARTITION_ID_SELF;
-	params->source = 1; /* MSI(-X) */
-	params->address = msi_desc->msg.address_lo;
-	params->data = msi_desc->msg.data;
+	params->int_entry.source = 1; /* MSI(-X) */
+	params->int_entry.address = msi_desc->msg.address_lo;
+	params->int_entry.data = msi_desc->msg.data;
 	params->device_id = (hbus->hdev->dev_instance.b[5] << 24) |
 			   (hbus->hdev->dev_instance.b[4] << 16) |
 			   (hbus->hdev->dev_instance.b[7] << 8) |
 			   (hbus->hdev->dev_instance.b[6] & 0xf8) |
 			   PCI_FUNC(pdev->devfn);
-	params->vector = cfg->vector;
+	params->int_target.vector = cfg->vector;
 
-	for_each_cpu_and(cpu, dest, cpu_online_mask)
-		params->vp_mask |= (1ULL <<
-			vmbus_cpu_number_to_vp_number(cpu));
+	/*
+	 * Honoring apic->irq_delivery_mode set to dest_Fixed by
+	 * setting the HV_DEVICE_INTERRUPT_TARGET_MULTICAST flag results in a
+	 * spurious interrupt storm. Not doing so does not seem to have a
+	 * negative effect (yet?).
+	 */
 
-	hv_do_hypercall(HVCALL_RETARGET_INTERRUPT, params, NULL);
+	if (pci_protocol_version >= PCI_PROTOCOL_VERSION_1_2) {
+		/*
+		 * PCI_PROTOCOL_VERSION_1_2 supports the VP_SET version of the
+		 * HVCALL_RETARGET_INTERRUPT hypercall, which also coincides
+		 * with >64 VP support.
+		 * ms_hyperv.hints & HV_X64_EX_PROCESSOR_MASKS_RECOMMENDED
+		 * is not sufficient for this hypercall.
+		 */
+		params->int_target.flags |=
+			HV_DEVICE_INTERRUPT_TARGET_PROCESSOR_SET;
+		params->int_target.vp_set.valid_banks =
+			(1ull << HV_VP_SET_BANK_COUNT_MAX) - 1;
 
-	spin_unlock_irqrestore(&hbus->retarget_msi_interrupt_lock,
-			       flags);
+		/*
+		 * var-sized hypercall, var-size starts after vp_mask (thus
+		 * vp_set.format does not count, but vp_set.valid_banks does).
+		 */
+		var_size = 1 + HV_VP_SET_BANK_COUNT_MAX;
+
+		for_each_cpu_and(cpu, dest, cpu_online_mask) {
+			cpu_vmbus = vmbus_cpu_number_to_vp_number(cpu);
+
+			if (cpu_vmbus >= HV_VP_SET_BANK_COUNT_MAX * 64) {
+				dev_err(&hbus->hdev->device,
+					"too high CPU %d", cpu_vmbus);
+				res = 1;
+				goto exit_unlock;
+			}
+
+			params->int_target.vp_set.masks[cpu_vmbus / 64] |=
+				(1ULL << (cpu_vmbus & 63));
+		}
+	} else {
+		for_each_cpu_and(cpu, dest, cpu_online_mask) {
+			params->int_target.vp_mask |=
+				(1ULL << vmbus_cpu_number_to_vp_number(cpu));
+		}
+	}
+
+	res = hv_do_hypercall(HVCALL_RETARGET_INTERRUPT | (var_size << 17),
+			      params, NULL);
+
+exit_unlock:
+	spin_unlock_irqrestore(&hbus->retarget_msi_interrupt_lock, flags);
+
+	if (res) {
+		dev_err(&hbus->hdev->device,
+			"hv_irq_unmask() failed: %#llx", res);
+		return -1;
+	}
+
 	return 0;
 }
 
@@ -857,8 +937,6 @@ static u32 hv_compose_msi_req_v1(
 	struct pci_create_interrupt *int_pkt, struct cpumask *affinity,
 	u32 slot, u8 vector)
 {
-	int cpu;
-
 	int_pkt->message_type.type = PCI_CREATE_INTERRUPT_MESSAGE;
 	int_pkt->wslot.slot = slot;
 	int_pkt->int_desc.vector = vector;
@@ -867,18 +945,10 @@ static u32 hv_compose_msi_req_v1(
 		(apic->irq_delivery_mode == dest_LowestPrio) ? 1 : 0;
 
 	/*
-	 * This bit doesn't have to work on machines with more than 64
-	 * processors because Hyper-V with vPCI<1.2 only supports 64
-	 * cpus in a guest.
+	 * Create MSI w/ dummy vCPU set, overwritten by subsequent retarget in
+	 * hv_irq_unmask().
 	 */
-	if (cpumask_weight(affinity) >= 32) {
-		int_pkt->int_desc.cpu_mask = CPU_AFFINITY_ALL;
-	} else {
-		for_each_cpu_and(cpu, affinity, cpu_online_mask) {
-			int_pkt->int_desc.cpu_mask |=
-				(1ULL << vmbus_cpu_number_to_vp_number(cpu));
-		}
-	}
+	int_pkt->int_desc.cpu_mask = CPU_AFFINITY_ALL;
 
 	return sizeof(*int_pkt);
 }
@@ -897,7 +967,8 @@ static u32 hv_compose_msi_req_v2(
 		(apic->irq_delivery_mode == dest_LowestPrio) ? 1 : 0;
 
 	/*
-	 * Create MSI targeting just one vCPU. We are retargeting later anyway.
+	 * Create MSI targeting just one vCPU, overwritten by subsequent
+	 * retarget in hv_irq_unmask().
 	 */
 	cpu = cpumask_first_and(affinity, cpu_online_mask);
 	int_pkt->int_desc.processor_array[0] =
@@ -2287,7 +2358,13 @@ static int hv_pci_probe(struct hv_device *hdev,
 	struct hv_pcibus_device *hbus;
 	int ret;
 
-	hbus = kzalloc(sizeof(*hbus), GFP_KERNEL);
+	/*
+	 * hv_pcibus_device contains the hypercall arguments for retargeting in
+	 * hv_irq_unmask(). Those must not cross a page boundary.
+	 */
+	BUILD_BUG_ON(sizeof(*hbus) > PAGE_SIZE);
+
+	hbus = (struct hv_pcibus_device *)get_zeroed_page(GFP_KERNEL);
 	if (!hbus)
 		return -ENOMEM;
 	hbus->state = hv_pcibus_init;
@@ -2377,7 +2454,7 @@ release:
 close:
 	vmbus_close(hdev->channel);
 free_bus:
-	kfree(hbus);
+	free_page((unsigned long)hbus);
 	return ret;
 }
 
@@ -2453,7 +2530,8 @@ static int hv_pci_remove(struct hv_device *hdev)
 	hv_pci_free_bridge_windows(hbus);
 	put_hvpcibus(hbus);
 	wait_for_completion(&hbus->remove_event);
-	kfree(hbus);
+
+	free_page((unsigned long)hbus);
 	return 0;
 }
 
