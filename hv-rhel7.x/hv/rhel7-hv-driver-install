@@ -9,7 +9,7 @@ make -C /lib/modules/$(uname -r)/build M=`pwd` modules
 [ $? -eq 0 ] || exit 1
 
 echo "Installing Modules"
-cp -f ./*.ko /lib/modules/$(uname -r)/extra/
+cp -f --parents $(find . -name '*.ko') /lib/modules/$(uname -r)/extra/
 [ $? -eq 0 ] || exit 1
 
 echo "Generating Module dependencies"
