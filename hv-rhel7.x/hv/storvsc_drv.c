@@ -1157,7 +1157,7 @@ static int storvsc_channel_init(struct hv_device *device, bool is_fc)
 	 * We will however populate all the slots to evenly distribute
 	 * the load.
 	 */
-	stor_device->stor_chns = kzalloc(sizeof(void *) * num_possible_cpus(),
+	stor_device->stor_chns = kcalloc(num_possible_cpus(), sizeof(void *),
 					 GFP_KERNEL);
 	if (stor_device->stor_chns == NULL)
 		return -ENOMEM;
@@ -1538,8 +1538,6 @@ static void storvsc_on_channel_callback(void *context)
 			break;
 		}
 	} while (1);
-
-	return;
 }
 
 static int storvsc_connect_to_vsp(struct hv_device *device, u32 ring_size,
