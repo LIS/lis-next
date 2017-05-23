@@ -219,7 +219,11 @@ static void hv_set_host_time(struct work_struct *work)
 	wrk = container_of(work, struct adj_time_work, work);
 
 	reftime = hyperv_cs->read(hyperv_cs);
-	newtime = wrk->host_time + (reftime - wrk->ref_time);
+	if (ts_srv_version > TS_VERSION_3)
+		newtime = wrk->host_time + (reftime - wrk->ref_time);
+	else
+		newtime = wrk->host_time;
+
 	host_ts = ns_to_timespec64((newtime - WLTIMEDELTA) * 100);
 
 	do_settimeofday64(&host_ts);
