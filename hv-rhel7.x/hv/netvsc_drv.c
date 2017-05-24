@@ -690,7 +690,7 @@ static struct sk_buff *netvsc_alloc_recv_skb(struct net_device *net,
 {
 	struct sk_buff *skb;
 
-	skb = netdev_alloc_skb_ip_align(net, buflen);
+	skb = napi_alloc_skb(napi, buflen);
 	if (!skb)
 		return skb;
 
@@ -737,10 +737,11 @@ int netvsc_recv_callback(struct net_device *net,
 {
 	struct net_device_context *net_device_ctx = netdev_priv(net);
 	struct netvsc_device *net_device = net_device_ctx->nvdev;
+	u16 q_idx = channel->offermsg.offer.sub_channel_index;
+	struct netvsc_channel *nvchan = &net_device->chan_table[q_idx];
 	struct net_device *vf_netdev;
 	struct sk_buff *skb;
 	struct netvsc_stats *rx_stats;
-	u16 q_idx = channel->offermsg.offer.sub_channel_index;
 
 	if (net->reg_state != NETREG_REGISTERED)
 		return NVSP_STAT_FAIL;
@@ -758,7 +759,8 @@ int netvsc_recv_callback(struct net_device *net,
 		net = vf_netdev;
 
 	/* Allocate a skb - TODO direct I/O to pages? */
-	skb = netvsc_alloc_recv_skb(net, csum_info, vlan, data, len);
+	skb = netvsc_alloc_recv_skb(net, &nvchan->napi,
+				    csum_info, vlan, data, len);
 	if (unlikely(!skb)) {
 		++net->stats.rx_dropped;
 		rcu_read_unlock();
@@ -773,7 +775,7 @@ int netvsc_recv_callback(struct net_device *net,
 	 * on the synthetic device because modifying the VF device
 	 * statistics will not work correctly.
 	 */
-	rx_stats = &net_device->chan_table[q_idx].rx_stats;
+	rx_stats = &nvchan->rx_stats;
 	u64_stats_update_begin(&rx_stats->syncp);
 	rx_stats->packets++;
 	rx_stats->bytes += len;
@@ -789,8 +791,8 @@ int netvsc_recv_callback(struct net_device *net,
 	 * is done.
 	 * TODO - use NAPI?
 	 */
-	netif_receive_skb(skb);
-  rcu_read_unlock();
+	napi_gro_receive(&nvchan->napi, skb);
+	rcu_read_unlock();
 
 	return 0;
 }
