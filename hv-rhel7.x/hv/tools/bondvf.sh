@@ -102,15 +102,29 @@ function create_bond_cfg_redhat {
 }
 
 function del_eth_cfg_ubuntu {
-	local fn=$cfgdir/interfaces
+	local fnlist=( $mainfn )
+
+	local dirlist=(`awk '/^[ \t]*source/{print $2}' $mainfn`)
+
+	local i
+	for i in "${dirlist[@]}"
+	do
+		fnlist+=(`ls $i 2>/dev/null`)
+	done
+
 	local tmpfl=$(mktemp)
 
 	local nic_start='^[ \t]*(auto|iface|mapping|allow-.*)[ \t]+'$1
 	local nic_end='^[ \t]*(auto|iface|mapping|allow-.*|source)'
 
-	awk "/$nic_end/{x=0} x{next} /$nic_start/{x=1;next} 1"  $fn >$tmpfl
+	local fn
+	for fn in "${fnlist[@]}"
+	do
+		awk "/$nic_end/{x=0} x{next} /$nic_start/{x=1;next} 1" \
+			$fn >$tmpfl
 
-	cp $tmpfl $fn
+		cp $tmpfl $fn
+	done
 
 	rm $tmpfl
 }
@@ -118,7 +132,9 @@ function del_eth_cfg_ubuntu {
 
 function create_eth_cfg_ubuntu {
 	local fn=$cfgdir/interfaces
+	
 	del_eth_cfg_ubuntu $1
+	
 	echo $'\n'auto $1 >>$fn
 	echo iface $1 inet manual >>$fn
 	echo bond-master $2 >>$fn
@@ -126,13 +142,15 @@ function create_eth_cfg_ubuntu {
 
 function create_eth_cfg_pri_ubuntu {
 	local fn=$cfgdir/interfaces
-	del_eth_cfg_ubuntu $1
+
 	create_eth_cfg_ubuntu $1 $2
 	echo bond-primary $1 >>$fn
 }
 
 function create_bond_cfg_ubuntu {
 	local fn=$cfgdir/interfaces
+
+	del_eth_cfg_ubuntu $1
 
 	echo $'\n'auto $1 >>$fn
 	echo iface $1 inet dhcp >>$fn
