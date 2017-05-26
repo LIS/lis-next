@@ -448,7 +448,8 @@ static inline void hv_poll_channel(struct vmbus_channel *channel,
 	if (!channel)
 		return;
 	
-	if (in_interrupt() && (channel->target_cpu == smp_processor_id())) {
+	if ((irqs_disabled() || in_interrupt()) &&
+	    (channel->target_cpu == smp_processor_id())) {
                cb(channel);
                return;
 	}
