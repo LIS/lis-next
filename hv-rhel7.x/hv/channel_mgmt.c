@@ -899,20 +899,11 @@ static void vmbus_onoffer_rescind(struct vmbus_channel_message_header *hdr)
 	vmbus_rescind_cleanup(channel);
 
 	if (channel->device_obj) {
-		if (is_hvsock_channel(channel) &&
-		    channel->hvsock_event_callback) {
-			channel->hvsock_event_callback(channel,
-						       HVSOCK_RESCIND_OFFER);
-			/*
-			 * We can't invoke vmbus_device_unregister()
-			 * until the socket fd is closed.
-			 */
-			goto out;
-		}
 		if (channel->chn_rescind_callback) {
 			channel->chn_rescind_callback(channel);
 			return;
 		}
+
 		/*
 		 * We will have to unregister this device from the
 		 * driver core.
