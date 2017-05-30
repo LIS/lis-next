@@ -1034,7 +1034,7 @@ static void netvsc_sc_open(struct vmbus_channel *new_sc)
 	if (ret == 0)
 		napi_enable(&nvchan->napi);
 	else
-		netdev_err(ndev, "sub channel open failed (%d)\n", ret);
+		netif_napi_del(&nvchan->napi);
 
 	spin_lock_irqsave(&nvscdev->sc_lock, flags);
         nvscdev->num_sc_offered--;
