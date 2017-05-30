@@ -76,7 +76,8 @@ static int vss_do_freeze(char *dir, unsigned int cmd)
 
 static int vss_operate(int operation)
 {
-	char match[] = "/dev/";
+	char match_dev[] = "/dev/";
+	char match_loop[] = "/dev/loop";
 	FILE *mounts;
 	struct mntent *ent;
 	char errdir[1024] = {0};
@@ -99,8 +100,10 @@ static int vss_operate(int operation)
 		return -1;
 
 	while ((ent = getmntent(mounts))) {
-		if (strncmp(ent->mnt_fsname, match, strlen(match)))
-			continue;
+		if (strncmp(ent->mnt_fsname, match_dev, strlen(match_dev)))
+                        continue;
+                if (!strncmp(ent->mnt_fsname, match_loop, strlen(match_loop)))
+                        continue;
 		if (hasmntopt(ent, MNTOPT_RO) != NULL)
 			continue;
 		if (strcmp(ent->mnt_type, "vfat") == 0)
