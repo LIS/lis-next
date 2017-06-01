@@ -91,9 +91,9 @@ static int vss_operate(int operation)
 		return -1;
 
 	while ((ent = getmntent(mounts))) {
-		if (strncmp(ent->mnt_fsname, match_dev, strlen(match_dev)))
+		if (strncmp(ent->mnt_fsname, match_dev, strlen(match_dev)) != 0)
                         continue;
-                if (!strncmp(ent->mnt_fsname, match_loop, strlen(match_loop)))
+		if (strncmp(ent->mnt_fsname, match_loop, strlen(match_loop)) == 0)
                         continue;
 		if (hasmntopt(ent, MNTOPT_RO) != NULL)
 			continue;
