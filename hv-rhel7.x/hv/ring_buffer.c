@@ -72,8 +72,6 @@ static void hv_signal_on_write(u32 old_write, struct vmbus_channel *channel)
 	 */
 	if (old_write == READ_ONCE(rbi->ring_buffer->read_index))
 		vmbus_setevent(channel);
-
-	return ;
 }
 
 /* Get the next write location for the specified ring buffer */
@@ -210,6 +208,8 @@ void hv_ringbuffer_get_debuginfo(const struct hv_ring_buffer_info *ring_info,
 			ring_info->ring_buffer->interrupt_mask;
 	}
 }
+EXPORT_SYMBOL_GPL(hv_ringbuffer_get_debuginfo);
+
 
 /* Initialize the ring buffer. */
 int hv_ringbuffer_init(struct hv_ring_buffer_info *ring_info,

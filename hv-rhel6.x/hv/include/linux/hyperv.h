@@ -138,6 +138,9 @@ struct hv_ring_buffer_debug_info {
 	u32 bytes_avail_towrite;
 };
 
+void hv_ringbuffer_get_debuginfo(const struct hv_ring_buffer_info *ring_info,
+			    struct hv_ring_buffer_debug_info *debug_info);
+
 /*
  *
  * hv_get_ringbuffer_availbytes()
@@ -499,6 +502,12 @@ struct vmbus_channel_rescind_offer {
 	u32 child_relid;
 } __packed;
 
+static inline u32
+hv_ringbuffer_pending_size(const struct hv_ring_buffer_info *rbi)
+{
+	return rbi->ring_buffer->pending_send_sz;
+}
+
 /*
  * Request Offer -- no parameters, SynIC message contains the partition ID
  * Set Snoop -- no parameters, SynIC message contains the partition ID
@@ -532,10 +541,10 @@ struct vmbus_channel_open_channel {
 	u32 target_vp;
 
 	/*
-	* The upstream ring buffer begins at offset zero in the memory
-	* described by RingBufferGpadlHandle. The downstream ring buffer
-	* follows it at this offset (in pages).
-	*/
+	 * The upstream ring buffer begins at offset zero in the memory
+	 * described by RingBufferGpadlHandle. The downstream ring buffer
+	 * follows it at this offset (in pages).
+	 */
 	u32 downstream_ringbuffer_pageoffset;
 
 	/* User-specific data to be passed along to the server endpoint. */
@@ -1056,7 +1065,7 @@ extern int vmbus_open(struct vmbus_channel *channel,
 			    u32 recv_ringbuffersize,
 			    void *userdata,
 			    u32 userdatalen,
-			    void(*onchannel_callback)(void *context),
+			    void (*onchannel_callback)(void *context),
 			    void *context);
 
 extern void vmbus_close(struct vmbus_channel *channel);
@@ -1526,7 +1535,7 @@ struct hyperv_service_callback {
 	char *log_msg;
 	uuid_le data;
 	struct vmbus_channel *channel;
-	void (*callback) (void *context);
+	void (*callback)(void *context);
 };
 
 #define MAX_SRV_VER	0x7ffffff
@@ -1607,8 +1616,6 @@ static inline void hv_signal_on_read(struct vmbus_channel *channel)
 	cached_write_sz = hv_get_cached_bytes_to_write(rbi);
 	if (cached_write_sz < pending_sz)
 		vmbus_setevent(channel);
-
-	return;
 }
 
 /*

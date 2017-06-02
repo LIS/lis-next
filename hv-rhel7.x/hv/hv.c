@@ -354,7 +354,11 @@ void hv_synic_cleanup(void *arg)
 		return;
 
 	/* Turn off clockevent device */
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,2))
+
+/*	Upstream referecen: 6ffc4b85358f6b7d252420cfa5862312cf5f83d8
+	Code locks on 7.3 with no reboot during kdump
+
+	#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,2))
 	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE) {
 		struct hv_per_cpu_context *hv_cpu
 			= this_cpu_ptr(hv_context.cpu_context);
@@ -364,6 +368,7 @@ void hv_synic_cleanup(void *arg)
 		put_cpu_ptr(hv_cpu);
 	}
 #else
+*/
 	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE) {
 		struct hv_per_cpu_context *hv_cpu
 			= this_cpu_ptr(hv_context.cpu_context);
@@ -371,7 +376,6 @@ void hv_synic_cleanup(void *arg)
 		hv_ce_setmode(CLOCK_EVT_MODE_SHUTDOWN, hv_cpu->clk_evt);
 		put_cpu_ptr(hv_cpu);
 	}
-#endif
 
 	hv_get_synint_state(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT,
 			    shared_sint.as_uint64);
