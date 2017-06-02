@@ -79,7 +79,6 @@ static int dm_reg_value;
 static char vss_devname[] = "vmbus/hv_vss";
 static __u8 *recv_buffer;
 static struct hvutil_transport *hvt;
-static struct completion release_event;
 
 static void vss_timeout_func(struct work_struct *dummy);
 static void vss_handle_request(struct work_struct *dummy);
@@ -359,7 +358,6 @@ static void vss_on_reset(void)
 	if (cancel_delayed_work_sync(&vss_timeout_work))
 		vss_respond_to_host(HV_E_FAIL);
 	vss_transaction.state = HVUTIL_DEVICE_INIT;
-	complete(&release_event);
 }
 
 int
@@ -373,7 +371,6 @@ hv_vss_init(struct hv_util_service *srv)
 	recv_buffer = srv->recv_buffer;
 	vss_transaction.recv_channel = srv->channel;
 
-	init_completion(&release_event);
 	/*
 	 * When this driver loads, the user level daemon that
 	 * processes the host requests may not yet be running.
@@ -398,5 +395,4 @@ void hv_vss_deinit(void)
 	cancel_delayed_work_sync(&vss_timeout_work);
 	cancel_work_sync(&vss_handle_request_work);
 	hvutil_transport_destroy(hvt);
-	wait_for_completion(&release_event);
 }
