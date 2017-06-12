@@ -21,6 +21,7 @@
 #include <sys/types.h>
 #include <sys/poll.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <mntent.h>
@@ -30,6 +31,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <linux/fs.h>
+#include <linux/major.h>
 #include "../include/uapi/linux/hyperv.h"
 #include <syslog.h>
 #include <getopt.h>
@@ -77,9 +79,9 @@ static int vss_do_freeze(char *dir, unsigned int cmd)
 static int vss_operate(int operation)
 {
 	char match_dev[] = "/dev/";
-	char match_loop[] = "/dev/loop";
 	FILE *mounts;
 	struct mntent *ent;
+	struct stat sb;
 	char errdir[1024] = {0};
 	unsigned int cmd;
 	int error = 0, root_seen = 0, save_errno = 0;
@@ -102,8 +104,11 @@ static int vss_operate(int operation)
 	while ((ent = getmntent(mounts))) {
 		if (strncmp(ent->mnt_fsname, match_dev, strlen(match_dev)) != 0)
                         continue;
-		if (strncmp(ent->mnt_fsname, match_loop, strlen(match_loop)) == 0)
-                        continue;
+		if (stat(ent->mnt_fsname, &sb) == -1)
+			continue;
+		if (S_ISBLK(sb.st_mode))
+			if (major(sb.st_rdev) == LOOP_MAJOR)
+				continue;
 		if (hasmntopt(ent, MNTOPT_RO) != NULL)
 			continue;
 		if (strcmp(ent->mnt_type, "vfat") == 0)
