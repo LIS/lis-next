@@ -786,8 +786,7 @@ struct netvsc_device {
 	spinlock_t sc_lock; /* Protects num_sc_offered variable */
 	u32 num_sc_offered;
 
-	/* Holds rndis device info */
-	void *extension;
+	struct rndis_device *extension;
 
 	int ring_size;
 
