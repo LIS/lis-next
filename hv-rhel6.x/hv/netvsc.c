@@ -244,6 +244,7 @@ static int netvsc_init_buf(struct hv_device *device)
 	struct netvsc_device *net_device;
 	struct nvsp_message *init_packet;
 	struct net_device *ndev;
+	size_t map_words;
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > 1536)
 	int node;
 #endif
@@ -420,11 +421,9 @@ static int netvsc_init_buf(struct hv_device *device)
 		   net_device->send_section_size, net_device->send_section_cnt);
 
 	/* Setup state for managing the send buffer. */
-	net_device->map_words = DIV_ROUND_UP(net_device->send_section_cnt,
-					     BITS_PER_LONG);
+	map_words = DIV_ROUND_UP(net_device->send_section_cnt, BITS_PER_LONG);
 
-	net_device->send_section_map = kcalloc(net_device->map_words,
-					       sizeof(ulong), GFP_KERNEL);
+	net_device->send_section_map = kcalloc(map_words, sizeof(ulong), GFP_KERNEL);
 	if (net_device->send_section_map == NULL) {
 		ret = -ENOMEM;
 		goto cleanup;
@@ -703,7 +702,7 @@ static u32 netvsc_get_next_send_section(struct netvsc_device *net_device)
 	unsigned long *map_addr = net_device->send_section_map;
 	unsigned int i;
 
-	for_each_clear_bit(i, map_addr, net_device->map_words) {
+	for_each_clear_bit(i, map_addr, net_device->send_section_cnt) {
 		if (sync_test_and_set_bit(i, map_addr) == 0)
 			return i;
 	}
