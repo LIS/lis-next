@@ -39,6 +39,8 @@
 #include <net/sock.h>
 #include <net/udp.h>
 #include <net/pkt_sched.h>
+#include <net/checksum.h>
+#include <net/ip6_checksum.h>
 
 #include "include/linux/hyperv.h"
 #include "hyperv_net.h"
