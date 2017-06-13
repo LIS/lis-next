@@ -350,6 +350,7 @@ int vmbus_post_msg(void *buffer, size_t buflen, bool can_sleep)
 {
 	union hv_connection_id conn_id;
 	int ret = 0;
+	int retries = 0;
 	u32 usec = 1;
 
 	conn_id.asu32 = 0;
@@ -360,7 +361,7 @@ int vmbus_post_msg(void *buffer, size_t buflen, bool can_sleep)
 	 * insufficient resources. Host guarantees it will eventually
 	 * succeed.
 	 */
-	while (1) {
+	while (retries < 100) {
 		ret = hv_post_message(conn_id, 1, buffer, buflen);
 
 		switch (ret) {
@@ -369,11 +370,11 @@ int vmbus_post_msg(void *buffer, size_t buflen, bool can_sleep)
 			 * We could get this if we send messages too
 			 * frequently.
 			 */
+			ret = -EAGAIN;
+			break;
 		case HV_STATUS_INSUFFICIENT_MEMORY:
 		case HV_STATUS_INSUFFICIENT_BUFFERS:
-			/*
-			 * Temporary failure out of resources
-			 */
+			ret = -ENOBUFS;
 			break;
 		case HV_STATUS_SUCCESS:
 			return ret;
@@ -382,6 +383,7 @@ int vmbus_post_msg(void *buffer, size_t buflen, bool can_sleep)
 			return -EINVAL;
 		}
 
+		retries++;
 		if (can_sleep && usec > 1000)
 			msleep(usec / 1000);
 		else if (usec < MAX_UDELAY_MS * 1000)
@@ -389,11 +391,10 @@ int vmbus_post_msg(void *buffer, size_t buflen, bool can_sleep)
 		else
 			mdelay(usec / 1000);
 
-		if (usec < 256000)
+		if (retries < 22)
 			usec *= 2;
 	}
-	/* Impossible to get here */
-	BUG_ON(1);
+	return ret;
 }
 
 /*
