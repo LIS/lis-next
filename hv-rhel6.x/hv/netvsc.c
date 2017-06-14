@@ -89,17 +89,6 @@ static void free_netvsc_device(struct netvsc_device *nvdev)
 	kfree(nvdev);
 }
 
-
-static struct netvsc_device *get_outbound_net_device(struct hv_device *device)
-{
-	struct netvsc_device *net_device = hv_device_to_netvsc_device(device);
-
-	if (net_device && net_device->destroy)
-		net_device = NULL;
-
-	return net_device;
-}
-
 static void netvsc_destroy_buf(struct hv_device *device)
 {
 	struct nvsp_message *revoke_packet;
@@ -838,7 +827,7 @@ int netvsc_send(struct hv_device *device,
 		struct hv_page_buffer **pb,
 		struct sk_buff *skb)
 {
-	struct netvsc_device *net_device;
+	struct netvsc_device *net_device = hv_device_to_netvsc_device(device);
 	int ret = 0;
 	struct netvsc_channel *nvchan;
 	u32 pktlen = packet->total_data_buflen, msd_len = 0;
@@ -848,8 +837,8 @@ int netvsc_send(struct hv_device *device,
 	struct sk_buff *msd_skb = NULL;
 	bool try_batch;
 
-	net_device = get_outbound_net_device(device);
-	if (!net_device)
+	/* If device is rescinded, return error and packet will get dropped. */
+	if (unlikely(net_device->destroy))
 		return -ENODEV;
 	
 	nvchan = &net_device->chan_table[packet->q_idx];	
