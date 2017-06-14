@@ -933,7 +933,7 @@ int vmbus_device_register(struct hv_device *child_device_obj)
 {
 	int ret = 0;
 
-	dev_set_name(&child_device_obj->device, "vmbus_%d",
+	dev_set_name(&child_device_obj->device, "vmbus_0_%d",
 		     child_device_obj->channel->id);
 
 	child_device_obj->device.bus = &hv_bus;

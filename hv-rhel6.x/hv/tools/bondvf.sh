@@ -118,6 +118,7 @@ function del_eth_cfg_ubuntu {
 
 function create_eth_cfg_ubuntu {
 	local fn=$cfgdir/interfaces
+
 	del_eth_cfg_ubuntu $1
 	echo $'\n'auto $1 >>$fn
 	echo iface $1 inet manual >>$fn
@@ -126,8 +127,11 @@ function create_eth_cfg_ubuntu {
 
 function create_eth_cfg_pri_ubuntu {
 	local fn=$cfgdir/interfaces
+
 	del_eth_cfg_ubuntu $1
-	create_eth_cfg_ubuntu $1 $2
+	echo $'\n'allow-hotplug $1 >>$fn
+	echo iface $1 inet manual >>$fn
+	echo bond-master $2 >>$fn
 	echo bond-primary $1 >>$fn
 }
 
@@ -150,7 +154,11 @@ function create_eth_cfg_suse {
 }
 
 function create_eth_cfg_pri_suse {
-	create_eth_cfg_suse $1
+	local fn=$cfgdir/ifcfg-$1
+
+	rm -f $fn
+	echo BOOTPROTO=none >>$fn
+	echo STARTMODE=hotplug >>$fn
 }
 
 function create_bond_cfg_suse {
