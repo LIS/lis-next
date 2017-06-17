@@ -1,0 +1,2 @@
+# Assign Hyper-V VF NICs to stable names
+SUBSYSTEM=="net", DRIVERS=="hv_pci", ACTION=="add", PROGRAM="/usr/sbin/hv_vf_name", NAME:="vf%c"
