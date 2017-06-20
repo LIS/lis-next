@@ -516,6 +516,7 @@ struct hv_host_device {
 	unsigned int port;
 	unsigned char path;
 	unsigned char target;
+	struct mutex host_mutex;
 };
 
 struct storvsc_scan_work {
@@ -599,17 +600,25 @@ static void storvsc_remove_lun(struct work_struct *work)
 {
 	struct storvsc_scan_work *wrk;
 	struct scsi_device *sdev;
+	struct hv_host_device *host_dev;
 
 	wrk = container_of(work, struct storvsc_scan_work, work);
 	if (!scsi_host_get(wrk->host))
 		goto done;
 
+	host_dev = shost_priv(wrk->host);
+
+	mutex_lock(&host_dev->host_mutex);
+
 	sdev = scsi_device_lookup(wrk->host, 0, wrk->tgt_id, wrk->lun);
 
 	if (sdev) {
-		scsi_remove_device(sdev);
+		if (sdev->sdev_state != SDEV_DEL)
+			scsi_remove_device(sdev);
 		scsi_device_put(sdev);
 	}
+
+	mutex_unlock(&host_dev->host_mutex);
 	scsi_host_put(wrk->host);
 
 done:
@@ -2207,6 +2216,7 @@ static int storvsc_probe(struct hv_device *device,
 
 	host_dev->port = host->host_no;
 	host_dev->dev = device;
+	mutex_init(&host_dev->host_mutex);
 
 
 	stor_device = kzalloc(sizeof(struct storvsc_device), GFP_KERNEL);
