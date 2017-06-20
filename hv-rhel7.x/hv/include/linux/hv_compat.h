@@ -4,6 +4,25 @@
 
 #include <linux/version.h>
 
+/*
+ *  * Helpers for determining EXTRAVERSION info on RHEL/CentOS update kernels
+ *   */
+#if defined(RHEL_RELEASE_VERSION)
+#define KERNEL_EXTRAVERSION(a,b) (((a) << 16) + (b))
+
+#define RHEL_RELEASE_UPDATE_VERSION(a,b,c,d) \
+	(((RHEL_RELEASE_VERSION(a,b)) << 32) + (KERNEL_EXTRAVERSION(c,d)))
+
+#if defined(EXTRAVERSION1) && defined (EXTRAVERSION2)
+#define RHEL_RELEASE_UPDATE_CODE \
+	RHEL_RELEASE_UPDATE_VERSION(RHEL_MAJOR,RHEL_MINOR,EXTRAVERSION1,EXTRAVERSION2)
+#else
+#define RHEL_RELEASE_UPDATE_CODE \
+	RHEL_RELEASE_UPDATE_VERSION(RHEL_MAJOR,RHEL_MINOR,0,0)
+#endif
+#endif
+
+
 //#if LINUX_VERSION_CODE <= KERNEL_VERSION(2, 6, 35)
 #if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 10, 0)
 
@@ -465,7 +484,8 @@ static inline void dev_consume_skb_any(struct sk_buff *skb)
 #endif
 
 
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
+#if defined(RHEL_RELEASE_UPDATE_CODE) && \
+(RHEL_RELEASE_UPDATE_CODE < RHEL_RELEASE_UPDATE_VERSION(7, 2, 327, 36))
 /* This helper checks if a socket is a full socket,
  * ie _not_ a timewait socket.
  */
