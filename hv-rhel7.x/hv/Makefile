@@ -39,6 +39,23 @@ ifeq ($(buildrdma),0)
          endif
 endif
 
+# Get extra kernel version information beyond LINUX_VERSION_CODE or RHEL_RELEASE_CODE.
+# This is used to identify RHEL/CentOS kernel update versions.
+extraversioninfo = $(shell uname -r | awk -F'-' '{print $$2}')
+extraversion1 = $(shell echo $(extraversioninfo) | awk -F'.' '{print $$1}' | grep -E '^[0-9]+$$')
+ifneq ($(extraversion1),)
+	ccflags-y += -DEXTRAVERSION1=$(extraversion1)
+else
+	ccflags-y += -DEXTRAVERSION1=0
+endif
+
+extraversion2 = $(shell echo $(extraversioninfo) | awk -F'.' '{print $$2}' | grep -E '^[0-9]+$$')
+ifneq ($(extraversion2),)
+	ccflags-y += -DEXTRAVERSION2=$(extraversion2)
+else
+	ccflags-y += -DEXTRAVERSION2=0
+endif
+
 ccflags-y += -I$(M)/include/ -I$(M)/arch/$(ARCH)/include -I$(M)/arch/$(ARCH)/include/uapi
 
 hv_vmbus-y := vmbus_drv.o \
