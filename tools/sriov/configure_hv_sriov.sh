@@ -39,11 +39,29 @@ udev_file="60-hyperv-sriov.rules"
 hv_vf_name_file="hv_vf_name"
 bondvf_lock_file="bondvf_lock"
 bondvf_sh_file="bondvf.sh"
-default_net_config="/etc/network/interfaces"
 eth0_dhcp_config_line1="auto eth0"
 eth0_dhcp_config_line2="iface eth0 inet dhcp"
 all_files_downloaded=true
 
+########################################
+# Detect Distro
+########################################
+if [ -f /etc/redhat-release ];
+then
+    cfgdir="/etc/sysconfig/network-scripts"
+    distro=redhat
+elif grep -q 'Ubuntu' /etc/issue
+then
+    cfgdir="/etc/network"
+    distro=ubuntu
+elif grep -q 'SUSE' /etc/issue
+then
+    cfgdir="/etc/sysconfig/network"
+    distro=suse
+else
+    echo "Unsupported Distro"
+    exit 1
+fi
 
 function LOG() {
     echo "`date`: $1"
@@ -51,6 +69,7 @@ function LOG() {
 }
 
 LOG "---------------------------------------"
+LOG "Configure SRIOV for $distro"
 
 ########################################
 # Download files
@@ -69,6 +88,34 @@ mv -f $hv_vf_name_file  $bin_folder
 mv -f $bondvf_lock_file $bin_folder
 mv -f $bondvf_sh_file   $bin_folder
 
+########################################
+# Ubuntu 1604 only:
+# Change eth0 DHCP configuration
+########################################
+if [ $distro == 'ubuntu' ]; then
+    default_net_config=$cfgdir/interfaces
+    LOG "Running on Ubuntu: making change to the eth0 DHCP configuration ..."
+    sed -i 's/^source/#source/' $default_net_config
+    echo "$eth0_dhcp_config_line1" >> $default_net_config
+    echo "$eth0_dhcp_config_line2" >> $default_net_config
+
+    n_line1=`cat $default_net_config | grep "$eth0_dhcp_config_line1" | wc -l`
+    if [ $n_line1 -ne 1 ]; then
+        LOG "[Failed] $n_line1 line(s) of '${eth0_dhcp_config_line1}' in $default_net_config"
+        exit
+    fi
+
+    n_line2=`cat $default_net_config | grep "$eth0_dhcp_config_line2" | wc -l`
+    if [ $n_line2 -ne 1 ]; then
+        LOG "[Failed] $n_line2 line(s) of '${eth0_dhcp_config_line2}' in $default_net_config"
+        exit
+    fi
+fi
+
+########################################
+# Check downloaded files
+########################################
+LOG "Check downloaded files ..."
 if [ ! -f ${udev_folder}${udev_file} ]; then
     all_files_downloaded=false
     LOG "${udev_file} is not found in ${udev_folder}!"
@@ -78,7 +125,7 @@ if [ ! -f ${bin_folder}${hv_vf_name_file} ]; then
     all_files_downloaded=false
     LOG "${hv_vf_name_file} is not found in ${bin_folder}!"
 fi
-	
+
 if [ ! -f ${bin_folder}${bondvf_lock_file} ]; then
     all_files_downloaded=false
     LOG "${bondvf_lock_file} is not found in ${bin_folder}!"
@@ -88,28 +135,6 @@ if [ ! -f ${bin_folder}${bondvf_sh_file} ]; then
     all_files_downloaded=false
     LOG "${bondvf_sh_file} is not found in ${bin_folder}!"
 fi
-
-########################################
-# Change eth0 DHCP configuration
-########################################
-LOG "Make change to the eth0 DHCP configuration ..."
-sed -i 's/^source/#source/' $default_net_config
-echo "$eth0_dhcp_config_line1" >> $default_net_config
-echo "$eth0_dhcp_config_line2" >> $default_net_config
-
-LOG "Check files ..."
-n_line1=`cat $default_net_config | grep "$eth0_dhcp_config_line1" | wc -l`
-if [ $n_line1 -ne 1 ]; then
-    LOG "[Failed] $n_line1 line(s) of '${eth0_dhcp_config_line1}' in $default_net_config"
-    exit
-fi
-
-n_line2=`cat $default_net_config | grep "$eth0_dhcp_config_line2" | wc -l`
-if [ $n_line2 -ne 1 ]; then
-    LOG "[Failed] $n_line2 line(s) of '${eth0_dhcp_config_line2}' in $default_net_config"
-    exit
-fi
-
 
 if [ $all_files_downloaded == false ]; then
     LOG "[Failed] Some files are missing; please download them again."
