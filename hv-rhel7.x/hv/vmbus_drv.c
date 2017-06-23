@@ -678,7 +678,7 @@ static void vmbus_device_release(struct device *device)
 	mutex_lock(&vmbus_connection.channel_mutex);
 	hv_process_channel_removal(channel,
 				   channel->offermsg.child_relid);
-	mutex_lock(&vmbus_connection.channel_mutex);
+	mutex_unlock(&vmbus_connection.channel_mutex);
 	kfree(hv_dev);
 
 }
