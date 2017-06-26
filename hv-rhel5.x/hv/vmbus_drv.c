@@ -209,7 +209,7 @@ static ssize_t vmbus_show_device_attr(struct device *dev,
 
 	if (!strcmp(dev_attr->attr.name, "class_id")) {
 		ret = sprintf(buf, "{%02x%02x%02x%02x-%02x%02x-%02x%02x-"
-				"%02x%02x-%02x%02x%02x%02x%02x%02x}\n",
+				"%02x%02x%02x%02x%02x%02x%02x%02x}\n",
 				device_info->chn_type.b[3],
 				device_info->chn_type.b[2],
 				device_info->chn_type.b[1],
@@ -228,7 +228,7 @@ static ssize_t vmbus_show_device_attr(struct device *dev,
 				device_info->chn_type.b[15]);
 	} else if (!strcmp(dev_attr->attr.name, "device_id")) {
 		ret = sprintf(buf, "{%02x%02x%02x%02x-%02x%02x-%02x%02x-"
-				"%02x%02x-%02x%02x%02x%02x%02x%02x}\n",
+				"%02x%02x%02x%02x%02x%02x%02x%02x}\n",
 				device_info->chn_instance.b[3],
 				device_info->chn_instance.b[2],
 				device_info->chn_instance.b[1],
