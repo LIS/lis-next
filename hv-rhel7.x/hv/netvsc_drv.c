@@ -248,6 +248,9 @@ bool netvsc_set_hash(u32 *hash, struct sk_buff *skb)
 	return true;
 }
 
+// skb_get_hash() will include UDP port numbers into hash computation, 
+// which causes UDP loss problem. Comment this out for now.
+#ifdef NOTYET
 static inline int netvsc_get_tx_queue(struct net_device *ndev,
 				      struct sk_buff *skb, int old_idx)
 {
@@ -265,6 +268,7 @@ static inline int netvsc_get_tx_queue(struct net_device *ndev,
 
 	return q_idx;
 }
+#endif
 
 /*
  * Select queue for transmit.
@@ -283,21 +287,18 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb,
 static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 #endif
 {
-	unsigned int num_tx_queues = ndev->real_num_tx_queues;
-	int q_idx = sk_tx_queue_get(skb->sk);
+	struct net_device_context *net_device_ctx = netdev_priv(ndev);
+	u32 hash;
+	u16 q_idx = 0;
 
-	if (q_idx < 0 || skb->ooo_okay) {
-		/* If forwarding a packet, we use the recorded queue when
-		 * available for better cache locality.
-		 */
-		if (skb_rx_queue_recorded(skb))
-			q_idx = skb_get_rx_queue(skb);
-		else
-			q_idx = netvsc_get_tx_queue(ndev, skb, q_idx);
+	if (ndev->real_num_tx_queues <= 1)
+		return 0;
+
+	if (netvsc_set_hash(&hash, skb)) {
+		q_idx = net_device_ctx->tx_send_table[hash % VRSS_SEND_TAB_SIZE] %
+			ndev->real_num_tx_queues;
+		skb_set_hash(skb, hash, PKT_HASH_TYPE_L3);
 	}
-
-	while (unlikely(q_idx >= num_tx_queues))
-		q_idx -= num_tx_queues;
 
 	return q_idx;
 }
