@@ -59,6 +59,10 @@ static int debug = -1;
 module_param(debug, int, S_IRUGO);
 MODULE_PARM_DESC(debug, "Debug level (0=none,...,16=all)");
 
+static bool transparent_vf __read_mostly = true;
+module_param(transparent_vf, bool, S_IRUGO);
+MODULE_PARM_DESC(transparent_vf, "Transparent failover of SR-IOV devices");
+
 static void netvsc_set_multicast_list(struct net_device *net)
 {
 	struct net_device_context *net_device_ctx = netdev_priv(net);
@@ -70,9 +74,10 @@ static void netvsc_set_multicast_list(struct net_device *net)
 static int netvsc_open(struct net_device *net)
 {
 	struct net_device_context *ndev_ctx = netdev_priv(net);
+	struct net_device *vf_netdev = rtnl_dereference(ndev_ctx->vf_netdev);
 	struct netvsc_device *nvdev = ndev_ctx->nvdev;
 	struct rndis_device *rdev;
-	int ret = 0;
+	int ret;
 
 	netif_carrier_off(net);
 
@@ -89,18 +94,30 @@ static int netvsc_open(struct net_device *net)
 	if (!rdev->link_state && !ndev_ctx->datapath)
 		netif_carrier_on(net);
 
-	return ret;
+	if (transparent_vf && vf_netdev) {
+		ret = dev_open(vf_netdev);
+		if (ret)
+			netdev_warn(net,
+				    "unable to open slave: %s: %d\n",
+				    vf_netdev->name, ret);
+	}
+	return 0;
 }
 
 static int netvsc_close(struct net_device *net)
 {
 	struct net_device_context *net_device_ctx = netdev_priv(net);
 	struct netvsc_device *nvdev = rtnl_dereference(net_device_ctx->nvdev);
-	int ret;
+	struct net_device *vf_netdev
+		= rtnl_dereference(net_device_ctx->vf_netdev);
 	u32 aread, i, msec = 10, retry = 0, retry_max = 20;
 	struct vmbus_channel *chn;
+	int ret;
 
 	netif_tx_disable(net);
+
+	if (transparent_vf && vf_netdev)
+		dev_close(vf_netdev);
 
 	ret = rndis_filter_close(nvdev);
 	if (ret != 0) {
@@ -407,6 +424,15 @@ static u32 net_checksum_info(struct sk_buff *skb)
 	return TRANSPORT_INFO_NOT_IP;
 }
 
+static int netvsc_vf_xmit(struct net_device *net, struct net_device *vf_netdev,
+			  struct sk_buff *skb)
+{
+	skb->dev = vf_netdev;
+	/* TODO stats */
+
+	return dev_queue_xmit(skb);
+}
+
 static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 {
 	struct net_device_context *net_device_ctx = netdev_priv(net);
@@ -420,6 +446,16 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	u32 hash;
 	struct hv_page_buffer page_buf[MAX_PAGE_BUFFER_COUNT];
 	struct hv_page_buffer *pb = page_buf;
+
+	/* already called with rcu_read_lock */
+	if (transparent_vf) {
+		struct net_device *vf_netdev;
+
+		/* if VF is present and up then redirect packets */
+		vf_netdev = rcu_dereference(net_device_ctx->vf_netdev);
+		if (vf_netdev && netif_running(vf_netdev))
+			return netvsc_vf_xmit(net, vf_netdev, skb);
+	}
 
 	/* We can only transmit MAX_PAGE_BUFFER_COUNT number
 	 * of pages in a single packet. If skb is scattered around
@@ -717,29 +753,31 @@ int netvsc_recv_callback(struct net_device *net,
 	struct netvsc_device *net_device;
 	u16 q_idx = channel->offermsg.offer.sub_channel_index;
 	struct netvsc_channel *nvchan;
-	struct net_device *vf_netdev;
+	struct net_device *vf_netdev = NULL;
 	struct sk_buff *skb;
 	struct netvsc_stats *rx_stats;
 
 	if (net->reg_state != NETREG_REGISTERED)
 		return NVSP_STAT_FAIL;
 
-	/*
-	 * If necessary, inject this packet into the VF interface.
-	 * On Hyper-V, multicast and brodcast packets are only delivered
-	 * to the synthetic interface (after subjecting these to
-	 * policy filters on the host). Deliver these via the VF
-	 * interface in the guest.
-	 */
 	rcu_read_lock();
 	net_device = rcu_dereference(net_device_ctx->nvdev);
 	if (unlikely(!net_device))
 		goto drop;
 
+	/* On Hyper-V, multicast and brodcast packets are only delivered
+	 * to the synthetic interface (after subjecting these to
+	 * policy filters on the host). If doing transparent_vf mode
+	 * all packets appear to be received on the synthetic interface;
+	 * in legacy mode deliver these via the VF interface.
+	 */
+	if (!transparent_vf) {
+		vf_netdev = rcu_dereference(net_device_ctx->vf_netdev);
+		if (vf_netdev && (vf_netdev->flags & IFF_UP))
+			net = vf_netdev;
+	}
+
 	nvchan = &net_device->chan_table[q_idx];
-	vf_netdev = rcu_dereference(net_device_ctx->vf_netdev);
-	if (vf_netdev && (vf_netdev->flags & IFF_UP))
-		net = vf_netdev;
 
 	/* Allocate a skb - TODO direct I/O to pages? */
 	skb = netvsc_alloc_recv_skb(net, &nvchan->napi,
@@ -1463,6 +1501,101 @@ static struct net_device *get_netvsc_byref(struct net_device *vf_netdev)
 	return NULL;
 }
 
+/* Called when VF is injecting data into network stack.
+ * Change the associated network device from VF to netvsc.
+ * note: already called with rcu_read_lock
+ */
+static rx_handler_result_t netvsc_vf_handle_frame(struct sk_buff **pskb)
+{
+	struct sk_buff *skb = *pskb;
+	struct net_device *ndev = rcu_dereference(skb->dev->rx_handler_data);
+
+	skb->dev = ndev;
+
+	/* TODO: stats */
+	return RX_HANDLER_ANOTHER;
+}
+
+static int netvsc_vf_join(struct net_device *vf_netdev,
+			  struct net_device *ndev)
+{
+	struct net_device_context *ndev_ctx = netdev_priv(ndev);
+	int ret;
+
+	ret = netdev_rx_handler_register(vf_netdev,
+					 netvsc_vf_handle_frame, ndev);
+	if (ret != 0) {
+		netdev_err(vf_netdev,
+			   "transparent_vf rx possible device (err = %d)\n",
+			   ret);
+		goto rx_handler_failed;
+	}
+
+	ret = netdev_upper_dev_link(vf_netdev, ndev);
+	if (ret != 0) {
+		netdev_err(vf_netdev,
+			   "transparent_vf can not set master device %s (err =%d)\n",
+			   ndev->name, ret);
+		goto upper_link_failed;
+	}
+
+	/* set slave flag before open to prevent IPv6 addrconf */
+	vf_netdev->flags |= IFF_SLAVE;
+
+	/* Avoid overhead of qdisc in slave */
+	vf_netdev->priv_flags |= IFF_NO_QUEUE;
+
+	schedule_work(&ndev_ctx->vf_takeover);
+
+	netdev_info(vf_netdev, "joined to %s\n", ndev->name);
+	return 0;
+
+upper_link_failed:
+	netdev_rx_handler_unregister(vf_netdev);
+rx_handler_failed:
+	return ret;
+}
+
+static void __netvsc_vf_setup(struct net_device *ndev,
+			      struct net_device *vf_netdev)
+{
+	int ret;
+
+	call_netdevice_notifiers(NETDEV_JOIN, vf_netdev);
+
+	/* Align MTU of VF with master */
+	ret = dev_set_mtu(vf_netdev, ndev->mtu);
+	if (ret)
+		netdev_warn(vf_netdev,
+			    "unable to change mtu to %u\n", ndev->mtu);
+
+	if (netif_running(ndev)) {
+		ret = dev_open(vf_netdev);
+		if (ret)
+			netdev_warn(vf_netdev,
+				    "unable to open: %d\n", ret);
+	}
+}
+
+/* Setup VF as slave of the synthetic device.
+ * Runs in workqueue to avoid recursion in netlink callbacks.
+ */
+static void netvsc_vf_setup(struct work_struct *w)
+{
+	struct net_device_context *ndev_ctx
+		= container_of(w, struct net_device_context, vf_takeover);
+	struct hv_device *device_obj = ndev_ctx->device_ctx;
+	struct net_device *ndev = hv_get_drvdata(device_obj);
+	struct net_device *vf_netdev;
+
+	rtnl_lock();
+	vf_netdev = rtnl_dereference(ndev_ctx->vf_netdev);
+	if (vf_netdev)
+		__netvsc_vf_setup(ndev, vf_netdev);
+
+	rtnl_unlock();
+}
+
 static int netvsc_register_vf(struct net_device *vf_netdev)
 {
 	struct net_device *ndev;
@@ -1486,10 +1619,13 @@ static int netvsc_register_vf(struct net_device *vf_netdev)
 	if (!netvsc_dev || rtnl_dereference(net_device_ctx->vf_netdev))
 		return NOTIFY_DONE;
 
+	if (transparent_vf &&
+	    netvsc_vf_join(vf_netdev, ndev) != 0)
+		return NOTIFY_DONE;
+
 	netdev_info(ndev, "VF registering: %s\n", vf_netdev->name);
-	/*
-	 * Take a reference on the module.
-	 */
+
+	/* Prevent this module from being unloaded while VF is registered */
 	try_module_get(THIS_MODULE);
 
 	dev_hold(vf_netdev);
@@ -1527,7 +1663,12 @@ static int netvsc_vf_up(struct net_device *vf_netdev)
 	net_device_ctx->synthetic_data_path = false;
 	netdev_info(ndev, "Data path switched to VF: %s\n", vf_netdev->name);
 
-	netif_carrier_off(ndev);
+	/* If not doing transparent active-backup
+	 * then drop carrier of the netvsc device so that bonding
+	 * does switchover.
+	 */
+	if (!transparent_vf)
+		netif_carrier_off(ndev);
 
 	/* Now notify peers through VF device. */
 	call_netdevice_notifiers(NETDEV_NOTIFY_PEERS, vf_netdev);
@@ -1557,7 +1698,9 @@ static int netvsc_vf_down(struct net_device *vf_netdev, bool rndis_close)
 	net_device_ctx->synthetic_data_path = true;
 	if (rndis_close)
 		rndis_filter_close(netvsc_dev);
-	netif_carrier_on(ndev);
+
+	if (!transparent_vf)
+		netif_carrier_on(ndev);
 
 	/* Now notify peers through netvsc device. */
 	call_netdevice_notifiers(NETDEV_NOTIFY_PEERS, ndev);
@@ -1575,6 +1718,8 @@ static int netvsc_unregister_vf(struct net_device *vf_netdev)
 		return NOTIFY_DONE;
 
 	net_device_ctx = netdev_priv(ndev);
+
+	cancel_work_sync(&net_device_ctx->vf_takeover);
 
 	netdev_info(ndev, "VF unregistering: %s\n", vf_netdev->name);
 
@@ -1620,6 +1765,7 @@ static int netvsc_probe(struct hv_device *dev,
 
 	spin_lock_init(&net_device_ctx->lock);
 	INIT_LIST_HEAD(&net_device_ctx->reconfig_events);
+	INIT_WORK(&net_device_ctx->vf_takeover, netvsc_vf_setup);
 
 	net->netdev_ops = &device_ops;
 	net->ethtool_ops = &ethtool_ops;
