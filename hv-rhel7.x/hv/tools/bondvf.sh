@@ -80,6 +80,10 @@ function create_eth_cfg_redhat {
 	echo IPV6INIT=yes >>$fn
 	echo MASTER=$2 >>$fn
 	echo SLAVE=yes >>$fn
+
+	if [ "$1" == "eth0" -o "$1" == "vf1" ]; then
+		echo "NM_CONTROLLED=no" >>$fn
+	fi
 }
 
 function create_eth_cfg_pri_redhat {
@@ -99,6 +103,10 @@ function create_bond_cfg_redhat {
 	echo IPV6INIT=yes >>$fn
 	echo BONDING_MASTER=yes >>$fn
 	echo BONDING_OPTS=\"mode=active-backup miimon=100 primary=$2\" >>$fn
+
+	if [ "$1" == "bond0" ]; then
+		echo "NM_CONTROLLED=no" >>$fn
+	fi
 }
 
 function del_eth_cfg_ubuntu {
