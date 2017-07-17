@@ -714,6 +714,8 @@ struct net_device_context {
 
 	/* State to manage the associated VF interface. */
 	struct net_device __rcu *vf_netdev;
+	struct work_struct vf_takeover;
+	struct pcpu_sw_netstats __percpu *vf_stats;
 
 	/* 1: allocated, serial number is valid. 0: not allocated */
 	u32 vf_alloc;
