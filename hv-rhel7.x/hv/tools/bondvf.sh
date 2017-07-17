@@ -69,6 +69,7 @@ done
 
 function create_eth_cfg_redhat {
 	local fn=$cfgdir/ifcfg-$1
+	dhcp_hostname=$(grep 'DHCP_HOSTNAME' $fn)
 
 	rm -f $fn
 	echo DEVICE=$1 >>$fn
@@ -106,6 +107,9 @@ function create_bond_cfg_redhat {
 
 	if [ "$1" == "bond0" ]; then
 		echo "NM_CONTROLLED=no" >>$fn
+	fi
+	if [ "$dhcp_hostname" != "" ]; then
+		echo "$dhcp_hostname" >>$fn
 	fi
 }
 
