@@ -1026,14 +1026,16 @@ static void hv_compose_msi_msg(struct pci_dev *pdev, unsigned int irq,
 
 	switch (pci_protocol_version) {
 	case PCI_PROTOCOL_VERSION_1_1:
-		size = hv_compose_msi_req_v1(
-			&ctxt.int_pkts.v1, irq_data_get_affinity_mask(data),
-			hpdev->desc.win_slot.slot, cfg->vector);
+		size = hv_compose_msi_req_v1(&ctxt.int_pkts.v1,
+					irq_data_get_affinity_mask(data),
+					hpdev->desc.win_slot.slot,
+					cfg->vector);
 		break;
 	case PCI_PROTOCOL_VERSION_1_2:
-		size = hv_compose_msi_req_v2(
-			&ctxt.int_pkts.v2, irq_data_get_affinity_mask(data),
-			hpdev->desc.win_slot.slot, cfg->vector);
+		size = hv_compose_msi_req_v2(&ctxt.int_pkts.v2,
+					irq_data_get_affinity_mask(data),
+					hpdev->desc.win_slot.slot,
+					cfg->vector);
 		break;
 
 	default:
@@ -1936,29 +1938,26 @@ static int hv_pci_protocol_negotiation(struct hv_device *hdev)
 	version_req->message_type.type = PCI_QUERY_PROTOCOL_VERSION;
 
 	for (i = 0; i < ARRAY_SIZE(pci_protocol_versions); i++) {
-
-		dev_info(&hdev->device, "PCI VMBus probing version %x\n",
-			pci_protocol_versions[i]);
-
 		version_req->protocol_version = pci_protocol_versions[i];
-
-		ret = vmbus_sendpacket(
-			hdev->channel, version_req,
-			sizeof(struct pci_version_request),
-			(unsigned long)pkt, VM_PKT_DATA_INBAND,
-			VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
-		if (ret)
+		ret = vmbus_sendpacket(hdev->channel, version_req,
+				sizeof(struct pci_version_request),
+				(unsigned long)pkt, VM_PKT_DATA_INBAND,
+				VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
+		if (ret) {
+			dev_err(&hdev->device,
+				"PCI Pass-through VSP failed sending version request: %#x",
+				ret);
 			goto exit;
+		}
 
 		wait_for_completion(&comp_pkt.host_event);
 
-		dev_info(&hdev->device,
-			"PCI VMBus probing result version %x: %#x\n",
-			pci_protocol_versions[i], comp_pkt.completion_status);
-
 		if (comp_pkt.completion_status >= 0) {
 			pci_protocol_version = pci_protocol_versions[i];
-			break;
+			dev_info(&hdev->device,
+				"PCI VMBus probing: Using version %#x\n",
+				pci_protocol_version);
+			goto exit;
 		}
 
 		if (comp_pkt.completion_status != STATUS_REVISION_MISMATCH) {
@@ -1966,17 +1965,17 @@ static int hv_pci_protocol_negotiation(struct hv_device *hdev)
 				"PCI Pass-through VSP failed version request: %#x\n",
 				comp_pkt.completion_status);
 			ret = -EPROTO;
-			break;
+			goto exit;
 		}
 
 		reinit_completion(&comp_pkt.host_event);
 	}
 
-exit:
-	dev_info(&hdev->device,
-		"PCI VMBus probing: Using version %#x\n",
-		pci_protocol_version);
+	dev_err(&hdev->device,
+		"PCI pass-through VSP failed to find supported version");
+	ret = -EPROTO;
 
+exit:
 	kfree(pkt);
 	return ret;
 }
@@ -2237,14 +2236,14 @@ static int hv_send_resources_allocated(struct hv_device *hdev)
 	struct hv_pci_compl comp_pkt;
 	struct hv_pci_dev *hpdev;
 	struct pci_packet *pkt;
+	size_t size_res;
 	u32 wslot;
 	int ret;
-	size_t sizeRes;
 
-	sizeRes = (pci_protocol_version < PCI_PROTOCOL_VERSION_1_2)
+	size_res = (pci_protocol_version < PCI_PROTOCOL_VERSION_1_2)
 			? sizeof(*res_assigned) : sizeof(*res_assigned2);
 
-	pkt = kmalloc(sizeof(*pkt) + sizeRes, GFP_KERNEL);
+	pkt = kmalloc(sizeof(*pkt) + size_res, GFP_KERNEL);
 	if (!pkt)
 		return -ENOMEM;
 
@@ -2255,7 +2254,7 @@ static int hv_send_resources_allocated(struct hv_device *hdev)
 		if (!hpdev)
 			continue;
 
-		memset(pkt, 0, sizeof(*pkt) + sizeRes);
+		memset(pkt, 0, sizeof(*pkt) + size_res);
 		init_completion(&comp_pkt.host_event);
 		pkt->completion_func = hv_pci_generic_compl;
 		pkt->compl_ctxt = &comp_pkt;
@@ -2277,7 +2276,7 @@ static int hv_send_resources_allocated(struct hv_device *hdev)
 
 		ret = vmbus_sendpacket(
 			hdev->channel, &pkt->message,
-			sizeRes,
+			size_res,
 			(unsigned long)pkt,
 			VM_PKT_DATA_INBAND,
 			VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
