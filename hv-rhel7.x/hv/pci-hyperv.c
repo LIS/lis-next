@@ -55,7 +55,7 @@
 #include <linux/irqdomain.h>
 #include <linux/msi.h>
 #include <linux/hyperv.h>
-#include <asm/mshyperv.h>
+#include <lis/asm/mshyperv.h>
 
 /*
  * Protocol versions. The low word is the minor version, the high word the
@@ -558,6 +558,52 @@ static void put_pcichild(struct hv_pci_dev *hv_pcidev,
 static void get_hvpcibus(struct hv_pcibus_device *hv_pcibus);
 static void put_hvpcibus(struct hv_pcibus_device *hv_pcibus);
 
+
+/*
+ * Temporary CPU to vCPU mapping to address transitioning
+ * vmbus_cpu_number_to_vp_number() being migrated to
+ * hv_cpu_number_to_vp_number() in a separate patch. Once that patch
+ * has been picked up in the main line, remove this code here and use
+ * the official code.
+ */
+static struct hv_tmpcpumap
+{
+	bool initialized;
+	u32 vp_index[NR_CPUS];
+} hv_tmpcpumap;
+
+static void hv_tmpcpumap_init_cpu(void *_unused)
+{
+	int cpu = smp_processor_id();
+	u64 vp_index;
+
+	hv_get_vp_index(vp_index);
+
+	hv_tmpcpumap.vp_index[cpu] = vp_index;
+}
+
+static void hv_tmpcpumap_init(void)
+{
+	if (hv_tmpcpumap.initialized)
+		return;
+
+	memset(hv_tmpcpumap.vp_index, -1, sizeof(hv_tmpcpumap.vp_index));
+	on_each_cpu(hv_tmpcpumap_init_cpu, NULL, true);
+	hv_tmpcpumap.initialized = true;
+}
+
+/**
+ * hv_tmp_cpu_nr_to_vp_nr() - Convert Linux CPU nr to Hyper-V vCPU nr
+ *
+ * Remove once vmbus_cpu_number_to_vp_number() has been converted to
+ * hv_cpu_number_to_vp_number() and replace callers appropriately.
+ */
+static u32 hv_tmp_cpu_nr_to_vp_nr(int cpu)
+{
+	return hv_tmpcpumap.vp_index[cpu];
+}
+
+
 /**
  * devfn_to_wslot() - Convert from Linux PCI slot to Windows
  * @devfn:	The Linux representation of PCI slot
@@ -868,7 +914,7 @@ static int hv_set_affinity(struct irq_data *data, const struct cpumask *dest,
 	} else {
 		for_each_cpu_and(cpu, dest, cpu_online_mask) {
 			params->int_target.vp_mask |=
-				(1ULL << vmbus_cpu_number_to_vp_number(cpu));
+				(1ULL << hv_tmp_cpu_nr_to_vp_nr(cpu));
 		}
 	}
 
@@ -880,7 +926,7 @@ exit_unlock:
 
 	if (res) {
 		dev_err(&hbus->hdev->device,
-			"hv_irq_unmask() failed: %#llx", res);
+			"%s() failed: %#llx", __func__, res);
 		return -1;
 	}
 
@@ -2367,6 +2413,8 @@ static int hv_pci_probe(struct hv_device *hdev,
 	if (!hbus)
 		return -ENOMEM;
 	hbus->state = hv_pcibus_init;
+
+	hv_tmpcpumap_init();
 
 	/*
 	 * The PCI bus "domain" is what is called "segment" in ACPI and
