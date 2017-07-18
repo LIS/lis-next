@@ -1936,29 +1936,26 @@ static int hv_pci_protocol_negotiation(struct hv_device *hdev)
 	version_req->message_type.type = PCI_QUERY_PROTOCOL_VERSION;
 
 	for (i = 0; i < ARRAY_SIZE(pci_protocol_versions); i++) {
-
-		dev_info(&hdev->device, "PCI VMBus probing version %x\n",
-			pci_protocol_versions[i]);
-
 		version_req->protocol_version = pci_protocol_versions[i];
-
-		ret = vmbus_sendpacket(
-			hdev->channel, version_req,
-			sizeof(struct pci_version_request),
-			(unsigned long)pkt, VM_PKT_DATA_INBAND,
-			VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
-		if (ret)
+		ret = vmbus_sendpacket(hdev->channel, version_req,
+				sizeof(struct pci_version_request),
+				(unsigned long)pkt, VM_PKT_DATA_INBAND,
+				VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
+		if (ret) {
+			dev_err(&hdev->device,
+				"PCI Pass-through VSP failed sending version request: %#x",
+				ret);
 			goto exit;
+		}
 
 		wait_for_completion(&comp_pkt.host_event);
 
-		dev_info(&hdev->device,
-			"PCI VMBus probing result version %x: %#x\n",
-			pci_protocol_versions[i], comp_pkt.completion_status);
-
 		if (comp_pkt.completion_status >= 0) {
 			pci_protocol_version = pci_protocol_versions[i];
-			break;
+			dev_info(&hdev->device,
+				"PCI VMBus probing: Using version %#x\n",
+				pci_protocol_version);
+			goto exit;
 		}
 
 		if (comp_pkt.completion_status != STATUS_REVISION_MISMATCH) {
@@ -1966,17 +1963,17 @@ static int hv_pci_protocol_negotiation(struct hv_device *hdev)
 				"PCI Pass-through VSP failed version request: %#x\n",
 				comp_pkt.completion_status);
 			ret = -EPROTO;
-			break;
+			goto exit;
 		}
 
 		reinit_completion(&comp_pkt.host_event);
 	}
 
-exit:
-	dev_info(&hdev->device,
-		"PCI VMBus probing: Using version %#x\n",
-		pci_protocol_version);
+	dev_err(&hdev->device,
+		"PCI pass-through VSP failed to find supported version");
+	ret = -EPROTO;
 
+exit:
 	kfree(pkt);
 	return ret;
 }
