@@ -55,7 +55,7 @@
 #include <linux/irqdomain.h>
 #include <linux/msi.h>
 #include <linux/hyperv.h>
-#include <asm/mshyperv.h>
+#include <lis/asm/mshyperv.h>
 
 /*
  * Protocol versions. The low word is the minor version, the high word the
@@ -558,6 +558,52 @@ static void put_pcichild(struct hv_pci_dev *hv_pcidev,
 static void get_hvpcibus(struct hv_pcibus_device *hv_pcibus);
 static void put_hvpcibus(struct hv_pcibus_device *hv_pcibus);
 
+
+/*
+ * Temporary CPU to vCPU mapping to address transitioning
+ * vmbus_cpu_number_to_vp_number() being migrated to
+ * hv_cpu_number_to_vp_number() in a separate patch. Once that patch
+ * has been picked up in the main line, remove this code here and use
+ * the official code.
+ */
+static struct hv_tmpcpumap
+{
+	bool initialized;
+	u32 vp_index[NR_CPUS];
+} hv_tmpcpumap;
+
+static void hv_tmpcpumap_init_cpu(void *_unused)
+{
+	int cpu = smp_processor_id();
+	u64 vp_index;
+
+	hv_get_vp_index(vp_index);
+
+	hv_tmpcpumap.vp_index[cpu] = vp_index;
+}
+
+static void hv_tmpcpumap_init(void)
+{
+	if (hv_tmpcpumap.initialized)
+		return;
+
+	memset(hv_tmpcpumap.vp_index, -1, sizeof(hv_tmpcpumap.vp_index));
+	on_each_cpu(hv_tmpcpumap_init_cpu, NULL, true);
+	hv_tmpcpumap.initialized = true;
+}
+
+/**
+ * hv_tmp_cpu_nr_to_vp_nr() - Convert Linux CPU nr to Hyper-V vCPU nr
+ *
+ * Remove once vmbus_cpu_number_to_vp_number() has been converted to
+ * hv_cpu_number_to_vp_number() and replace callers appropriately.
+ */
+static u32 hv_tmp_cpu_nr_to_vp_nr(int cpu)
+{
+	return hv_tmpcpumap.vp_index[cpu];
+}
+
+
 /**
  * devfn_to_wslot() - Convert from Linux PCI slot to Windows
  * @devfn:	The Linux representation of PCI slot
@@ -868,7 +914,7 @@ static int hv_set_affinity(struct irq_data *data, const struct cpumask *dest,
 	} else {
 		for_each_cpu_and(cpu, dest, cpu_online_mask) {
 			params->int_target.vp_mask |=
-				(1ULL << vmbus_cpu_number_to_vp_number(cpu));
+				(1ULL << hv_tmp_cpu_nr_to_vp_nr(cpu));
 		}
 	}
 
@@ -880,7 +926,7 @@ exit_unlock:
 
 	if (res) {
 		dev_err(&hbus->hdev->device,
-			"hv_irq_unmask() failed: %#llx", res);
+			"%s() failed: %#llx", __func__, res);
 		return -1;
 	}
 
@@ -1026,14 +1072,16 @@ static void hv_compose_msi_msg(struct pci_dev *pdev, unsigned int irq,
 
 	switch (pci_protocol_version) {
 	case PCI_PROTOCOL_VERSION_1_1:
-		size = hv_compose_msi_req_v1(
-			&ctxt.int_pkts.v1, irq_data_get_affinity_mask(data),
-			hpdev->desc.win_slot.slot, cfg->vector);
+		size = hv_compose_msi_req_v1(&ctxt.int_pkts.v1,
+					irq_data_get_affinity_mask(data),
+					hpdev->desc.win_slot.slot,
+					cfg->vector);
 		break;
 	case PCI_PROTOCOL_VERSION_1_2:
-		size = hv_compose_msi_req_v2(
-			&ctxt.int_pkts.v2, irq_data_get_affinity_mask(data),
-			hpdev->desc.win_slot.slot, cfg->vector);
+		size = hv_compose_msi_req_v2(&ctxt.int_pkts.v2,
+					irq_data_get_affinity_mask(data),
+					hpdev->desc.win_slot.slot,
+					cfg->vector);
 		break;
 
 	default:
@@ -1936,29 +1984,26 @@ static int hv_pci_protocol_negotiation(struct hv_device *hdev)
 	version_req->message_type.type = PCI_QUERY_PROTOCOL_VERSION;
 
 	for (i = 0; i < ARRAY_SIZE(pci_protocol_versions); i++) {
-
-		dev_info(&hdev->device, "PCI VMBus probing version %x\n",
-			pci_protocol_versions[i]);
-
 		version_req->protocol_version = pci_protocol_versions[i];
-
-		ret = vmbus_sendpacket(
-			hdev->channel, version_req,
-			sizeof(struct pci_version_request),
-			(unsigned long)pkt, VM_PKT_DATA_INBAND,
-			VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
-		if (ret)
+		ret = vmbus_sendpacket(hdev->channel, version_req,
+				sizeof(struct pci_version_request),
+				(unsigned long)pkt, VM_PKT_DATA_INBAND,
+				VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
+		if (ret) {
+			dev_err(&hdev->device,
+				"PCI Pass-through VSP failed sending version request: %#x",
+				ret);
 			goto exit;
+		}
 
 		wait_for_completion(&comp_pkt.host_event);
 
-		dev_info(&hdev->device,
-			"PCI VMBus probing result version %x: %#x\n",
-			pci_protocol_versions[i], comp_pkt.completion_status);
-
 		if (comp_pkt.completion_status >= 0) {
 			pci_protocol_version = pci_protocol_versions[i];
-			break;
+			dev_info(&hdev->device,
+				"PCI VMBus probing: Using version %#x\n",
+				pci_protocol_version);
+			goto exit;
 		}
 
 		if (comp_pkt.completion_status != STATUS_REVISION_MISMATCH) {
@@ -1966,17 +2011,17 @@ static int hv_pci_protocol_negotiation(struct hv_device *hdev)
 				"PCI Pass-through VSP failed version request: %#x\n",
 				comp_pkt.completion_status);
 			ret = -EPROTO;
-			break;
+			goto exit;
 		}
 
 		reinit_completion(&comp_pkt.host_event);
 	}
 
-exit:
-	dev_info(&hdev->device,
-		"PCI VMBus probing: Using version %#x\n",
-		pci_protocol_version);
+	dev_err(&hdev->device,
+		"PCI pass-through VSP failed to find supported version");
+	ret = -EPROTO;
 
+exit:
 	kfree(pkt);
 	return ret;
 }
@@ -2237,14 +2282,14 @@ static int hv_send_resources_allocated(struct hv_device *hdev)
 	struct hv_pci_compl comp_pkt;
 	struct hv_pci_dev *hpdev;
 	struct pci_packet *pkt;
+	size_t size_res;
 	u32 wslot;
 	int ret;
-	size_t sizeRes;
 
-	sizeRes = (pci_protocol_version < PCI_PROTOCOL_VERSION_1_2)
+	size_res = (pci_protocol_version < PCI_PROTOCOL_VERSION_1_2)
 			? sizeof(*res_assigned) : sizeof(*res_assigned2);
 
-	pkt = kmalloc(sizeof(*pkt) + sizeRes, GFP_KERNEL);
+	pkt = kmalloc(sizeof(*pkt) + size_res, GFP_KERNEL);
 	if (!pkt)
 		return -ENOMEM;
 
@@ -2255,7 +2300,7 @@ static int hv_send_resources_allocated(struct hv_device *hdev)
 		if (!hpdev)
 			continue;
 
-		memset(pkt, 0, sizeof(*pkt) + sizeRes);
+		memset(pkt, 0, sizeof(*pkt) + size_res);
 		init_completion(&comp_pkt.host_event);
 		pkt->completion_func = hv_pci_generic_compl;
 		pkt->compl_ctxt = &comp_pkt;
@@ -2277,7 +2322,7 @@ static int hv_send_resources_allocated(struct hv_device *hdev)
 
 		ret = vmbus_sendpacket(
 			hdev->channel, &pkt->message,
-			sizeRes,
+			size_res,
 			(unsigned long)pkt,
 			VM_PKT_DATA_INBAND,
 			VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
@@ -2368,6 +2413,8 @@ static int hv_pci_probe(struct hv_device *hdev,
 	if (!hbus)
 		return -ENOMEM;
 	hbus->state = hv_pcibus_init;
+
+	hv_tmpcpumap_init();
 
 	/*
 	 * The PCI bus "domain" is what is called "segment" in ACPI and

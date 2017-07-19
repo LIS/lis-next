@@ -77,6 +77,8 @@ for patchfile in ${PATCHDIR}/*.patch; do
 	sed -i 's/+++ b\/arch\/x86\/include\/asm/ +++ b\/arch\/x86\/include\/lis\/asm/g' $patchfile
 	sed -i 's/--- a\/arch\/x86\/include\/uapi\/asm/ --- a\/arch\/x86\/include\/uapi\/lis\/asm/g' $patchfile
 	sed -i 's/+++ b\/arch\/x86\/include\/uapi\/asm/ +++ b\/arch\/x86\/include\/uapi\/lis\/asm/g' $patchfile
+	sed -i 's/--- a\/drivers\/pci\/host/--- a/g' $patchfile
+	sed -i 's/+++ b\/drivers\/pci\/host/+++ b/g' $patchfile
 
 	echo "Applying patch in DRY RUN..."
 	#depth=$DEPTH

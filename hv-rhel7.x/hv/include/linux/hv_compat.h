@@ -36,7 +36,7 @@
 #define rdtscll(now)    do { (now) = rdtsc_ordered(); } while (0)
 #endif
 
-#define HV_DRV_VERSION	"4.2.0-Beta-01"
+#define HV_DRV_VERSION	"master"
 
 
 #ifdef __KERNEL__
@@ -54,6 +54,7 @@
 #include <scsi/scsi_driver.h>
 #include <scsi/scsi_eh.h>
 #include <scsi/scsi_host.h>
+#include <scsi/scsi_transport_fc.h>
 #include <net/tcp_states.h>
 #include <net/sock.h>
 
@@ -503,6 +504,38 @@ static inline struct cpumask *irq_data_get_affinity_mask(struct irq_data *d)
 #define timespec64 timespec
 #define ns_to_timespec64 ns_to_timespec
 #define do_settimeofday64 do_settimeofday
+
+/**
+ * fc_eh_timed_out - FC Transport I/O timeout intercept handler
+ * @scmd:	The SCSI command which timed out
+ *
+ * This routine protects against error handlers getting invoked while a
+ * rport is in a blocked state, typically due to a temporarily loss of
+ * connectivity. If the error handlers are allowed to proceed, requests
+ * to abort i/o, reset the target, etc will likely fail as there is no way
+ * to communicate with the device to perform the requested function. These
+ * failures may result in the midlayer taking the device offline, requiring
+ * manual intervention to restore operation.
+ *
+ * This routine, called whenever an i/o times out, validates the state of
+ * the underlying rport. If the rport is blocked, it returns
+ * EH_RESET_TIMER, which will continue to reschedule the timeout.
+ * Eventually, either the device will return, or devloss_tmo will fire,
+ * and when the timeout then fires, it will be handled normally.
+ * If the rport is not blocked, normal error handling continues.
+ *
+ * Notes:
+ *	This routine assumes no locks are held on entry.
+ */
+static inline enum blk_eh_timer_return fc_eh_timed_out(struct scsi_cmnd *scmd)
+{
+	struct fc_rport *rport = starget_to_rport(scsi_target(scmd->device));
+
+	if (rport->port_state == FC_PORTSTATE_BLOCKED)
+		return BLK_EH_RESET_TIMER;
+
+	return BLK_EH_NOT_HANDLED;
+}
 
 #endif //#ifdef __KERNEL__
 #endif //#if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 10, 0)
