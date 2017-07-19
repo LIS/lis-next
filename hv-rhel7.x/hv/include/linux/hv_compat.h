@@ -158,6 +158,16 @@ skb_get_hash(struct sk_buff *skb)
 }
 #endif
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
+struct pcpu_sw_netstats {
+	u64     rx_packets;
+	u64     rx_bytes;
+	u64     tx_packets;
+	u64     tx_bytes;
+	struct u64_stats_sync   syncp;
+};
+#endif
+
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,0))
 static inline void pm_wakeup_event(struct device *dev, unsigned int msec)
 {
