@@ -373,6 +373,7 @@ static u32 hv_pkt_iter_avail(const struct hv_ring_buffer_info *rbi)
 struct vmpacket_descriptor *hv_pkt_iter_first(struct vmbus_channel *channel)
 {
 	struct hv_ring_buffer_info *rbi = &channel->inbound;
+	struct vmpacket_descriptor *desc;
 
 	/* set state for later hv_signal_on_read() */
 	rbi->cached_read_index = rbi->ring_buffer->read_index;
@@ -380,7 +381,11 @@ struct vmpacket_descriptor *hv_pkt_iter_first(struct vmbus_channel *channel)
 	if (hv_pkt_iter_avail(rbi) < sizeof(struct vmpacket_descriptor))
 		return NULL;
 
-	return hv_get_ring_buffer(rbi) + rbi->priv_read_index;
+	desc = hv_get_ring_buffer(rbi) + rbi->priv_read_index;
+	if (desc)
+		prefetch((char *)desc + (desc->len8 << 3));
+
+	return desc;
 }
 EXPORT_SYMBOL_GPL(hv_pkt_iter_first);
 
