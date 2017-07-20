@@ -1886,7 +1886,7 @@ static int storvsc_host_reset_handler(struct scsi_cmnd *scmnd)
  */
 static enum blk_eh_timer_return storvsc_eh_timed_out(struct scsi_cmnd *scmnd)
 {
-#if IS_ENABLED(CONFIG_SCSI_FC_ATTRS)
+#if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 	if (scmnd->device->host->transportt == fc_transport_template)
 		return fc_eh_timed_out(scmnd);
 #endif

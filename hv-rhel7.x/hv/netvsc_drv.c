@@ -1617,8 +1617,10 @@ static int netvsc_vf_join(struct net_device *vf_netdev,
 	/* set slave flag before open to prevent IPv6 addrconf */
 	vf_netdev->flags |= IFF_SLAVE;
 
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,2))
 	/* Avoid overhead of qdisc in slave */
 	vf_netdev->priv_flags |= IFF_NO_QUEUE;
+#endif
 
 	schedule_work(&ndev_ctx->vf_takeover);
 
