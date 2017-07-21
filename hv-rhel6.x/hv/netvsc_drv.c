@@ -378,11 +378,7 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 		*(u32 *)((void *)ppi + ppi->ppi_offset) = hash;
 	}
 
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,8))
 	if (skb_vlan_tag_present(skb)) {
-#else
-	if (skb->vlan_tci & VLAN_TAG_PRESENT) {
-#endif
 		struct ndis_pkt_8021q_info *vlan;
 
 		rndis_msg_size += NDIS_VLAN_PPI_SIZE;
