@@ -1586,8 +1586,9 @@ static int netvsc_probe(struct hv_device *dev,
 		NETIF_F_HIGHDMA | NETIF_F_SG |
 		NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_HW_VLAN_CTAG_RX;
 #endif
+	// Need to explicitly set NETIF_F_HW_VLAN_TX support on RH6.X kernels.
 	net->features |= NETIF_F_HIGHDMA | NETIF_F_SG |
-	NETIF_F_HW_VLAN_CTAG_TX;
+	NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_HW_VLAN_TX;
 
 	net->vlan_features = net->features;
 
