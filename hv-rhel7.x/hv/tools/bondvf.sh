@@ -69,7 +69,7 @@ done
 
 function create_eth_cfg_redhat {
 	local fn=$cfgdir/ifcfg-$1
-	dhcp_hostname=$(grep 'DHCP_HOSTNAME' $fn)
+	dhcp_hostname=$(grep 'DHCP_HOSTNAME' $fn 2>/dev/null)
 
 	rm -f $fn
 	echo DEVICE=$1 >>$fn
