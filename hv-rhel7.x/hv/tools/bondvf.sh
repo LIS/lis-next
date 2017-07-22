@@ -202,9 +202,9 @@ function create_bond_cfg_suse {
 }
 
 function create_bond {
-	local bondname=bond$bondcnt
 	local primary
 	local secondary
+	local bondname=bond${3}
 
 	local class_id1=`cat $sysdir/$1/device/class_id 2>/dev/null`
 	local class_id2=`cat $sysdir/$2/device/class_id 2>/dev/null`
@@ -261,7 +261,7 @@ for (( i=0; i < $eth_cnt-1; i++ ))
 do
         if [ -n "${list_match[$i]}" ]
         then
-		create_bond ${list_eth[$i]} ${list_match[$i]}
-		let bondcnt=bondcnt+1
+			bondnum=${list_eth[$i]#eth}
+			create_bond ${list_eth[$i]} ${list_match[$i]} $bondnum
         fi
 done
