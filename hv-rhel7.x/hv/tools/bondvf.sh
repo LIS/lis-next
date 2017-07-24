@@ -17,9 +17,10 @@
 # to Static IP or change other settings.
 #
 
+vfname=${1-"all"}
+
 sysdir=/sys/class/net
 netvsc_cls={f8615163-df3e-46c5-913f-f2d2f965ed0e}
-bondcnt=0
 
 # Detect Distro
 if [ -f /etc/redhat-release ];
@@ -259,9 +260,16 @@ function create_bond {
 
 for (( i=0; i < $eth_cnt-1; i++ ))
 do
-        if [ -n "${list_match[$i]}" ]
-        then
-			bondnum=${list_eth[$i]#eth}
-			create_bond ${list_eth[$i]} ${list_match[$i]} $bondnum
-        fi
+	if [ -n "${list_match[$i]}" ]
+	then
+		echo "${list_match[$i]}"
+		if [ "$vfname" != "all" -a "${list_match[$i]}" != "$vfname" ]
+		then
+			echo "Skipping ${list_match[$i]}"
+			continue
+		fi
+		echo "configuring $vfname"
+		bondnum=${list_eth[$i]#eth}
+		create_bond ${list_eth[$i]} ${list_match[$i]} $bondnum
+	fi
 done
