@@ -29,6 +29,8 @@
 #include <linux/netdevice.h>
 #include <linux/if_ether.h>
 #include <asm/sync_bitops.h>
+#include <linux/rtnetlink.h>
+#include <linux/prefetch.h>
 
 #include "hyperv_net.h"
 
@@ -40,7 +42,7 @@ void netvsc_switch_datapath(struct net_device *ndev, bool vf)
 {
 	struct net_device_context *net_device_ctx = netdev_priv(ndev);
 	struct hv_device *dev = net_device_ctx->device_ctx;
-	struct netvsc_device *nv_dev = net_device_ctx->nvdev;
+	struct netvsc_device *nv_dev = rtnl_dereference(net_device_ctx->nvdev);
 	struct nvsp_message *init_pkt = &nv_dev->channel_init_pkt;
 
 	memset(init_pkt, 0, sizeof(struct nvsp_message));
@@ -102,7 +104,8 @@ static void netvsc_destroy_buf(struct hv_device *device)
 {
 	struct nvsp_message *revoke_packet;
 	struct net_device *ndev = hv_get_drvdata(device);
-	struct netvsc_device *net_device = net_device_to_netvsc_device(ndev);
+	struct net_device_context *ndc = netdev_priv(ndev);
+	struct netvsc_device *net_device = rtnl_dereference(ndc->nvdev);
 	int ret;
 
 	/*
@@ -551,7 +554,8 @@ void netvsc_device_remove(struct hv_device *device)
 {
 	struct net_device *ndev = hv_get_drvdata(device);
 	struct net_device_context *net_device_ctx = netdev_priv(ndev);
-	struct netvsc_device *net_device = net_device_ctx->nvdev;
+	struct netvsc_device *net_device
+		= rtnl_dereference(net_device_ctx->nvdev);
 	int i;
 
 	netvsc_disconnect_vsp(device);
@@ -830,13 +834,16 @@ static inline void move_pkt_msd(struct hv_netvsc_packet **msd_send,
 	msdp->count = 0;
 }
 
-int netvsc_send(struct hv_device *device,
+/* RCU already held by caller */
+int netvsc_send(struct net_device_context *ndev_ctx,
 		struct hv_netvsc_packet *packet,
 		struct rndis_message *rndis_msg,
 		struct hv_page_buffer **pb,
 		struct sk_buff *skb)
 {
-	struct netvsc_device *net_device = hv_device_to_netvsc_device(device);
+	struct netvsc_device *net_device
+		= rcu_dereference_rtnl(ndev_ctx->nvdev);
+	struct hv_device *device = ndev_ctx->device_ctx;
 	int ret = 0;
 	struct netvsc_channel *nvchan;
 	u32 pktlen = packet->total_data_buflen, msd_len = 0;
@@ -847,7 +854,7 @@ int netvsc_send(struct hv_device *device,
 	bool try_batch;
 
 	/* If device is rescinded, return error and packet will get dropped. */
-	if (unlikely(net_device->destroy))
+	if (unlikely(!net_device || net_device->destroy))
 		return -ENODEV;
 
 	nvchan = &net_device->chan_table[packet->q_idx];
@@ -1223,11 +1230,11 @@ int netvsc_poll(struct napi_struct *napi, int budget)
 {
 	struct netvsc_channel *nvchan
 		= container_of(napi, struct netvsc_channel, napi);
+	struct netvsc_device *net_device = nvchan->net_device;
 	struct vmbus_channel *channel = nvchan->channel;
 	struct hv_device *device = netvsc_channel_to_device(channel);
 	u16 q_idx = channel->offermsg.offer.sub_channel_index;
 	struct net_device *ndev = hv_get_drvdata(device);
-	struct netvsc_device *net_device = net_device_to_netvsc_device(ndev);
 	int work_done = 0;
 
 	/* If starting a new interval */
@@ -1266,10 +1273,15 @@ int netvsc_poll(struct napi_struct *napi, int budget)
 void netvsc_channel_cb(void *context)
 {
 	struct netvsc_channel *nvchan = context;
+	struct vmbus_channel *channel = nvchan->channel;
+	struct hv_ring_buffer_info *rbi = &channel->inbound;
+
+	/* preload first vmpacket descriptor */
+	prefetch(hv_get_ring_buffer(rbi) + rbi->priv_read_index);
 
 	if (napi_schedule_prep(&nvchan->napi)) {
 		/* disable interupts from host */
-		hv_begin_read(&nvchan->channel->inbound);
+		hv_begin_read(rbi);
 
 		__napi_schedule(&nvchan->napi);
 	}
@@ -1309,7 +1321,7 @@ int netvsc_device_add(struct hv_device *device,
 	for (i = 0; i < VRSS_CHANNEL_MAX; i++) {
 		struct netvsc_channel *nvchan = &net_device->chan_table[i];
 
-		nvchan->channel = device->channel;
+		nvchan->net_device = net_device;
 	}
 
 	/* Enable NAPI handler before init callbacks */

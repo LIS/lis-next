@@ -27,6 +27,7 @@
 #include <linux/netdevice.h>
 #include <linux/if_vlan.h>
 #include <linux/nls.h>
+#include <linux/rtnetlink.h>
 
 #include "hyperv_net.h"
 
@@ -84,6 +85,14 @@ static struct rndis_device *get_rndis_device(void)
 	device->state = RNDIS_DEV_UNINITIALIZED;
 
 	return device;
+}
+
+static struct netvsc_device *
+net_device_to_netvsc_device(struct net_device *ndev)
+{
+	struct net_device_context *net_device_ctx = netdev_priv(ndev);
+
+	return rtnl_dereference(net_device_ctx->nvdev);
 }
 
 static struct rndis_request *get_rndis_request(struct rndis_device *dev,
@@ -246,7 +255,7 @@ static int rndis_filter_send_request(struct rndis_device *dev,
 	
 	packet->xmit_more = false;
 
-	ret = netvsc_send(net_device_ctx->device_ctx, packet, NULL, &pb, NULL);
+	ret = netvsc_send(net_device_ctx, packet, NULL, &pb, NULL);
 	return ret;
 }
 
@@ -476,7 +485,7 @@ static int rndis_filter_query_device(struct rndis_device *dev, u32 oid,
 
 	if (oid == OID_TCP_OFFLOAD_HARDWARE_CAPABILITIES) {
 		struct net_device_context *ndevctx = netdev_priv(dev->ndev);
-		struct netvsc_device *nvdev = ndevctx->nvdev;
+		struct netvsc_device *nvdev = rtnl_dereference(ndevctx->nvdev);
 		struct ndis_offload *hwcaps;
 		u32 nvsp_version = nvdev->nvsp_version;
 		u8 ndis_rev;
@@ -948,7 +957,7 @@ static void rndis_filter_halt_device(struct rndis_device *dev)
 	struct rndis_request *request;
 	struct rndis_halt_request *halt;
 	struct net_device_context *net_device_ctx = netdev_priv(dev->ndev);
-	struct netvsc_device *nvdev = net_device_ctx->nvdev;
+	struct netvsc_device *nvdev = rtnl_dereference(net_device_ctx->nvdev);
 
 	/* Attempt to do a rndis device halt */
 	request = get_rndis_request(dev, RNDIS_MSG_HALT,
@@ -1327,4 +1336,9 @@ int rndis_filter_close(struct netvsc_device *nvdev)
 		return 0;
 
 	return rndis_filter_close_device(nvdev->extension);
+}
+
+bool rndis_filter_opened(const struct netvsc_device *nvdev)
+{
+	return atomic_read(&nvdev->open_cnt) > 0;
 }
