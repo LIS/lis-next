@@ -86,6 +86,10 @@ function create_eth_cfg_redhat {
 	if [ "$1" == "eth0" -o "$1" == "vf1" ]; then
 		echo "NM_CONTROLLED=no" >>$fn
 	fi
+
+	# Reload NetworkManager configuration and bounce interface
+	nmcli connection load $fn 2>/dev/null
+	ifdown $1 && ifup $1
 }
 
 function create_eth_cfg_pri_redhat {
@@ -112,6 +116,10 @@ function create_bond_cfg_redhat {
 	if [ "$dhcp_hostname" != "" ]; then
 		echo "$dhcp_hostname" >>$fn
 	fi
+
+	# Reload NetworkManager configuration and bounce interface
+	nmcli connection load $fn 2>/dev/null
+	ifdown $1 && ifup $1
 }
 
 function del_eth_cfg_ubuntu {
