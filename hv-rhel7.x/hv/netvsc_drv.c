@@ -859,7 +859,6 @@ static int netvsc_set_queues(struct net_device *net, struct hv_device *dev,
 	if (ret)
 		return ret;
 
-	return rndis_filter_device_add(dev, &device_info);
 	net_device = rndis_filter_device_add(dev, &device_info);
 	return IS_ERR(net_device) ? PTR_ERR(net_device) : 0;
 }
@@ -1876,7 +1875,6 @@ static int netvsc_probe(struct hv_device *dev,
 
 	netif_set_real_num_tx_queues(net, nvdev->num_chn);
 	netif_set_real_num_rx_queues(net, nvdev->num_chn);
-	rtnl_unlock();
 
 	netdev_lockdep_set_classes(net);
 
