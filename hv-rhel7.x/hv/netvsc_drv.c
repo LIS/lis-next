@@ -848,7 +848,6 @@ static int netvsc_set_channels(struct net_device *net,
 	struct hv_device *dev = net_device_ctx->device_ctx;
 	struct netvsc_device *nvdev = rtnl_dereference(net_device_ctx->nvdev);
 	unsigned int orig, count = channels->combined_count;
-	int orig_mtu = ndev->mtu;
 	struct netvsc_device_info device_info;
 	bool was_opened;
 	int ret = 0;
@@ -961,8 +960,10 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 	struct netvsc_device *nvdev = rtnl_dereference(ndevctx->nvdev);
 	struct hv_device *hdev = ndevctx->device_ctx;
 	struct netvsc_device_info device_info;
+	int orig_mtu = ndev->mtu;
 	int limit = ETH_DATA_LEN;
 	bool was_opened;
+	int ret = 0;
 
 	if (!nvdev || nvdev->destroy)
 		return -ENODEV;
