@@ -116,7 +116,6 @@ int vmbus_open(struct vmbus_channel *newchannel, u32 send_ringbuffer_size,
 	void *in, *out;
 	unsigned long flags;
 	int ret, err = 0;
-	unsigned long t;
 
 	spin_lock_irqsave(&newchannel->lock, flags);
 	if (newchannel->state == CHANNEL_OPEN_STATE) {
@@ -216,12 +215,7 @@ int vmbus_open(struct vmbus_channel *newchannel, u32 send_ringbuffer_size,
 		goto error1;
 	}
 
-	t = wait_for_completion_timeout(&open_info->waitevent, 5*HZ);
-	if (t == 0) {
-		err = -ETIMEDOUT;
-		goto error1;
-	}
-
+	wait_for_completion(&open_info->waitevent);
 
 	if (open_info->response.open_result.status)
 		err = open_info->response.open_result.status;
