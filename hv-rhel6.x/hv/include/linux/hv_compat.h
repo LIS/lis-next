@@ -101,6 +101,10 @@ static inline unsigned int skb_frag_size(const skb_frag_t *frag)
 }
 #endif
 
+#ifndef skb_vlan_tag_present
+#define skb_vlan_tag_present(__skb)	((__skb)->vlan_tci & VLAN_TAG_PRESENT)
+#endif
+
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
 #define hid_err(x, y)
 #endif
@@ -719,6 +723,52 @@ fc_eh_timed_out(struct scsi_cmnd *scmd)
 		return BLK_EH_RESET_TIMER;
 
 	return BLK_EH_NOT_HANDLED;
+}
+
+/**
+ * refcount_t - variant of atomic_t specialized for reference counts
+ * @refs: atomic_t counter field
+ *
+ * The counter saturates at UINT_MAX and will not move once
+ * there. This avoids wrapping the counter and causing 'spurious'
+ * use-after-free bugs.
+ */
+typedef struct refcount_struct {
+	atomic_t refs;
+} refcount_t;
+
+static inline bool refcount_sub_and_test(unsigned int i, refcount_t *r)
+{
+	unsigned int old, new, val = atomic_read(&r->refs);
+
+	do {
+		if (unlikely(val == UINT_MAX))
+			return false;
+
+		new = val - i;
+		if (new > val) {
+			WARN_ONCE(new > val, "refcount_t: underflow; use-after-free.\n");
+			return false;
+		}
+
+		old = atomic_cmpxchg(&r->refs, val, new);
+		if (old == val)
+			break;
+
+		val = old;
+	} while (1);
+
+	return !new;
+}
+
+static inline bool refcount_dec_and_test(refcount_t *r)
+{
+	return refcount_sub_and_test(1, r);
+}
+
+static inline void refcount_set(refcount_t *r, unsigned int n)
+{
+	atomic_set(&r->refs, n);
 }
 
 #endif /* end ifdef __KERNEL */
