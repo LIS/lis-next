@@ -848,6 +848,7 @@ static int netvsc_set_channels(struct net_device *net,
 	struct hv_device *dev = net_device_ctx->device_ctx;
 	struct netvsc_device *nvdev = rtnl_dereference(net_device_ctx->nvdev);
 	unsigned int orig, count = channels->combined_count;
+	int orig_mtu = ndev->mtu;
 	struct netvsc_device_info device_info;
 	bool was_opened;
 	int ret = 0;
@@ -983,15 +984,16 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 
 	rndis_filter_device_remove(hdev, nvdev);
 
-	/* 'nvdev' has been freed in rndis_filter_device_remove() ->
-	 * netvsc_device_remove () -> free_netvsc_device().
-	 * We mustn't access it before it's re-created in
-	 * rndis_filter_device_add() -> netvsc_device_add().
-	 */
-
 	ndev->mtu = mtu;
-	rndis_filter_device_add(hdev, &device_info);
-	nvdev = rtnl_dereference(ndevctx->nvdev);
+
+	nvdev = rndis_filter_device_add(hdev, &device_info);
+	if (IS_ERR(nvdev)) {
+		ret = PTR_ERR(nvdev);
+
+		/* Attempt rollback to original MTU */
+		ndev->mtu = orig_mtu;
+		rndis_filter_device_add(hdev, &device_info);
+	}
 
 	if (was_opened)
 		rndis_filter_open(nvdev);
@@ -1001,7 +1003,7 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 	/* We may have missed link change notifications */
 	schedule_delayed_work(&ndevctx->dwork, 0);
 
-	return 0;
+	return ret;
 }
 
 static void netvsc_get_vf_stats(struct net_device *net,
@@ -1842,8 +1844,10 @@ static int netvsc_probe(struct hv_device *dev,
 	memset(&device_info, 0, sizeof(device_info));
 	device_info.ring_size = ring_size;
 	device_info.num_chn = VRSS_CHANNEL_DEFAULT;
-	ret = rndis_filter_device_add(dev, &device_info);
-	if (ret != 0) {
+
+	nvdev = rndis_filter_device_add(dev, &device_info);
+	if (IS_ERR(nvdev)) {
+		ret = PTR_ERR(nvdev);
 		netdev_err(net, "unable to add netvsc device (ret %d)\n", ret);
 		goto rndis_failed;
 	}
@@ -1856,10 +1860,10 @@ static int netvsc_probe(struct hv_device *dev,
 		NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_HW_VLAN_CTAG_RX;
 	net->vlan_features = net->features;
 
-	/* RCU not necessary here, device not registered */
-	nvdev = net_device_ctx->nvdev;
 	netif_set_real_num_tx_queues(net, nvdev->num_chn);
 	netif_set_real_num_rx_queues(net, nvdev->num_chn);
+
+	netdev_lockdep_set_classes(net);
 
 	ret = register_netdev(net);
 	if (ret != 0) {

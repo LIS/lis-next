@@ -593,6 +593,22 @@ static inline void refcount_set(refcount_t *r, unsigned int n)
 	atomic_set(&r->refs, n);
 }
 
+#define netdev_lockdep_set_classes(dev)				\
+{								\
+	static struct lock_class_key qdisc_tx_busylock_key;	\
+	static struct lock_class_key qdisc_xmit_lock_key;	\
+	static struct lock_class_key dev_addr_list_lock_key;	\
+	unsigned int i;						\
+								\
+	(dev)->qdisc_tx_busylock = &qdisc_tx_busylock_key;	\
+	lockdep_set_class(&(dev)->addr_list_lock,		\
+			  &dev_addr_list_lock_key); 		\
+	for (i = 0; i < (dev)->num_tx_queues; i++)		\
+		lockdep_set_class(&(dev)->_tx[i]._xmit_lock,	\
+				  &qdisc_xmit_lock_key);	\
+}
+
+
 #endif //#ifdef __KERNEL__
 #endif //#if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 10, 0)
 #endif //#ifndef _HV_COMPAT_H
