@@ -70,8 +70,8 @@ hv_network_direct-y := provider.o vmbus_rdma.o hvnd_addr.o
 hv_sock-y := af_hvsock.o
 hv_uio_generic-y := uio_hv_generic.o
 
-# Build MLX4 on RHEL 7.3 or newer
-build_mlx=$(shell test $(rhel_release_code) -gt 1794; echo $$?)
+# Build MLX4 on RHEL 7.3 only
+build_mlx=$(shell test $(rhel_release_code) -eq 1795; echo $$?)
 ifeq ($(build_mlx),0)
 	obj-m	+= mlx4/
 endif
