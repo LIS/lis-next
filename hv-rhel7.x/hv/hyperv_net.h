@@ -150,7 +150,6 @@ struct hv_netvsc_packet {
 struct netvsc_device_info {
 	unsigned char mac_adr[ETH_ALEN];
 	int  ring_size;
-	u32 max_num_vrss_chns;
 	u32 num_chn;
 };
 
@@ -185,10 +184,12 @@ struct rndis_device {
 /* Interface */
 struct rndis_message;
 struct netvsc_device;
-int netvsc_device_add(struct hv_device *device,
-		      const struct netvsc_device_info *info);
+struct net_device_context;
+
+struct netvsc_device *netvsc_device_add(struct hv_device *device,
+					const struct netvsc_device_info *info);
 void netvsc_device_remove(struct hv_device *device);
-int netvsc_send(struct hv_device *device,
+int netvsc_send(struct net_device_context *ndc,
 		struct hv_netvsc_packet *packet,
 		struct rndis_message *rndis_msg,
 		struct hv_page_buffer **page_buffer,
@@ -202,10 +203,11 @@ int netvsc_recv_callback(struct net_device *net,
 			 const struct ndis_pkt_8021q_info *vlan);
 void netvsc_channel_cb(void *context);
 int netvsc_poll(struct napi_struct *napi, int budget);
+bool rndis_filter_opened(const struct netvsc_device *nvdev);
 int rndis_filter_open(struct netvsc_device *nvdev);
 int rndis_filter_close(struct netvsc_device *nvdev);
-int rndis_filter_device_add(struct hv_device *dev,
-			    struct netvsc_device_info *info);
+struct netvsc_device *rndis_filter_device_add(struct hv_device *dev,
+					      struct netvsc_device_info *info);
 void rndis_filter_update(struct netvsc_device *nvdev);
 void rndis_filter_device_remove(struct hv_device *dev,
 				struct netvsc_device *nvdev);
@@ -734,6 +736,7 @@ struct net_device_context {
 /* Per channel data */
 struct netvsc_channel {
 	struct vmbus_channel *channel;
+	struct netvsc_device *net_device;
 	const struct vmpacket_descriptor *desc;
 	struct napi_struct napi;
 	struct multi_send_data msd;
@@ -790,18 +793,6 @@ struct netvsc_device {
 	struct netvsc_channel chan_table[VRSS_CHANNEL_MAX];
 	struct rcu_head rcu;
 };
-
-static inline struct netvsc_device *
-net_device_to_netvsc_device(struct net_device *ndev)
-{
-	return ((struct net_device_context *)netdev_priv(ndev))->nvdev;
-}
-
-static inline struct netvsc_device *
-hv_device_to_netvsc_device(struct hv_device *device)
-{
-	return net_device_to_netvsc_device(hv_get_drvdata(device));
-}
 
 /* NdisInitialize message */
 struct rndis_initialize_request {
