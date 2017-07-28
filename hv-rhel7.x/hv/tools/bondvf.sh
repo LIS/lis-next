@@ -90,6 +90,7 @@ function create_eth_cfg_redhat {
 	# Reload NetworkManager configuration and bounce interface
 	nmcli connection load $fn 2>/dev/null
 	ifdown $1 && ifup $1
+	ip link set $1 up
 }
 
 function create_eth_cfg_pri_redhat {
