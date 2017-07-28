@@ -1321,6 +1321,7 @@ struct netvsc_device *netvsc_device_add(struct hv_device *device,
 	for (i = 0; i < VRSS_CHANNEL_MAX; i++) {
 		struct netvsc_channel *nvchan = &net_device->chan_table[i];
 
+ 		nvchan->channel = device->channel;
 		nvchan->net_device = net_device;
 	}
 
