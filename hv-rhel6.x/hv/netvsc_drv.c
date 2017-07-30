@@ -734,7 +734,7 @@ static int netvsc_set_channels(struct net_device *net,
 	struct hv_device *dev = net_device_ctx->device_ctx;
 	struct netvsc_device *nvdev = net_device_ctx->nvdev;
 	unsigned int count = channels->combined_count;
-	bool was_running;
+	bool was_opened;
 	int ret;
 
 	/* We do not support separate count for rx, tx, or other */
@@ -754,12 +754,9 @@ static int netvsc_set_channels(struct net_device *net,
 	if (count > nvdev->max_chn)
 		return -EINVAL;
 
-	was_running = netif_running(net);
-	if (was_running) {
-		ret = netvsc_close(net);
-		if (ret)
-			return ret;
-	}
+	was_opened = rndis_filter_opened(nvdev);
+	if (was_opened)
+		rndis_filter_close(nvdev);
 
 	rndis_filter_device_remove(dev, nvdev);
 
@@ -769,8 +766,9 @@ static int netvsc_set_channels(struct net_device *net,
 	else
 		netvsc_set_queues(net, dev, nvdev->num_chn);
 
-	if (was_running)
-		ret = netvsc_open(net);
+	nvdev = rtnl_dereference(net_device_ctx->nvdev);
+	if (was_opened)
+		rndis_filter_open(nvdev);
 
 	/* We may have missed link change notifications */
 	net_device_ctx->last_reconfig = 0;
@@ -839,8 +837,7 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 	struct hv_device *hdev = ndevctx->device_ctx;
 	struct netvsc_device_info device_info;
 	int limit = ETH_DATA_LEN;
-	bool was_running;
-	int ret = 0;
+	bool was_opened;
 
 	if (!nvdev || nvdev->destroy)
 		return -ENODEV;
@@ -851,12 +848,10 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 	if (mtu < NETVSC_MTU_MIN || mtu > limit)
 		return -EINVAL;
 
-	was_running = netif_running(ndev);
-	if (was_running) {
-		ret = netvsc_close(ndev);
-		if (ret)
-			return ret;
-	}
+	netif_device_detach(ndev);
+	was_opened = rndis_filter_opened(nvdev);
+	if (was_opened)
+		rndis_filter_close(nvdev);
 
 	memset(&device_info, 0, sizeof(device_info));
 	device_info.ring_size = ring_size;
@@ -875,14 +870,17 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 	ndev->mtu = mtu;
 
 	rndis_filter_device_add(hdev, &device_info);
+	nvdev = rtnl_dereference(ndevctx->nvdev);
 
-	if (was_running)
-		ret = netvsc_open(ndev);
+	if (was_opened)
+		rndis_filter_open(nvdev);
+
+	netif_device_attach(ndev);
 
 	/* We may have missed link change notifications */
 	schedule_delayed_work(&ndevctx->dwork, 0);
 
-	return ret;
+	return 0;
 }
 
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
