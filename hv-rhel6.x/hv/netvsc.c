@@ -29,6 +29,7 @@
 #include <linux/netdevice.h>
 #include <linux/if_ether.h>
 #include <asm/sync_bitops.h>
+#include <linux/prefetch.h>
 
 #include "hyperv_net.h"
 
@@ -1257,10 +1258,15 @@ int netvsc_poll(struct napi_struct *napi, int budget)
 void netvsc_channel_cb(void *context)
 {
 	struct netvsc_channel *nvchan = context;
+	struct vmbus_channel *channel = nvchan->channel;
+	struct hv_ring_buffer_info *rbi = &channel->inbound;
+
+	/* preload first vmpacket descriptor */
+	prefetch(hv_get_ring_buffer(rbi) + rbi->priv_read_index);
 
 	if (napi_schedule_prep(&nvchan->napi)) {
 		/* disable interupts from host */
-		hv_begin_read(&nvchan->channel->inbound);
+		hv_begin_read(rbi);
 
 		__napi_schedule(&nvchan->napi);
 	}
