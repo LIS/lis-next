@@ -30,6 +30,7 @@
 #include <linux/if_ether.h>
 #include <asm/sync_bitops.h>
 #include <linux/prefetch.h>
+#include <linux/rtnetlink.h>
 
 #include "hyperv_net.h"
 
@@ -1276,8 +1277,8 @@ void netvsc_channel_cb(void *context)
  * netvsc_device_add - Callback when the device belonging to this
  * driver is added
  */
-int netvsc_device_add(struct hv_device *device,
-		      const struct netvsc_device_info *device_info)
+struct netvsc_device *netvsc_device_add(struct hv_device *device,
+				const struct netvsc_device_info *device_info)
 {
 	int i, ret = 0;
 	int ring_size = device_info->ring_size;
@@ -1287,7 +1288,7 @@ int netvsc_device_add(struct hv_device *device,
 
 	net_device = alloc_net_device();
 	if (!net_device)
-		return -ENOMEM;
+		return ERR_PTR(-ENOMEM);
 
 	net_device->ring_size = ring_size;
 
@@ -1343,7 +1344,7 @@ int netvsc_device_add(struct hv_device *device,
 		goto close;
 	}
 
-	return ret;
+	return net_device;
 
 close:
 	netif_napi_del(&net_device->chan_table[0].napi);
@@ -1354,6 +1355,5 @@ close:
 cleanup:
 	free_netvsc_device(net_device);
 
-	return ret;
-
+	return ERR_PTR(ret);
 }
