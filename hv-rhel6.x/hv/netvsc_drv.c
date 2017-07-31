@@ -41,6 +41,7 @@
 #include <net/pkt_sched.h>
 #include <net/checksum.h>
 #include <net/ip6_checksum.h>
+#include <linux/rtnetlink.h>
 
 #include "include/linux/hyperv.h"
 #include "hyperv_net.h"
