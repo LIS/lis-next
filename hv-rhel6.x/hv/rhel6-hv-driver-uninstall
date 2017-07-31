@@ -15,3 +15,6 @@ rm -rf /usr/sbin/lsvmbus
 echo "Create and install initramfs without Hyper-V drivers"
 dracut --force  "initramfs-$(uname -r).img" $(uname -r)
 cp -f "initramfs-$(uname -r).img" /boot/"initramfs-$(uname -r).img"
+
+echo "Remove updates to kernel commandline"
+grubby --update-kernel "/boot/vmlinuz-$(uname -r)" --remove-args=disable_mtrr_trim

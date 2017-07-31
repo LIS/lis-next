@@ -54,4 +54,8 @@ echo "Installing new initramfs"
 cp -f "initramfs-$(uname -r).img" /boot/"initramfs-$(uname -r).img"
 [ $? -eq 0 ] || exit 1
 
+echo "Update kernel commandline"
+grubby --update-kernel "/boot/vmlinuz-$(uname -r)" --args=disable_mtrr_trim
+[ $? -eq 0 ] || exit 1
+
 echo "Completed!"
