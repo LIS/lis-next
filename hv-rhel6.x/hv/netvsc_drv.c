@@ -752,20 +752,6 @@ static int netvsc_set_channels(struct net_device *net,
 		device_info.num_chn = orig;
 		device_info.max_num_vrss_chns = count;
 		rndis_filter_device_add(dev, &device_info);
-	}	memset(&device_info, 0, sizeof(device_info));
-	device_info.num_chn = count;
-	device_info.ring_size = ring_size;
-	device_info.max_num_vrss_chns = count;
-
-	nvdev = rndis_filter_device_add(dev, &device_info);
-	if (!IS_ERR(nvdev)) {
-		netif_set_real_num_tx_queues(net, nvdev->num_chn);
-		netif_set_real_num_rx_queues(net, nvdev->num_chn);
-		ret = PTR_ERR(nvdev);
-	} else {
-		device_info.num_chn = orig;
-		device_info.max_num_vrss_chns = count;
-		rndis_filter_device_add(dev, &device_info);
 	}
 
 	if (was_opened)
