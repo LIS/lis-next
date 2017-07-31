@@ -684,6 +684,13 @@ static inline u32 ethtool_rxfh_indir_default(u32 index, u32 n_rx_rings)
 #define rtnl_dereference(ptr) (ptr)
 #endif
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
+static inline bool is_vlan_dev(const struct net_device *dev)
+{
+        return dev->priv_flags & IFF_802_1Q_VLAN;
+}
+#endif
+
 #ifndef NAPI_POLL_WEIGHT
 #define NAPI_POLL_WEIGHT 64
 #endif
@@ -769,6 +776,19 @@ static inline bool refcount_dec_and_test(refcount_t *r)
 static inline void refcount_set(refcount_t *r, unsigned int n)
 {
 	atomic_set(&r->refs, n);
+}
+
+#define netdev_lockdep_set_classes(dev)				\
+{								\
+	static struct lock_class_key qdisc_xmit_lock_key;	\
+	static struct lock_class_key dev_addr_list_lock_key;	\
+	unsigned int i;						\
+								\
+	lockdep_set_class(&(dev)->addr_list_lock,		\
+			  &dev_addr_list_lock_key); 		\
+	for (i = 0; i < (dev)->num_tx_queues; i++)		\
+		lockdep_set_class(&(dev)->_tx[i]._xmit_lock,	\
+				  &qdisc_xmit_lock_key);	\
 }
 
 #endif /* end ifdef __KERNEL */
