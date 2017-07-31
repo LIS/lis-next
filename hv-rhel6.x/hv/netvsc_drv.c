@@ -1373,7 +1373,7 @@ static struct net_device *get_netvsc_byref(const struct net_device *vf_netdev)
 			continue;	/* not a netvsc device */
 
 		net_device_ctx = netdev_priv(dev);
-		if (net_device_ctx->nvdev == NULL)
+		if (!rtnl_dereference(net_device_ctx->nvdev))
 			continue;	/* device is removed */
 
 		if (net_device_ctx->vf_netdev == vf_netdev)
@@ -1658,7 +1658,8 @@ static int netvsc_remove(struct hv_device *dev)
 	 * removed. Also blocks mtu and channel changes.
 	 */
 	rtnl_lock();
-	rndis_filter_device_remove(dev, ndev_ctx->nvdev);
+	rndis_filter_device_remove(dev,
+				   rtnl_dereference(ndev_ctx->nvdev));
 	rtnl_unlock();
 
 	unregister_netdev(net);
