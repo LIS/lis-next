@@ -684,6 +684,13 @@ static inline u32 ethtool_rxfh_indir_default(u32 index, u32 n_rx_rings)
 #define rtnl_dereference(ptr) (ptr)
 #endif
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
+static inline bool is_vlan_dev(const struct net_device *dev)
+{
+        return dev->priv_flags & IFF_802_1Q_VLAN;
+}
+#endif
+
 #ifndef NAPI_POLL_WEIGHT
 #define NAPI_POLL_WEIGHT 64
 #endif
