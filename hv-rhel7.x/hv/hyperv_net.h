@@ -682,6 +682,15 @@ struct netvsc_ethtool_stats {
 	unsigned long tx_busy;
 };
 
+struct netvsc_vf_pcpu_stats {
+	u64     rx_packets;
+	u64     rx_bytes;
+	u64     tx_packets;
+	u64     tx_bytes;
+	struct u64_stats_sync   syncp;
+	u32	tx_dropped;
+};
+
 struct netvsc_reconfig {
 	struct list_head list;
 	u32 event;
@@ -715,8 +724,9 @@ struct net_device_context {
 
 	/* State to manage the associated VF interface. */
 	struct net_device __rcu *vf_netdev;
+	struct netvsc_vf_pcpu_stats __percpu *vf_stats;
 	struct work_struct vf_takeover;
-	struct pcpu_sw_netstats __percpu *vf_stats;
+	struct work_struct vf_notify;
 
 	/* 1: allocated, serial number is valid. 0: not allocated */
 	u32 vf_alloc;
@@ -724,12 +734,6 @@ struct net_device_context {
 	u32 vf_serial;
 
 	bool datapath;	/* 0 - synthetic, 1 - VF nic */
-
-	/*
-	 * Tracks the current data path; initially the data path is set
-	 * to deliver packets on the synthetic path.
-	 */
-	bool synthetic_data_path;
 };
 
 /* Per channel data */
