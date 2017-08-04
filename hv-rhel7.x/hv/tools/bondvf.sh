@@ -90,7 +90,6 @@ function create_eth_cfg_redhat {
 	# Reload NetworkManager configuration and bounce interface
 	nmcli connection load $fn 2>/dev/null
 	ifdown $1 && ifup $1
-	ip link set $1 up
 }
 
 function create_eth_cfg_pri_redhat {
@@ -277,8 +276,9 @@ do
 			echo "Skipping ${list_match[$i]}"
 			continue
 		fi
-		echo "configuring $vfname"
+		echo "Configuring $vfname"
 		bondnum=${list_eth[$i]#eth}
 		create_bond ${list_eth[$i]} ${list_match[$i]} $bondnum
+		echo "+${list_match[$i]}" > /sys/class/net/bond${bondnum}/bonding/slaves
 	fi
 done
