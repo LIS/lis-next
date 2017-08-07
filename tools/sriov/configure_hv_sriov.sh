@@ -145,7 +145,7 @@ LOG "Start downloading udev rule and config scripts ..."
 cd /tmp
 wget "https://raw.githubusercontent.com/LIS/lis-next/master/tools/sriov/${udev_file}"
 wget "https://raw.githubusercontent.com/LIS/lis-next/master/tools/sriov/${hv_vf_name_file}"
-wget "https://git.kernel.org/pub/scm/linux/kernel/git/next/linux-next.git/plain/tools/hv/${bondvf_sh_file}"
+wget "https://raw.githubusercontent.com/LIS/lis-next/master/tools/sriov/${bondvf_sh_file}"
 
 LOG "Move configuration to the destination folder ..."
 mv -f $udev_file $udev_folder
