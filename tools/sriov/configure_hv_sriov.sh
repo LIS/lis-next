@@ -136,9 +136,10 @@ fi
 ########################################
 bin_folder="/usr/sbin/"
 udev_folder="/etc/udev/rules.d/"
-udev_file="60-hyperv-vf-name.rules"
+udev_file="60-hyperv-vf-name-run.rules"
 hv_vf_name_file="hv_vf_name"
 bondvf_sh_file="bondvf.sh"
+bondvf_lock_file="bondvf_lock"
 all_files_downloaded=true
 
 LOG "Start downloading udev rule and config scripts ..."
@@ -146,12 +147,14 @@ cd /tmp
 wget "https://raw.githubusercontent.com/LIS/lis-next/master/tools/sriov/${udev_file}"
 wget "https://raw.githubusercontent.com/LIS/lis-next/master/tools/sriov/${hv_vf_name_file}"
 wget "https://raw.githubusercontent.com/LIS/lis-next/master/tools/sriov/${bondvf_sh_file}"
+wget "https://raw.githubusercontent.com/LIS/lis-next/master/tools/sriov/${bondvf_lock_file}"
 
 LOG "Move configuration to the destination folder ..."
 mv -f $udev_file $udev_folder
-chmod +x $hv_vf_name_file $bondvf_sh_file
+chmod +x $hv_vf_name_file $bondvf_sh_file $bondvf_lock_file
 mv -f $hv_vf_name_file  $bin_folder
 mv -f $bondvf_sh_file   $bin_folder
+mv -f $bondvf_lock_file $bin_folder
 
 ########################################
 # Check downloaded files
@@ -170,6 +173,11 @@ fi
 if [ ! -f ${bin_folder}${bondvf_sh_file} ]; then
     all_files_downloaded=false
     LOG "${bondvf_sh_file} is not found in ${bin_folder}!"
+fi
+
+if [ ! -f ${bin_folder}${bondvf_lock_file} ]; then
+    all_files_downloaded=false
+    LOG "${bondvf_lock_file} is not found in ${bin_folder}!"
 fi
 
 if [ $all_files_downloaded == false ]; then
