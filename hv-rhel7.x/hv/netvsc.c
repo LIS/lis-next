@@ -76,6 +76,7 @@ static struct netvsc_device *alloc_net_device(void)
 	net_device->max_pkt = RNDIS_MAX_PKT_DEFAULT;
 	net_device->pkt_align = RNDIS_PKT_ALIGN_DEFAULT;
 	init_completion(&net_device->channel_init_wait);
+	init_waitqueue_head(&net_device->subchan_open);
 
 	return net_device;
 }
@@ -757,8 +758,10 @@ static inline int netvsc_send_pkt(
 	struct sk_buff *skb)
 {
 	struct nvsp_message nvmsg;
-	struct netvsc_channel *nvchan
-		= &net_device->chan_table[packet->q_idx];
+	struct nvsp_1_message_send_rndis_packet * const rpkt =
+		&nvmsg.msg.v1_msg.send_rndis_pkt;
+	struct netvsc_channel * const nvchan =
+		&net_device->chan_table[packet->q_idx];
 	struct vmbus_channel *out_channel = nvchan->channel;
 	struct net_device *ndev = hv_get_drvdata(device);
 	struct netdev_queue *txq = netdev_get_tx_queue(ndev, packet->q_idx);
@@ -767,21 +770,16 @@ static inline int netvsc_send_pkt(
 	u32 ring_avail = hv_ringbuf_avail_percent(&out_channel->outbound);
 
 	nvmsg.hdr.msg_type = NVSP_MSG1_TYPE_SEND_RNDIS_PKT;
-	if (skb != NULL) {
-		/* 0 is RMC_DATA; */
-		nvmsg.msg.v1_msg.send_rndis_pkt.channel_type = 0;
-	} else {
-		/* 1 is RMC_CONTROL; */
-		nvmsg.msg.v1_msg.send_rndis_pkt.channel_type = 1;
-	}
-
-	nvmsg.msg.v1_msg.send_rndis_pkt.send_buf_section_index =
-		packet->send_buf_index;
-	if (packet->send_buf_index == NETVSC_INVALID_INDEX)
-		nvmsg.msg.v1_msg.send_rndis_pkt.send_buf_section_size = 0;
+	if (skb)
+		rpkt->channel_type = 0;		/* 0 is RMC_DATA */
 	else
-		nvmsg.msg.v1_msg.send_rndis_pkt.send_buf_section_size =
-			packet->total_data_buflen;
+		rpkt->channel_type = 1;		/* 1 is RMC_CONTROL */
+
+	rpkt->send_buf_section_index = packet->send_buf_index;
+	if (packet->send_buf_index == NETVSC_INVALID_INDEX)
+		rpkt->send_buf_section_size = 0;
+	else
+		rpkt->send_buf_section_size = packet->total_data_buflen;
 
 	req_id = (ulong)skb;
 
@@ -1277,6 +1275,8 @@ struct netvsc_device *netvsc_device_add(struct hv_device *device,
 
  		nvchan->channel = device->channel;
 		nvchan->net_device = net_device;
+		u64_stats_init(&nvchan->tx_stats.syncp);
+		u64_stats_init(&nvchan->rx_stats.syncp);
 	}
 
 	/* Enable NAPI handler before init callbacks */
