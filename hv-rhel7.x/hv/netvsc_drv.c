@@ -1692,7 +1692,11 @@ static void netvsc_vf_setup(struct work_struct *w)
 	struct net_device *ndev = hv_get_drvdata(ndev_ctx->device_ctx);
 	struct net_device *vf_netdev;
 
-	rtnl_lock();
+	if (!rtnl_trylock()) {
+		schedule_work(w);
+		return;
+	}
+
 	vf_netdev = rtnl_dereference(ndev_ctx->vf_netdev);
 	if (vf_netdev)
 		__netvsc_vf_setup(ndev, vf_netdev);
@@ -1746,7 +1750,11 @@ static void netvsc_vf_update(struct work_struct *w)
 	struct net_device *vf_netdev;
 	bool vf_is_up;
 
-	rtnl_lock();
+	if (!rtnl_trylock()) {
+		schedule_work(w);
+		return;
+	}
+
 	vf_netdev = rtnl_dereference(ndev_ctx->vf_netdev);
 	if (!vf_netdev)
 		goto unlock;
