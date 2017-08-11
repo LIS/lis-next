@@ -726,14 +726,11 @@ struct net_device_context {
 	struct net_device __rcu *vf_netdev;
 	struct netvsc_vf_pcpu_stats __percpu *vf_stats;
 	struct work_struct vf_takeover;
-	struct work_struct vf_notify;
 
 	/* 1: allocated, serial number is valid. 0: not allocated */
 	u32 vf_alloc;
 	/* Serial number of the VF to team with */
 	u32 vf_serial;
-
-	bool datapath;	/* 0 - synthetic, 1 - VF nic */
 };
 
 /* Per channel data */
@@ -780,7 +777,8 @@ struct netvsc_device {
 	u32 max_chn;
 	u32 num_chn;	
 
-	refcount_t sc_offered;
+	atomic_t open_chn;
+	wait_queue_head_t subchan_open;
 
 	struct rndis_device *extension;
 
