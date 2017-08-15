@@ -328,8 +328,14 @@ static void debug_check(const char *func, int line)
 	}
 }
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,4)) 
 static struct ib_ah *hvnd_ah_create(struct ib_pd *pd,
 				    struct ib_ah_attr *ah_attr)
+#else
+static struct ib_ah *hvnd_ah_create(struct ib_pd *pd,
+				    struct ib_ah_attr *ah_attr,
+				    struct ib_udata *udata)
+#endif
 {
 	debug_check(__func__, __LINE__);
 	return ERR_PTR(-ENOSYS);
