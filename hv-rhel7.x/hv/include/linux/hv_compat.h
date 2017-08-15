@@ -433,10 +433,12 @@ void __read_once_size(const volatile void *p, void *res, int size)
 /*
  * Define VMSock driver dependencies here
  */
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,4))
 static inline int memcpy_from_msg(void *data, struct msghdr *msg, int len)
 {
 	return memcpy_fromiovec(data, msg->msg_iov, len);
 }
+#endif
 
 static inline int memcpy_to_msg(struct msghdr *msg, void *data, int len)
 {
