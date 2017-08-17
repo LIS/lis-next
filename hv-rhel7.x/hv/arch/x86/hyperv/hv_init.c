@@ -70,7 +70,7 @@ static u64 read_hv_clock_tsc(struct clocksource *arg)
 }
 
 static struct clocksource hyperv_cs_tsc = {
-	.name		= "hyperv_clocksource_tsc_page",
+	.name		= "lis_hyperv_clocksource_tsc_page",
 	.rating		= 425,
 	.read		= read_hv_clock_tsc,
 	.mask		= CLOCKSOURCE_MASK(64),
@@ -91,7 +91,7 @@ static u64 read_hv_clock_msr(struct clocksource *arg)
 }
 
 static struct clocksource hyperv_cs_msr = {
-	.name		= "hyperv_clocksource_msr",
+	.name		= "lis_hyperv_clocksource_msr",
 	.rating		= 425,
 	.read		= read_hv_clock_msr,
 	.mask		= CLOCKSOURCE_MASK(64),
@@ -99,8 +99,15 @@ static struct clocksource hyperv_cs_msr = {
 };
 
 static void *hypercall_pg;
+
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,4))
+/*
+ *  The clocksource is exposed by kernel in RH7.4 and higher.
+ *  Avoid redefining it for RH 7.4 and higher.
+ */
 struct clocksource *hyperv_cs;
 EXPORT_SYMBOL_GPL(hyperv_cs);
+#endif
 
 /*
  * This function is to be invoked early in the boot sequence after the
