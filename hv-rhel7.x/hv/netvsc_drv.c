@@ -2084,8 +2084,8 @@ static struct  hv_driver netvsc_drv = {
 static int netvsc_netdev_event(struct notifier_block *this,
 			       unsigned long event, void *ptr)
 {
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,3))
-	/* Not in RHEL 7.3 kernel - check again when 7.3 releases - NHM */
+#ifdef NOTYET
+	/* Not in RHEL 7.4 kernel - check again when next version releases - alexng */
 	struct net_device *event_dev = netdev_notifier_info_to_dev(ptr);
 #else
 	struct net_device *event_dev = ptr;
