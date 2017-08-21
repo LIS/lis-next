@@ -921,6 +921,8 @@ struct vmbus_channel {
 	 */
 	enum hv_numa_policy affinity_policy;
 
+	bool probe_done;
+
 };
 
 static inline bool is_hvsock_channel(const struct vmbus_channel *c)
@@ -1084,12 +1086,6 @@ extern int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
                                            u32 bufferlen,
                                            u64 requestid,
                                            u32 flags);
-
-extern int vmbus_sendpacket_multipagebuffer(struct vmbus_channel *channel,
-					struct hv_multipage_buffer *mpb,
-					void *buffer,
-					u32 bufferlen,
-					u64 requestid);
 
 extern int vmbus_sendpacket_mpb_desc(struct vmbus_channel *channel,
 				     struct vmbus_packet_mpb_array *mpb,

@@ -221,6 +221,11 @@ int vmbus_open(struct vmbus_channel *newchannel, u32 send_ringbuffer_size,
 		      &vmbus_connection.chn_msg_list);
 	spin_unlock_irqrestore(&vmbus_connection.channelmsg_lock, flags);
 
+	if (newchannel->rescind) {
+		err = -ENODEV;
+		goto error_free_gpadl;
+	}
+
 	ret = vmbus_post_msg(open_msg,
 			       sizeof(struct vmbus_channel_open_channel),
 				true);
@@ -467,6 +472,11 @@ int vmbus_establish_gpadl(struct vmbus_channel *channel, void *kbuffer,
 
 	spin_unlock_irqrestore(&vmbus_connection.channelmsg_lock, flags);
 
+	if (channel->rescind) {
+		ret = -ENODEV;
+		goto cleanup;
+	}
+
 	ret = vmbus_post_msg(gpadlmsg, msginfo->msgsize -
 			       sizeof(*msginfo),true);
 	if (ret != 0)
@@ -541,6 +551,10 @@ int vmbus_teardown_gpadl(struct vmbus_channel *channel, u32 gpadl_handle)
 	list_add_tail(&info->msglistentry,
 		      &vmbus_connection.chn_msg_list);
 	spin_unlock_irqrestore(&vmbus_connection.channelmsg_lock, flags);
+
+	if (channel->rescind)
+		goto post_msg_err;
+
 	ret = vmbus_post_msg(msg,
 			       sizeof(struct vmbus_channel_gpadl_teardown), true);
 
@@ -899,62 +913,6 @@ int vmbus_sendpacket_mpb_desc(struct vmbus_channel *channel,
 	return hv_ringbuffer_write(channel, bufferlist, 3);
 }
 EXPORT_SYMBOL_GPL(vmbus_sendpacket_mpb_desc);
-
-/*
- * vmbus_sendpacket_multipagebuffer - Send a multi-page buffer packet
- * using a GPADL Direct packet type.
- */
-int vmbus_sendpacket_multipagebuffer(struct vmbus_channel *channel,
-				struct hv_multipage_buffer *multi_pagebuffer,
-				void *buffer, u32 bufferlen, u64 requestid)
-{
-	struct vmbus_channel_packet_multipage_buffer desc;
-	u32 descsize;
-	u32 packetlen;
-	u32 packetlen_aligned;
-	struct kvec bufferlist[3];
-	u64 aligned_data = 0;
-	u32 pfncount = NUM_PAGES_SPANNED(multi_pagebuffer->offset,
-					 multi_pagebuffer->len);
-
-	if (pfncount > MAX_MULTIPAGE_BUFFER_COUNT)
-		return -EINVAL;
-
-	/*
-	 * Adjust the size down since vmbus_channel_packet_multipage_buffer is
-	 * the largest size we support
-	 */
-	descsize = sizeof(struct vmbus_channel_packet_multipage_buffer) -
-			  ((MAX_MULTIPAGE_BUFFER_COUNT - pfncount) *
-			  sizeof(u64));
-	packetlen = descsize + bufferlen;
-	packetlen_aligned = ALIGN(packetlen, sizeof(u64));
-
-
-	/* Setup the descriptor */
-	desc.type = VM_PKT_DATA_USING_GPA_DIRECT;
-	desc.flags = VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED;
-	desc.dataoffset8 = descsize >> 3; /* in 8-bytes granularity */
-	desc.length8 = (u16)(packetlen_aligned >> 3);
-	desc.transactionid = requestid;
-	desc.rangecount = 1;
-
-	desc.range.len = multi_pagebuffer->len;
-	desc.range.offset = multi_pagebuffer->offset;
-
-	memcpy(desc.range.pfn_array, multi_pagebuffer->pfn_array,
-	       pfncount * sizeof(u64));
-
-	bufferlist[0].iov_base = &desc;
-	bufferlist[0].iov_len = descsize;
-	bufferlist[1].iov_base = buffer;
-	bufferlist[1].iov_len = bufferlen;
-	bufferlist[2].iov_base = &aligned_data;
-	bufferlist[2].iov_len = (packetlen_aligned - packetlen);
-
-	return hv_ringbuffer_write(channel, bufferlist, 3);
-}
-EXPORT_SYMBOL_GPL(vmbus_sendpacket_multipagebuffer);
 
 /**
  * vmbus_recvpacket() - Retrieve the user packet on the specified channel
