@@ -1312,8 +1312,7 @@ static void netvsc_get_strings(struct net_device *dev, u32 stringset, u8 *data)
 }
 
 static int
-netvsc_get_rss_hash_opts(struct netvsc_device *nvdev,
-			 struct ethtool_rxnfc *info)
+netvsc_get_rss_hash_opts(struct ethtool_rxnfc *info)
 {
 	info->data = RXH_IP_SRC | RXH_IP_DST;
 
@@ -1351,7 +1350,7 @@ netvsc_get_rxnfc(struct net_device *dev, struct ethtool_rxnfc *info,
 		return 0;
 
 	case ETHTOOL_GRXFH:
-		return netvsc_get_rss_hash_opts(nvdev, info);
+		return netvsc_get_rss_hash_opts(info);
 	}
 	return -EOPNOTSUPP;
 }
