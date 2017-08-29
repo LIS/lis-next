@@ -18,7 +18,12 @@ Runbuild()
 
 # Get kernel version and trim last 3 charcter for preamble . 
 
-kernelVersionString=$(uname -r)
+if [ "$KERNEL_VERSION" == "" ]
+then
+	kernelVersionString=$(uname -r)
+else
+	kernelVersionString=$KERNEL_VERSION	
+fi
 regex='([0-9]+\.[0-9]+\.[0-9]+)-([0-9]+)'
 
 if [[ "${kernelVersionString}" =~ $regex  ]]; then

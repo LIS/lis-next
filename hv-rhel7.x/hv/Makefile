@@ -42,6 +42,9 @@ endif
 # Get extra kernel version information beyond LINUX_VERSION_CODE or RHEL_RELEASE_CODE.
 # This is used to identify RHEL/CentOS kernel update versions.
 extraversioninfo = $(shell uname -r | awk -F'-' '{print $$2}')
+ifdef KERNEL_VERSION
+	extraversioninfo = $(KERNEL_VERSION)
+endif
 extraversion1 = $(shell echo $(extraversioninfo) | awk -F'.' '{print $$1}' | grep -E '^[0-9]+$$')
 ifneq ($(extraversion1),)
 	ccflags-y += -DEXTRAVERSION1=$(extraversion1)
