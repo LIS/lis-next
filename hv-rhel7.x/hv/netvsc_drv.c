@@ -120,11 +120,15 @@ static int netvsc_close(struct net_device *net)
 	struct net_device *vf_netdev
 		= rtnl_dereference(net_device_ctx->vf_netdev);
 	struct netvsc_device *nvdev = rtnl_dereference(net_device_ctx->nvdev);
-	int ret;
+	int ret = 0;
 	u32 aread, i, msec = 10, retry = 0, retry_max = 20;
 	struct vmbus_channel *chn;
 
 	netif_tx_disable(net);
+
+	/* No need to close rndis filter if it is removed already */
+	if (!nvdev)
+		goto out;
 
 	ret = rndis_filter_close(nvdev);
 	if (ret != 0) {
@@ -164,6 +168,7 @@ static int netvsc_close(struct net_device *net)
 		ret = -ETIMEDOUT;
 	}
 
+out:
 	if (vf_netdev)
 		dev_close(vf_netdev);
 
@@ -897,9 +902,6 @@ static int netvsc_set_channels(struct net_device *net,
 	    channels->rx_count || channels->tx_count || channels->other_count)
 		return -EINVAL;
 
-	if (count > net->num_tx_queues || count > VRSS_CHANNEL_MAX)
-		return -EINVAL;
-
 	if (!nvdev || nvdev->destroy)
 		return -ENODEV;
 
@@ -1312,8 +1314,7 @@ static void netvsc_get_strings(struct net_device *dev, u32 stringset, u8 *data)
 }
 
 static int
-netvsc_get_rss_hash_opts(struct netvsc_device *nvdev,
-			 struct ethtool_rxnfc *info)
+netvsc_get_rss_hash_opts(struct ethtool_rxnfc *info)
 {
 	info->data = RXH_IP_SRC | RXH_IP_DST;
 
@@ -1351,7 +1352,7 @@ netvsc_get_rxnfc(struct net_device *dev, struct ethtool_rxnfc *info,
 		return 0;
 
 	case ETHTOOL_GRXFH:
-		return netvsc_get_rss_hash_opts(nvdev, info);
+		return netvsc_get_rss_hash_opts(info);
 	}
 	return -EOPNOTSUPP;
 }
@@ -1432,7 +1433,7 @@ static int netvsc_set_rxfh(struct net_device *dev, const u32 *indir,
 	rndis_dev = ndev->extension;
 	if (indir) {
 		for (i = 0; i < ITAB_NUM; i++)
-			if (indir[i] >= VRSS_CHANNEL_MAX)
+			if (indir[i] >= ndev->num_chn)
 				return -EINVAL;
 
 		for (i = 0; i < ITAB_NUM; i++)
@@ -1446,7 +1447,7 @@ static int netvsc_set_rxfh(struct net_device *dev, const u32 *indir,
 		key = rndis_dev->rss_key;
 	}
 
-	return rndis_filter_set_rss_param(rndis_dev, key, ndev->num_chn);
+	return rndis_filter_set_rss_param(rndis_dev, key);
 }
 #endif
 
@@ -1602,7 +1603,12 @@ static void netvsc_link_change(struct work_struct *w)
 	bool notify = false, reschedule = false;
 	unsigned long flags, next_reconfig, delay;
 
-	rtnl_lock();
+	/* if changes are happening, comeback later */
+	if (!rtnl_trylock()) {
+		schedule_delayed_work(&ndev_ctx->dwork, LINKCHANGE_INT);
+		return;
+	}
+
 	net_device = rtnl_dereference(ndev_ctx->nvdev);
 	if (!net_device)
 		goto out_unlock;
