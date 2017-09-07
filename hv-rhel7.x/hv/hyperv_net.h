@@ -174,6 +174,7 @@ struct rndis_device {
 	struct list_head req_list;
 
 	struct work_struct mcast_work;
+	struct work_struct subchan_work;
 
 	bool link_state;        /* 0 - link up, 1 - link down */
 
@@ -215,7 +216,7 @@ void rndis_filter_update(struct netvsc_device *nvdev);
 void rndis_filter_device_remove(struct hv_device *dev,
 				struct netvsc_device *nvdev);
 int rndis_filter_set_rss_param(struct rndis_device *rdev,
-			       const u8 *key, int num_queue);
+			       const u8 *key);
 int rndis_filter_receive(struct net_device *ndev,
 			 struct netvsc_device *net_dev,
 			 struct hv_device *dev,
