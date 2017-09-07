@@ -174,7 +174,6 @@ struct rndis_device {
 	struct list_head req_list;
 
 	struct work_struct mcast_work;
-	struct work_struct subchan_work;
 
 	bool link_state;        /* 0 - link up, 1 - link down */
 
