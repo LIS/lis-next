@@ -12,6 +12,8 @@ rm -rf /usr/sbin/hv_set_ifconfig
 echo "Removing lsvmbus tool"
 rm -rf /usr/sbin/lsvmbus
 
+depmod
+
 echo "Create and install initramfs without Hyper-V drivers"
 dracut --force  "initramfs-$(uname -r).img" $(uname -r)
 cp -f "initramfs-$(uname -r).img" /boot/"initramfs-$(uname -r).img"
