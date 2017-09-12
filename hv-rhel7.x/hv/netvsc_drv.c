@@ -925,10 +925,7 @@ static int netvsc_set_channels(struct net_device *net,
 	rndis_filter_device_remove(dev, nvdev);
 
 	nvdev = rndis_filter_device_add(dev, &device_info);
-	if (!IS_ERR(nvdev)) {
-		netif_set_real_num_tx_queues(net, nvdev->num_chn);
-		netif_set_real_num_rx_queues(net, nvdev->num_chn);
-	} else {
+	if (IS_ERR(nvdev)) {
 		ret = PTR_ERR(nvdev);
 		device_info.num_chn = orig;
 		nvdev = rndis_filter_device_add(dev, &device_info);
@@ -1980,9 +1977,6 @@ static int netvsc_probe(struct hv_device *dev,
 		NETIF_F_HW_VLAN_CTAG_TX | NETIF_F_HW_VLAN_CTAG_RX;
 	net->vlan_features = net->features;
 
-	netif_set_real_num_tx_queues(net, nvdev->num_chn);
-	netif_set_real_num_rx_queues(net, nvdev->num_chn);
-
 	netdev_lockdep_set_classes(net);
 
 	ret = register_netdev(net);
@@ -2031,7 +2025,9 @@ static int netvsc_remove(struct hv_device *dev)
 	if (vf_netdev)
 		netvsc_unregister_vf(vf_netdev);
 
-	rndis_filter_device_remove(dev,
+	unregister_netdevice(net);
+
+  rndis_filter_device_remove(dev,
 				   rtnl_dereference(ndev_ctx->nvdev));
 	unregister_netdevice(net);
 	rtnl_unlock();
