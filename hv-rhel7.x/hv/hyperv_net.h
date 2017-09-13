@@ -206,6 +206,8 @@ int netvsc_recv_callback(struct net_device *net,
 			 const struct ndis_pkt_8021q_info *vlan);
 void netvsc_channel_cb(void *context);
 int netvsc_poll(struct napi_struct *napi, int budget);
+
+void rndis_set_subchannel(struct work_struct *w);
 bool rndis_filter_opened(const struct netvsc_device *nvdev);
 int rndis_filter_open(struct netvsc_device *nvdev);
 int rndis_filter_close(struct netvsc_device *nvdev);
@@ -215,7 +217,7 @@ void rndis_filter_update(struct netvsc_device *nvdev);
 void rndis_filter_device_remove(struct hv_device *dev,
 				struct netvsc_device *nvdev);
 int rndis_filter_set_rss_param(struct rndis_device *rdev,
-			       const u8 *key, int num_queue);
+			       const u8 *key);
 int rndis_filter_receive(struct net_device *ndev,
 			 struct netvsc_device *net_dev,
 			 struct hv_device *dev,
@@ -781,6 +783,7 @@ struct netvsc_device {
 	u32 num_chn;	
 
 	atomic_t open_chn;
+	struct work_struct subchan_work;
 	wait_queue_head_t subchan_open;
 
 	struct rndis_device *extension;

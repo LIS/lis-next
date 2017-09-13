@@ -513,6 +513,7 @@ static inline struct cpumask *irq_data_get_affinity_mask(struct irq_data *d)
 	return d->affinity;
 }
 
+
 #define timespec64 timespec
 #define ns_to_timespec64 ns_to_timespec
 #define do_settimeofday64 do_settimeofday
@@ -548,6 +549,11 @@ static inline enum blk_eh_timer_return fc_eh_timed_out(struct scsi_cmnd *scmd)
 
 	return BLK_EH_NOT_HANDLED;
 }
+
+/**
+ * required for daf0cd445a218314f9461d67d4f2b9c24cdd534b
+ */
+#define FC_PORT_ROLE_FCP_DUMMY_INITIATOR        0x08
 
 /**
  * refcount_t - variant of atomic_t specialized for reference counts
