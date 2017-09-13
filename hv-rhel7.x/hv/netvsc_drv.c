@@ -2027,8 +2027,9 @@ static int netvsc_remove(struct hv_device *dev)
 
 	unregister_netdevice(net);
 
-	rndis_filter_device_remove(dev,
+  rndis_filter_device_remove(dev,
 				   rtnl_dereference(ndev_ctx->nvdev));
+	unregister_netdevice(net);
 	rtnl_unlock();
 
 	hv_set_drvdata(dev, NULL);
