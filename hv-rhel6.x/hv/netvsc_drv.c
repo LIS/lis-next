@@ -956,6 +956,8 @@ static const struct {
 	{ "tx_no_space",  offsetof(struct netvsc_ethtool_stats, tx_no_space) },
 	{ "tx_too_big",	  offsetof(struct netvsc_ethtool_stats, tx_too_big) },
 	{ "tx_busy",	  offsetof(struct netvsc_ethtool_stats, tx_busy) },
+	{ "stop_queue", offsetof(struct netvsc_ethtool_stats, stop_queue) },
+	{ "wake_queue", offsetof(struct netvsc_ethtool_stats, wake_queue) },
 };
 
 #define NETVSC_GLOBAL_STATS_LEN	ARRAY_SIZE(netvsc_stats)

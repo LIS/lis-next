@@ -683,6 +683,8 @@ struct netvsc_ethtool_stats {
 	unsigned long tx_no_space;
 	unsigned long tx_too_big;
 	unsigned long tx_busy;
+	unsigned long stop_queue;
+	unsigned long wake_queue;
 };
 
 struct netvsc_reconfig {
