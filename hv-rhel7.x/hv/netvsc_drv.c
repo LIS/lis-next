@@ -290,7 +290,7 @@ static inline int netvsc_get_tx_queue(struct net_device *ndev,
 	struct sock *sk = skb->sk;
 	int q_idx;
 
-	q_idx = ndc->tx_send_table[skb_get_hash(skb) &
+	q_idx = ndc->tx_table[skb_get_hash(skb) &
 				   (VRSS_SEND_TAB_SIZE - 1)];
 
 	/* If queue index changed record the new value */
@@ -312,7 +312,7 @@ static u16 netvsc_pick_tx(struct net_device *ndev, struct sk_buff *skb)
 		return 0;
 
 	if (netvsc_set_hash(&hash, skb)) {
-		q_idx = net_device_ctx->tx_send_table[hash % VRSS_SEND_TAB_SIZE] %
+		q_idx = net_device_ctx->tx_table[hash % VRSS_SEND_TAB_SIZE] %
 			ndev->real_num_tx_queues;
 		skb_set_hash(skb, hash, PKT_HASH_TYPE_L3);
 	}
