@@ -1,0 +1,16 @@
+# Object files
+*.o
+*.ko
+*.obj
+*.elf
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Temporary files
+.tmp_versions
+Module.symvers
+modules.order
+*.img
+*.unsigned
