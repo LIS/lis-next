@@ -717,9 +717,9 @@ static void vmbus_onmessage_work(struct work_struct *work)
 }
 
 static void hv_process_timer_expiration(struct hv_message *msg,
-					struct hv_per_cpu_context *hv_cpu)
+					int cpu)
 {
-	struct clock_event_device *dev = hv_cpu->clk_evt;
+	struct clock_event_device *dev = hv_context.clk_evt[cpu];
 
 	if (dev->event_handler)
 		dev->event_handler(dev);
@@ -873,6 +873,7 @@ static void vmbus_isr(void)
 static irqreturn_t vmbus_isr(int irq, void *dev_id)
 #endif
 {
+	int cpu = smp_processor_id();
 	struct hv_per_cpu_context *hv_cpu
 		= this_cpu_ptr(hv_context.cpu_context);
 	void *page_addr = hv_cpu->synic_event_page;
@@ -920,7 +921,7 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id)
 	/* Check if there are actual msgs to be processed */
 	if (msg->header.message_type != HVMSG_NONE) {
 		if (msg->header.message_type == HVMSG_TIMER_EXPIRED)
-			hv_process_timer_expiration(msg, hv_cpu);
+			hv_process_timer_expiration(msg, cpu);
 		else
 			tasklet_schedule(&hv_cpu->msg_dpc);
 	}
@@ -939,6 +940,51 @@ static irqreturn_t vmbus_isr(int irq, void *dev_id)
 #endif
 }
 
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
+static void hv_synic_init_oncpu(void *arg)
+{
+	int cpu = get_cpu();
+	hv_synic_init(cpu);
+	put_cpu();
+}
+
+static void hv_synic_cleanup_oncpu(void *arg)
+{
+	int cpu = get_cpu();
+	hv_synic_cleanup(cpu);
+	put_cpu();
+}
+
+static int hv_cpuhp_callback(struct notifier_block *nfb,
+			     unsigned long action, void *hcpu)
+{
+	unsigned long cpu = (unsigned long) hcpu;
+
+	switch (action & ~CPU_TASKS_FROZEN) {
+		case CPU_STARTING:
+			hv_synic_init(cpu);
+			break;
+		case CPU_DYING:
+			hv_synic_cleanup(cpu);
+			break;
+		case CPU_DOWN_PREPARE:		
+			if (hv_synic_cpu_used(cpu))
+				return NOTIFY_BAD;
+			hv_clockevents_unbind(cpu);
+			break;
+		case CPU_DOWN_FAILED:
+			hv_clockevents_bind(cpu);
+			break;
+		}
+	return NOTIFY_OK;
+}
+
+static struct notifier_block hv_cpuhp_notifier __refdata = {
+	.notifier_call = hv_cpuhp_callback,
+	.priority = INT_MAX,
+};
+
+#else
 #ifdef CONFIG_HOTPLUG_CPU
 static int hyperv_cpu_disable(void)
 {
@@ -971,6 +1017,7 @@ static void hv_cpu_hotplug_quirk(bool vmbus_loaded)
 {
 }
 #endif
+#endif
 
 
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
@@ -1002,7 +1049,7 @@ static int vmbus_bus_init(void)
 static int vmbus_bus_init(int irq)
 #endif
 {
-	int ret;
+	int ret, cpu;
 
 	/* Hypervisor initialization...setup hypercall page..etc */
 	ret = hv_init();
@@ -1042,7 +1089,15 @@ static int vmbus_bus_init(int irq)
 	 * Initialize the per-cpu interrupt state and
 	 * connect to the host.
 	 */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3)) 
+	cpu_notifier_register_begin();
+	on_each_cpu(hv_synic_init_oncpu, NULL, 1);
+	__register_hotcpu_notifier(&hv_cpuhp_notifier);
+	cpu_notifier_register_done();
+#else
 	on_each_cpu(hv_synic_init, NULL, 1);
+#endif
+
 	ret = vmbus_connect();
 	if (ret)
 		goto err_connect;
@@ -1059,14 +1114,27 @@ static int vmbus_bus_init(int irq)
                 atomic_notifier_chain_register(&panic_notifier_list,
                                                &hyperv_panic_block);
         }
-	
+
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
 	hv_cpu_hotplug_quirk(true);
+#endif
 	vmbus_request_offers();
 
 	return 0;
 
 err_connect:
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
+	cpu_notifier_register_begin();
+	__unregister_hotcpu_notifier(&hv_cpuhp_notifier);
+	for_each_online_cpu(cpu) {
+		hv_clockevents_unbind(cpu);
+		smp_call_function_single(cpu, hv_synic_cleanup_oncpu, NULL, 1);
+	}
+	cpu_notifier_register_done();
+#else
 	on_each_cpu(hv_synic_cleanup, NULL, 1);
+#endif
+
 err_alloc:
 	hv_synic_free();
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2)) /* KYS; we may have to tweak this */
@@ -1547,7 +1615,7 @@ static void hv_kexec_handler(void)
 	hv_synic_clockevents_cleanup();
 	vmbus_initiate_unload(false);
 	for_each_online_cpu(cpu)
-		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
+		smp_call_function_single(cpu, hv_synic_cleanup_oncpu, NULL, 1);
 	hyperv_cleanup();
 };
 #endif
@@ -1561,7 +1629,7 @@ static void hv_crash_handler(struct pt_regs *regs)
 	 * doing the cleanup for current CPU only. This should be sufficient
 	 * for kdump.
 	 */
-	hv_synic_cleanup(NULL);
+	hv_synic_cleanup(smp_processor_id());
 	hyperv_cleanup();
 };
 #endif
@@ -1644,11 +1712,20 @@ static void __exit vmbus_exit(void)
 						 &hyperv_panic_block);
 	}
 	bus_unregister(&hv_bus);
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
+	cpu_notifier_register_begin();
+	__unregister_hotcpu_notifier(&hv_cpuhp_notifier);
+	for_each_online_cpu(cpu) {
+		smp_call_function_single(cpu, hv_synic_cleanup_oncpu, NULL, 1);
+	}
+	cpu_notifier_register_done();
+#else
 	for_each_online_cpu(cpu)
-		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
+		smp_call_function_single(cpu, hv_synic_cleanup_oncpu, NULL, 1);
+	hv_cpu_hotplug_quirk(false);
+#endif
 	hv_synic_free();
 	acpi_bus_unregister_driver(&vmbus_acpi_driver);
-	hv_cpu_hotplug_quirk(false);
 }
 
 

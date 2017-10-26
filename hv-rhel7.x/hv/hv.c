@@ -239,6 +239,58 @@ void hv_synic_free(void)
 	kfree(hv_context.hv_numa_map);
 }
 
+void hv_clockevents_bind(int cpu)
+{
+	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
+		clockevents_config_and_register(hv_context.clk_evt[cpu],
+						HV_TIMER_FREQUENCY,
+						HV_MIN_DELTA_TICKS,
+						HV_MAX_MAX_DELTA_TICKS);
+}
+
+void hv_clockevents_unbind(int cpu)
+{
+	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
+		clockevents_unbind_device(hv_context.clk_evt[cpu], cpu);
+}
+
+int hv_synic_cpu_used(unsigned int cpu)
+{
+	struct vmbus_channel *channel, *sc;
+	bool channel_found = false;
+	unsigned long flags;
+
+	/*
+	 * Search for channels which are bound to the CPU we're about to
+	 * cleanup. In case we find one and vmbus is still connected we need to
+	 * fail, this will effectively prevent CPU offlining. There is no way
+	 * we can re-bind channels to different CPUs for now.
+	 */
+	mutex_lock(&vmbus_connection.channel_mutex);
+	list_for_each_entry(channel, &vmbus_connection.chn_list, listentry) {
+		if (channel->target_cpu == cpu) {
+			channel_found = true;
+			break;
+		}
+		spin_lock_irqsave(&channel->lock, flags);
+		list_for_each_entry(sc, &channel->sc_list, sc_list) {
+			if (sc->target_cpu == cpu) {
+				channel_found = true;
+				break;
+			}
+		}
+		spin_unlock_irqrestore(&channel->lock, flags);
+		if (channel_found)
+			break;
+	}
+	mutex_unlock(&vmbus_connection.channel_mutex);
+
+	if (channel_found && vmbus_connection.conn_state == CONNECTED)
+		return 1;
+
+	return 0;
+}
+
 /*
  * hv_synic_init - Initialize the Synthethic Interrupt Controller.
  *
@@ -307,16 +359,11 @@ void hv_synic_init(void *arg)
 	hv_get_vp_index(vp_index);
 	hv_context.vp_index[cpu] = (u32)vp_index;
 
-#ifdef NOTYET
 	/*
 	 * Register the per-cpu clockevent source.
 	 */
-	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
-		clockevents_config_and_register(hv_cpu->clk_evt,
-						HV_TIMER_FREQUENCY,
-						HV_MIN_DELTA_TICKS,
-						HV_MAX_MAX_DELTA_TICKS);
-#endif
+	hv_clockevents_bind(cpu);
+
 	return;
 }
 
