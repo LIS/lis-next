@@ -59,6 +59,9 @@ int hv_init(void)
 	 * we do this at module load time.
 	 */
 	hyperv_init();
+
+	memset(hv_context.clk_evt, 0, sizeof(void *) * NR_CPUS);
+
 	hv_print_host_info();
 
 	if (!hv_is_hypercall_page_setup())
@@ -183,13 +186,13 @@ int hv_synic_alloc(void)
 		tasklet_init(&hv_cpu->msg_dpc,
 			     vmbus_on_msg_dpc, (unsigned long) hv_cpu);
 
-		hv_cpu->clk_evt = kzalloc(sizeof(struct clock_event_device),
-					  GFP_KERNEL);
-		if (hv_cpu->clk_evt == NULL) {
+		hv_context.clk_evt[cpu] = kzalloc(sizeof(struct clock_event_device),
+						  GFP_ATOMIC);
+		if (hv_context.clk_evt[cpu] == NULL) {
 			pr_err("Unable to allocate clock event device\n");
 			goto err;
 		}
-		hv_init_clockevent_device(hv_cpu->clk_evt, cpu);
+		hv_init_clockevent_device(hv_context.clk_evt[cpu], cpu);
 
 		hv_cpu->synic_message_page =
 			(void *)get_zeroed_page(GFP_ATOMIC);
@@ -234,6 +237,8 @@ void hv_synic_free(void)
 			free_page((unsigned long)hv_cpu->synic_message_page);
 		if (hv_cpu->post_msg_page)
 			free_page((unsigned long)hv_cpu->post_msg_page);
+		if (hv_context.clk_evt[cpu])
+			kfree(hv_context.clk_evt[cpu]);
 	}
 
 	kfree(hv_context.hv_numa_map);
@@ -298,7 +303,7 @@ int hv_synic_cpu_used(unsigned int cpu)
  * retrieve the initialized message and event pages.  Otherwise, we create and
  * initialize the message and event pages.
  */
-void hv_synic_init(void *arg)
+void hv_synic_init(unsigned int arg)
 {
 	union hv_synic_simp simp;
 	union hv_synic_siefp siefp;
@@ -378,18 +383,14 @@ void hv_synic_clockevents_cleanup(void)
 	if (!(ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE))
 		return;
 
-	for_each_present_cpu(cpu) {
-		struct hv_per_cpu_context *hv_cpu
-			= per_cpu_ptr(hv_context.cpu_context, cpu);
-
-		clockevents_unbind_device(hv_cpu->clk_evt, cpu);
-	}
+	for_each_present_cpu(cpu)
+		clockevents_unbind_device(hv_context.clk_evt[cpu], cpu);
 }
 #endif
 /*
  * hv_synic_cleanup - Cleanup routine for hv_synic_init().
  */
-void hv_synic_cleanup(void *arg)
+void hv_synic_cleanup(unsigned int cpu)
 {
 	union hv_synic_sint shared_sint;
 	union hv_synic_simp simp;
@@ -415,13 +416,10 @@ void hv_synic_cleanup(void *arg)
 	}
 #else
 */
-	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE) {
-		struct hv_per_cpu_context *hv_cpu
-			= this_cpu_ptr(hv_context.cpu_context);
-
-		hv_ce_setmode(CLOCK_EVT_MODE_SHUTDOWN, hv_cpu->clk_evt);
-		put_cpu_ptr(hv_cpu);
-	}
+	/* Turn off clockevent device */
+	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
+		hv_ce_setmode(CLOCK_EVT_MODE_SHUTDOWN,
+			      hv_context.clk_evt[cpu]);
 
 	hv_get_synint_state(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT,
 			    shared_sint.as_uint64);
