@@ -597,8 +597,8 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 	u32 cur_cpu;
 	bool perf_chn = vmbus_devs[dev_type].perf_device;
 	struct vmbus_channel *primary = channel->primary_channel;
-        int next_node;
-        struct cpumask available_mask;
+	int next_node;
+	struct cpumask available_mask;
 	struct cpumask *alloced_mask;
 	struct cpumask *cpu_sibling_mask;
 	struct cpumask *cpu_thread_tmp_mask;
@@ -644,10 +644,9 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 
 		/* 
 		 * We have cycled through all the CPUs in the node;
-	         * reset the alloced map.
-	         */
+		 * reset the alloced map.
+		 */
 		cpumask_clear(alloced_mask);
-
         }
 
 	cpumask_xor(&available_mask, alloced_mask,
@@ -688,8 +687,18 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 		cpumask_and(cpu_thread_tmp_mask,
 			    cpu_sibling_mask,
 			    &available_mask);
-		if (!cpumask_equal(cpu_thread_tmp_mask, cpu_sibling_mask))
+		if (!cpumask_equal(cpu_thread_tmp_mask, cpu_sibling_mask)) {
+			/*
+			 * NOTE: The thread sibling of this CPU has been
+			 * assigned to a channel.
+			 * We do not assign both Hyper-Threading CPUs of
+			 * the same physical core to vmbus channels.
+			 * So, mark this CPU as occupied too then move to
+			 * next one and try.
+			 */
+			cpumask_set_cpu(cur_cpu, alloced_mask);
 			continue;
+		}
 
 		if (primary->affinity_policy == HV_LOCALIZED) {
 			/*
