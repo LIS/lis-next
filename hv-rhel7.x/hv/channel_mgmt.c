@@ -29,6 +29,7 @@
 #include <linux/list.h>
 #include <linux/module.h>
 #include <linux/completion.h>
+#include <linux/topology.h>
 #include <linux/delay.h>
 #include "include/linux/hyperv.h"
 #include <lis/asm/mshyperv.h>
@@ -596,9 +597,11 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 	u32 cur_cpu;
 	bool perf_chn = vmbus_devs[dev_type].perf_device;
 	struct vmbus_channel *primary = channel->primary_channel;
-        int next_node;
-        struct cpumask available_mask;
+	int next_node;
+	struct cpumask available_mask;
 	struct cpumask *alloced_mask;
+	struct cpumask *cpu_sibling_mask;
+	struct cpumask *cpu_thread_tmp_mask;
 
 	if ((vmbus_proto_version == VERSION_WS2008) ||
 	    (vmbus_proto_version == VERSION_WIN7) || (!perf_chn)) {
@@ -641,10 +644,9 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 
 		/* 
 		 * We have cycled through all the CPUs in the node;
-	         * reset the alloced map.
-	         */
+		 * reset the alloced map.
+		 */
 		cpumask_clear(alloced_mask);
-
         }
 
 	cpumask_xor(&available_mask, alloced_mask,
@@ -664,12 +666,37 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 			cpumask_clear(&primary->alloced_cpus_in_node);
 	}
 
+	cpu_thread_tmp_mask = kzalloc(cpumask_size(), GFP_KERNEL);
+	if (!cpu_thread_tmp_mask) {
+		channel->numa_node = 0;
+		channel->target_cpu = 0;
+		channel->target_vp = hv_context.vp_index[0];
+		return;
+	}
+
 	while (true) {
 		cur_cpu = cpumask_next(cur_cpu, &available_mask);
 		if (cur_cpu >= nr_cpu_ids) {
 			cur_cpu = -1;
 			cpumask_copy(&available_mask,
 				     cpumask_of_node(primary->numa_node));
+			continue;
+		}
+
+		cpu_sibling_mask = topology_sibling_cpumask(cur_cpu);
+		cpumask_and(cpu_thread_tmp_mask,
+			    cpu_sibling_mask,
+			    &available_mask);
+		if (!cpumask_equal(cpu_thread_tmp_mask, cpu_sibling_mask)) {
+			/*
+			 * NOTE: The thread sibling of this CPU has been
+			 * assigned to a channel.
+			 * We do not assign both Hyper-Threading CPUs of
+			 * the same physical core to vmbus channels.
+			 * So, mark this CPU as occupied too then move to
+			 * next one and try.
+			 */
+			cpumask_set_cpu(cur_cpu, alloced_mask);
 			continue;
 		}
 
@@ -698,6 +725,7 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 
 	channel->target_cpu = cur_cpu;
 	channel->target_vp = hv_context.vp_index[cur_cpu];
+	kfree(cpu_thread_tmp_mask);
 }
 
 static void vmbus_wait_for_unload(void)

@@ -216,7 +216,6 @@ struct hv_per_cpu_context {
 	 * per-cpu list of the channels based on their CPU affinity.
 	 */
 	struct list_head chan_list;
-	struct clock_event_device *clk_evt;
 };
 
 struct hv_context {
@@ -242,6 +241,8 @@ struct hv_context {
 	 */
 	u32 vp_index[NR_CPUS];
 
+	struct clock_event_device *clk_evt[NR_CPUS];
+
 	/*
          * To manage allocations in a NUMA node.
          * Array indexed by numa node ID.
@@ -263,11 +264,17 @@ extern int hv_synic_alloc(void);
 
 extern void hv_synic_free(void);
 
-extern void hv_synic_init(void *irqarg);
+extern void hv_synic_init(unsigned int cpu);
 
-extern void hv_synic_cleanup(void *arg);
+extern void hv_synic_cleanup(unsigned int cpu);
 
 extern void hv_synic_clockevents_cleanup(void);
+
+extern void hv_clockevents_bind(int cpu);
+
+extern void hv_clockevents_unbind(int cpu);
+
+extern int hv_synic_cpu_used(unsigned int cpu);
 
 /* Interface */
 
