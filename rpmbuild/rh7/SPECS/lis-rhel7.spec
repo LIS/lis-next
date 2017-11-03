@@ -64,6 +64,7 @@ cp tools/systemd/70-hv_fcopy.rules 70-hv_fcopy.rules
 cp tools/systemd/70-hv_kvp.rules 70-hv_kvp.rules
 cp tools/systemd/70-hv_vss.rules 70-hv_vss.rules
 cp %_sourcedir/100-balloon.rules 100-balloon.rules
+cp %_sourcedir/68-azure-sriov-nm-unmanaged.rules 68-azure-sriov-nm-unmanaged.rules
 cp tools/hv_kvp_daemon.c %_sourcedir/
 cp tools/hv_vss_daemon.c %_sourcedir/
 cp tools/hv_fcopy_daemon.c %_sourcedir/
@@ -93,6 +94,7 @@ for flavor in %flavors_to_build; do
 done
 install -d -m0755 $RPM_BUILD_ROOT/etc/udev/rules.d/
 install    -m0644 source/100-balloon.rules $RPM_BUILD_ROOT/etc/udev/rules.d/
+install    -m0644 source/68-azure-sriov-nm-unmanaged.rules $RPM_BUILD_ROOT/lib/udev/rules.d/
 install -d -m0755 $RPM_BUILD_ROOT/etc/depmod.d/
 install    -m0644 source/hyperv.conf $RPM_BUILD_ROOT/etc/depmod.d/hyperv.conf
 install -d -m0755 $RPM_BUILD_ROOT/opt/files
@@ -234,6 +236,7 @@ fi
 %files
 %defattr(0644, root, root)
 /etc/udev/rules.d/100-balloon.rules
+/lib/udev/rules.d/68-azure-sriov-nm-unmanaged.rules
 /usr/lib/udev/rules.d/70-hv_vss.rules
 /usr/lib/udev/rules.d/70-hv_kvp.rules
 /usr/lib/udev/rules.d/70-hv_fcopy.rules
