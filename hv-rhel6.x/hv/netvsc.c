@@ -79,6 +79,7 @@ static struct netvsc_device *alloc_net_device(void)
 	net_device->max_pkt = RNDIS_MAX_PKT_DEFAULT;
 	net_device->pkt_align = RNDIS_PKT_ALIGN_DEFAULT;
 	init_completion(&net_device->channel_init_wait);
+	INIT_WORK(&net_device->subchan_work, rndis_set_subchannel);
 
 	return net_device;
 }
@@ -559,6 +560,8 @@ void netvsc_device_remove(struct hv_device *device)
 	struct netvsc_device *net_device
 		= rtnl_dereference(net_device_ctx->nvdev);
 	int i;
+
+	cancel_work_sync(&net_device->subchan_work);
 
 	netvsc_disconnect_vsp(device);
 
