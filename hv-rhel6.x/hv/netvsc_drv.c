@@ -750,11 +750,7 @@ static int netvsc_set_channels(struct net_device *net,
 	device_info.ring_size = ring_size;
 
 	nvdev = rndis_filter_device_add(dev, &device_info);
-	if (!IS_ERR(nvdev)) {
-		netif_set_real_num_tx_queues(net, nvdev->num_chn);
-		netif_set_real_num_rx_queues(net, nvdev->num_chn);
-		ret = PTR_ERR(nvdev);
-	} else {
+	if (IS_ERR(nvdev)) {
 		device_info.num_chn = orig;
 		rndis_filter_device_add(dev, &device_info);
 	}
@@ -1588,6 +1584,11 @@ static int netvsc_probe(struct hv_device *dev,
 	net->ethtool_ops = &ethtool_ops;
 	SET_NETDEV_DEV(net, &dev->device);
 
+	netif_set_real_num_tx_queues(net, 1);
+#ifdef NOTYET
+	netif_set_real_num_rx_queues(net, 1);
+#endif
+
 	/* Notify the netvsc driver of the new device */
 	memset(&device_info, 0, sizeof(device_info));
 	device_info.ring_size = ring_size;
@@ -1616,11 +1617,6 @@ static int netvsc_probe(struct hv_device *dev,
 	net->vlan_features = net->features;
 
 	netdev_lockdep_set_classes(net);
-
-	netif_set_real_num_tx_queues(net, nvdev->num_chn);
-#ifdef NOTYET
-	netif_set_real_num_rx_queues(net, nvdev->num_chn);
-#endif
 
 	dev_info(&dev->device, "real num tx,rx queues:%u, %u\n",
 		 net->real_num_tx_queues, nvdev->num_chn);
@@ -1653,6 +1649,8 @@ static int netvsc_remove(struct hv_device *dev)
 
 	cancel_delayed_work_sync(&ndev_ctx->dwork);
 
+	unregister_netdev(net);
+
 	/*
 	 * Call to the vsc driver to let it know that the device is being
 	 * removed. Also blocks mtu and channel changes.
@@ -1661,8 +1659,6 @@ static int netvsc_remove(struct hv_device *dev)
 	rndis_filter_device_remove(dev,
 				   rtnl_dereference(ndev_ctx->nvdev));
 	rtnl_unlock();
-
-	unregister_netdev(net);
 
 	hv_set_drvdata(dev, NULL);
 
