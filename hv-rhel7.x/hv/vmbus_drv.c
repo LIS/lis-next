@@ -983,7 +983,6 @@ static struct notifier_block hv_cpuhp_notifier __refdata = {
 	.notifier_call = hv_cpuhp_callback,
 	.priority = INT_MAX,
 };
-
 #else
 #ifdef CONFIG_HOTPLUG_CPU
 static int hyperv_cpu_disable(void)
@@ -1019,7 +1018,6 @@ static void hv_cpu_hotplug_quirk(bool vmbus_loaded)
 #endif
 #endif
 
-
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 /*
  * vmbus interrupt flow handler:
@@ -1049,7 +1047,11 @@ static int vmbus_bus_init(void)
 static int vmbus_bus_init(int irq)
 #endif
 {
-	int ret, cpu;
+	int ret;
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
+	int cpu;
+#endif
+
 
 	/* Hypervisor initialization...setup hypercall page..etc */
 	ret = hv_init();
@@ -1721,7 +1723,7 @@ static void __exit vmbus_exit(void)
 	cpu_notifier_register_done();
 #else
 	for_each_online_cpu(cpu)
-		smp_call_function_single(cpu, hv_synic_cleanup_oncpu, NULL, 1);
+		smp_call_function_single(cpu, hv_synic_cleanup, NULL, 1);
 	hv_cpu_hotplug_quirk(false);
 #endif
 	hv_synic_free();

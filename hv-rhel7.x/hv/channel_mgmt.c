@@ -600,8 +600,11 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 	int next_node;
 	struct cpumask available_mask;
 	struct cpumask *alloced_mask;
+
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
 	struct cpumask *cpu_sibling_mask;
 	struct cpumask *cpu_thread_tmp_mask;
+#endif
 
 	if ((vmbus_proto_version == VERSION_WS2008) ||
 	    (vmbus_proto_version == VERSION_WIN7) || (!perf_chn)) {
@@ -666,6 +669,7 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 			cpumask_clear(&primary->alloced_cpus_in_node);
 	}
 
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
 	cpu_thread_tmp_mask = kzalloc(cpumask_size(), GFP_KERNEL);
 	if (!cpu_thread_tmp_mask) {
 		channel->numa_node = 0;
@@ -673,6 +677,7 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 		channel->target_vp = hv_context.vp_index[0];
 		return;
 	}
+#endif
 
 	while (true) {
 		cur_cpu = cpumask_next(cur_cpu, &available_mask);
@@ -683,6 +688,7 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 			continue;
 		}
 
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))  
 		cpu_sibling_mask = topology_sibling_cpumask(cur_cpu);
 		cpumask_and(cpu_thread_tmp_mask,
 			    cpu_sibling_mask,
@@ -699,6 +705,7 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 			cpumask_set_cpu(cur_cpu, alloced_mask);
 			continue;
 		}
+#endif
 
 		if (primary->affinity_policy == HV_LOCALIZED) {
 			/*
@@ -725,7 +732,10 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 
 	channel->target_cpu = cur_cpu;
 	channel->target_vp = hv_context.vp_index[cur_cpu];
+
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
 	kfree(cpu_thread_tmp_mask);
+#endif
 }
 
 static void vmbus_wait_for_unload(void)

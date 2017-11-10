@@ -264,9 +264,15 @@ extern int hv_synic_alloc(void);
 
 extern void hv_synic_free(void);
 
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
 extern void hv_synic_init(unsigned int cpu);
 
 extern void hv_synic_cleanup(unsigned int cpu);
+#else
+extern void hv_synic_init(void *cpu);
+
+extern void hv_synic_cleanup(void *cpu);
+#endif
 
 extern void hv_synic_clockevents_cleanup(void);
 
