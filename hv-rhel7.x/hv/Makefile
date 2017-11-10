@@ -58,8 +58,10 @@ endif
 
 ccflags-y += -I$(M)/include/ -I$(M)/arch/$(ARCH)/include -I$(M)/arch/$(ARCH)/include/uapi
 
+CFLAGS_hv_trace.o = -I$(src)
+
 hv_vmbus-y := vmbus_drv.o \
-		 hv.o connection.o channel.o \
+		 hv.o connection.o channel.o  hv_trace.o \
 		 channel_mgmt.o ring_buffer.o arch/$(ARCH)/hyperv/hv_init.o
 hv_utils-y := hv_util.o hv_kvp.o hv_snapshot.o hv_fcopy.o hv_utils_transport.o
 
