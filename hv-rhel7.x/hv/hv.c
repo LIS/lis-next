@@ -244,6 +244,7 @@ void hv_synic_free(void)
 	kfree(hv_context.hv_numa_map);
 }
 
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))  
 void hv_clockevents_bind(int cpu)
 {
 	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
@@ -295,6 +296,7 @@ int hv_synic_cpu_used(unsigned int cpu)
 
 	return 0;
 }
+#endif 
 
 /*
  * hv_synic_init - Initialize the Synthethic Interrupt Controller.
@@ -303,7 +305,11 @@ int hv_synic_cpu_used(unsigned int cpu)
  * retrieve the initialized message and event pages.  Otherwise, we create and
  * initialize the message and event pages.
  */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
 void hv_synic_init(unsigned int arg)
+#else
+void hv_synic_init(void *arg)
+#endif
 {
 	union hv_synic_simp simp;
 	union hv_synic_siefp siefp;
@@ -364,11 +370,20 @@ void hv_synic_init(unsigned int arg)
 	hv_get_vp_index(vp_index);
 	hv_context.vp_index[cpu] = (u32)vp_index;
 
+#ifdef NOTYET
 	/*
 	 * Register the per-cpu clockevent source.
 	 */
-	hv_clockevents_bind(cpu);
+	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE) 
+		clockevents_config_and_register(hv_cpu->clk_evt, 
+			HV_TIMER_FREQUENCY, 
+			HV_MIN_DELTA_TICKS, 
+			HV_MAX_MAX_DELTA_TICKS); 
+#endif
 
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
+	hv_clockevents_bind(cpu);
+#endif
 	return;
 }
 
@@ -390,17 +405,22 @@ void hv_synic_clockevents_cleanup(void)
 /*
  * hv_synic_cleanup - Cleanup routine for hv_synic_init().
  */
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
 void hv_synic_cleanup(unsigned int cpu)
+#else
+void hv_synic_cleanup(void *arg)
+#endif
 {
 	union hv_synic_sint shared_sint;
 	union hv_synic_simp simp;
 	union hv_synic_siefp siefp;
 	union hv_synic_scontrol sctrl;
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
+	unsigned int cpu = smp_processor_id();
+#endif
 
 	if (!hv_context.synic_initialized)
 		return;
-
-	/* Turn off clockevent device */
 
 /*	Upstream referecen: 6ffc4b85358f6b7d252420cfa5862312cf5f83d8
 	Code locks on 7.3 with no reboot during kdump
