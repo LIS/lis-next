@@ -2430,6 +2430,10 @@ static int hvnd_create_listen(struct iw_cm_id *cm_id, int backlog)
 	nd_dev = to_nd_dev(cm_id->device);
 	uctx = get_uctx(nd_dev, current_pid());
 	hvnd_debug("uctx is %p; pid is %d\n", uctx, current_pid());
+	if (!uctx) {
+		hvnd_error("no user context found for the current process\n");
+		return -ENODATA;
+	}
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	if (cm_id->local_addr.sin_family != AF_INET) {
