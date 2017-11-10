@@ -851,7 +851,9 @@ static void vmbus_chan_sched(struct hv_per_cpu_context *hv_cpu)
 		list_for_each_entry_rcu(channel, &hv_cpu->chan_list, percpu_list) {
 			if (channel->offermsg.child_relid != relid)
 				continue;
-
+		
+			trace_vmbus_chan_sched(channel);
+	
 			switch (channel->callback_mode) {
 			case HV_CALL_ISR:
 				vmbus_channel_isr(channel);
