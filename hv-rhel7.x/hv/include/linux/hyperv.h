@@ -1042,13 +1042,6 @@ extern int vmbus_sendpacket(struct vmbus_channel *channel,
 				  enum vmbus_packet_type type,
 				  u32 flags);
 
-extern int vmbus_sendpacket_ctl(struct vmbus_channel *channel,
-                                  void *buffer,
-                                  u32 bufferLen,
-                                  u64 requestid,
-                                  enum vmbus_packet_type type,
-                                  u32 flags);
-
 extern int vmbus_sendpacket_hvsock(struct vmbus_channel *channel,
 				   void *buf, u32 len);
 
