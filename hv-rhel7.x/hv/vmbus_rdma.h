@@ -1912,20 +1912,29 @@ static inline int insert_handle(struct hvnd_dev *dev, struct idr *idr,
 				void *handle, u32 id)
 {
 	int ret;
-	int newid;
 	unsigned long flags;
-
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
+	int newid;
 	do {
 		if (!idr_pre_get(idr, GFP_KERNEL)) {
 			return -ENOMEM;
 		}
 		spin_lock_irqsave(&dev->id_lock, flags);
 		ret = idr_get_new_above(idr, handle, id, &newid);
-		BUG_ON(newid != id);
+		WARN(newid != id, "Failed to allocate id=%d ret=%d\n", id, ret);
 		spin_unlock_irqrestore(&dev->id_lock, flags);
 	} while (ret == -EAGAIN);
-
 	return ret;
+#else
+	idr_preload(GFP_KERNEL);
+	spin_lock_irqsave(&dev->id_lock, flags);
+	ret = idr_alloc(idr, handle, id, id + 1, GFP_ATOMIC);
+	spin_unlock_irqrestore(&dev->id_lock, flags);
+	idr_preload_end();
+
+	WARN(ret < 0, "Failed to allocate for id=%d ret=%d\n", id, ret);
+	return ret < 0 ? ret : 0;
+#endif
 }
 
 static inline void remove_handle(struct hvnd_dev *dev, struct idr *idr, u32 id)
