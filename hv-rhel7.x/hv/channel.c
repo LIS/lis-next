@@ -43,6 +43,8 @@ void vmbus_setevent(struct vmbus_channel *channel)
 {
 	struct hv_monitor_page *monitorpage;
 
+	trace_vmbus_setevent(channel);
+
 	/*
 	 * For channels marked as in "low latency" mode
 	 * bypass the monitor page mechanism.
@@ -185,6 +187,8 @@ int vmbus_open(struct vmbus_channel *newchannel, u32 send_ringbuffer_size,
 	ret = vmbus_post_msg(open_msg,
 			     sizeof(struct vmbus_channel_open_channel), true);
 
+	trace_vmbus_open(open_msg, ret);
+
 	if (ret != 0) {
 		err = ret;
 		goto error_clean_msglist;
@@ -235,13 +239,17 @@ int vmbus_send_tl_connect_request(const uuid_le *shv_guest_servie_id,
 				  const uuid_le *shv_host_servie_id)
 {
 	struct vmbus_channel_tl_connect_request conn_msg;
+	int ret;
 
 	memset(&conn_msg, 0, sizeof(conn_msg));
 	conn_msg.header.msgtype = CHANNELMSG_TL_CONNECT_REQUEST;
 	conn_msg.guest_endpoint_id = *shv_guest_servie_id;
 	conn_msg.host_service_id = *shv_host_servie_id;
 
-	return vmbus_post_msg(&conn_msg, sizeof(conn_msg), true);
+	ret = vmbus_post_msg(&conn_msg, sizeof(conn_msg), true);
+	trace_vmbus_send_tl_connect_request(&conn_msg, ret);
+	return ret;
+
 }
 EXPORT_SYMBOL_GPL(vmbus_send_tl_connect_request);
 
@@ -434,6 +442,9 @@ int vmbus_establish_gpadl(struct vmbus_channel *channel, void *kbuffer,
 
 	ret = vmbus_post_msg(gpadlmsg, msginfo->msgsize -
 			     sizeof(*msginfo), true);
+
+	trace_vmbus_establish_gpadl_header(gpadlmsg, ret);	
+
 	if (ret != 0)
 		goto cleanup;
 
@@ -512,6 +523,8 @@ int vmbus_teardown_gpadl(struct vmbus_channel *channel, u32 gpadl_handle)
 	ret = vmbus_post_msg(msg, sizeof(struct vmbus_channel_gpadl_teardown),
 			     true);
 
+	trace_vmbus_teardown_gpadl(msg, ret);
+
 	if (ret)
 		goto post_msg_err;
 
@@ -589,6 +602,8 @@ static int vmbus_close_internal(struct vmbus_channel *channel)
 
 	ret = vmbus_post_msg(msg, sizeof(struct vmbus_channel_close_channel),
 			     true);
+	
+	trace_vmbus_close_internal(msg, ret);
 
 	if (ret) {
 		pr_err("Close failed: close post msg return is %d\n", ret);

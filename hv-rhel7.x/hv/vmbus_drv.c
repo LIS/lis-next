@@ -743,6 +743,8 @@ void vmbus_on_msg_dpc(unsigned long data)
 
 	hdr = (struct vmbus_channel_message_header *)msg->u.payload;
 
+	trace_vmbus_on_msg_dpc(hdr);
+
 	if (hdr->msgtype >= CHANNELMSG_COUNT) {
 		WARN_ONCE(1, "unknown msgtype=%d\n", hdr->msgtype);
 		goto msg_handled;
@@ -851,6 +853,8 @@ static void vmbus_chan_sched(struct hv_per_cpu_context *hv_cpu)
 
 			if (channel->rescind)
 				continue;
+
+			trace_vmbus_chan_sched(channel);
 
 			switch (channel->callback_mode) {
 			case HV_CALL_ISR:

@@ -2430,6 +2430,10 @@ static int hvnd_create_listen(struct iw_cm_id *cm_id, int backlog)
 	nd_dev = to_nd_dev(cm_id->device);
 	uctx = get_uctx(nd_dev, current_pid());
 	hvnd_debug("uctx is %p; pid is %d\n", uctx, current_pid());
+	if (!uctx) {
+		hvnd_error("no user context found for the current process\n");
+		return -ENODATA;
+	}
 
 #if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,7))
 	if (cm_id->local_addr.sin_family != AF_INET) {
@@ -2626,7 +2630,9 @@ static struct device_attribute *hvnd_class_attributes[] = {
 int hvnd_register_device(struct hvnd_dev *dev, char *ip_addr, char *mac_addr)
 {
 	int ret;
+#if RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,4)
 	int i;
+#endif
 
 	dev->ibdev.owner = THIS_MODULE;
 	dev->device_cap_flags = IB_DEVICE_LOCAL_DMA_LKEY | IB_DEVICE_MEM_WINDOW;
@@ -2725,20 +2731,20 @@ int hvnd_register_device(struct hvnd_dev *dev, char *ip_addr, char *mac_addr)
 		goto bail1;
 	}
 
+#if RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,4)
 	for (i = 0; i < ARRAY_SIZE(hvnd_class_attributes); ++i) {
 		ret = device_create_file(&dev->ibdev.dev,
 					 hvnd_class_attributes[i]);
 		if (ret) {
 			hvnd_error("device_create_file failed ret=%d\n", ret);
-			goto bail2;
+			ib_unregister_device(&dev->ibdev);
+			goto bail1;
 		}
 	}
+#endif
 
 	dev->ib_active = true;
-	
 	return 0;
-bail2:
-	ib_unregister_device(&dev->ibdev);
 bail1:
 	kfree(dev->ibdev.iwcm);
 	return ret;
