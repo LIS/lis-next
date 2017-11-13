@@ -734,13 +734,6 @@ struct vmbus_device {
 	bool perf_device;
 };
 
-/* hvsock related definitions */
-enum hvsock_event {
-	/* The host application is close()-ing the connection */
-	HVSOCK_RESCIND_OFFER,
-};
-
-
 struct vmbus_channel {
 
 	u16 vendor_id;
@@ -841,13 +834,6 @@ struct vmbus_channel {
 	 * register a callback which is invoked in vmbus_onoffer_rescind().
 	 */
 	void (*chn_rescind_callback) (struct vmbus_channel *channel);
-
-	/*
-	 * hvsock event callback.
-	 * For now only 1 event is defined: HVSOCK_RESCIND_OFFER.
-	 */
-	void (*hvsock_event_callback)(struct vmbus_channel *channel,
-				      enum hvsock_event event);
 
 	/*
 	 * The spinlock to protect the structure. It is being used to protect
@@ -983,10 +969,6 @@ void vmbus_set_sc_create_callback(struct vmbus_channel *primary_channel,
 void vmbus_set_chn_rescind_callback(struct vmbus_channel *channel,
 			void (*sc_cr_cb)(struct vmbus_channel *new_sc));
 
-void vmbus_set_hvsock_event_callback(struct vmbus_channel *channel,
-		void (*hvsock_event_callback)(struct vmbus_channel *,
-					      enum hvsock_event));
-
 /*
  * Retrieve the (sub) channel on which to send an outgoing request.
  * When a primary channel has multiple sub-channels, we choose a
@@ -1069,9 +1051,6 @@ extern int vmbus_sendpacket_ctl(struct vmbus_channel *channel,
                                   enum vmbus_packet_type type,
                                   u32 flags);
 
-extern int vmbus_sendpacket_hvsock(struct vmbus_channel *channel,
-				   void *buf, u32 len);
-
 extern int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
 					    struct hv_page_buffer pagebuffers[],
 					    u32 pagecount,
@@ -1113,12 +1092,6 @@ extern int vmbus_recvpacket_raw(struct vmbus_channel *channel,
 				     u32 bufferlen,
 				     u32 *buffer_actual_len,
 				     u64 *requestid);
-
-extern int vmbus_recvpacket_hvsock(struct vmbus_channel *channel, void *buffer,
-				   u32 bufferlen, u32 *buffer_actual_len);
-
-extern void vmbus_get_hvsock_rw_status(struct vmbus_channel *channel,
-				       bool *can_read, bool *can_write);
 
 extern void vmbus_ontimer(unsigned long data);
 
@@ -1207,8 +1180,6 @@ int __must_check __vmbus_driver_register(struct hv_driver *hv_driver,
 					 struct module *owner,
 					 const char *mod_name);
 void vmbus_driver_unregister(struct hv_driver *hv_driver);
-
-void vmbus_hvsock_device_unregister(struct vmbus_channel *channel);
 
 int vmbus_allocate_mmio(struct resource **new, struct hv_device *device_obj,
 			resource_size_t min, resource_size_t max,
@@ -1624,22 +1595,5 @@ hv_pkt_iter_next(struct vmbus_channel *channel,
 #define foreach_vmbus_pkt(pkt, channel) \
 	for (pkt = hv_pkt_iter_first(channel); pkt; \
 	    pkt = hv_pkt_iter_next(channel, pkt))
-
-struct vmpipe_proto_header {
-	u32 pkt_type;
-	u32 data_size;
-} __packed;
-
-#define HVSOCK_HEADER_LEN	(sizeof(struct vmpacket_descriptor) + \
-				 sizeof(struct vmpipe_proto_header))
-
-/* see hv_ringbuffer_read() and hv_ringbuffer_write() */
-#define PREV_INDICES_LEN	(sizeof(u64))
-
-#define HVSOCK_PKT_LEN(payload_len)	(HVSOCK_HEADER_LEN + \
-					ALIGN((payload_len), 8) + \
-					PREV_INDICES_LEN)
-
-#define HVSOCK_MIN_PKT_LEN	HVSOCK_PKT_LEN(1)
 
 #endif /* _HYPERV_H */

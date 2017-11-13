@@ -837,46 +837,6 @@ int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
 EXPORT_SYMBOL_GPL(vmbus_sendpacket_pagebuffer_ctl);
 
 /*
- * vmbus_sendpacket_hvsock - Send the hvsock payload 'buf' into the vmbus
- * ringbuffer
- */
-int vmbus_sendpacket_hvsock(struct vmbus_channel *channel, void *buf, u32 len)
-{
-	struct vmpipe_proto_header pipe_hdr;
-	struct vmpacket_descriptor desc;
-	struct kvec bufferlist[4];
-	u32 packetlen_aligned;
-	u32 packetlen;
-	u64 aligned_data = 0;
-
-	packetlen = HVSOCK_HEADER_LEN + len;
-	packetlen_aligned = ALIGN(packetlen, sizeof(u64));
-
-	/* Setup the descriptor */
-	desc.type = VM_PKT_DATA_INBAND;
-	/* in 8-bytes granularity */
-	desc.offset8 = sizeof(struct vmpacket_descriptor) >> 3;
-	desc.len8 = (u16)(packetlen_aligned >> 3);
-	desc.flags = 0;
-	desc.trans_id = 0;
-
-	pipe_hdr.pkt_type = 1;
-	pipe_hdr.data_size = len;
-
-	bufferlist[0].iov_base = &desc;
-	bufferlist[0].iov_len  = sizeof(struct vmpacket_descriptor);
-	bufferlist[1].iov_base = &pipe_hdr;
-	bufferlist[1].iov_len  = sizeof(struct vmpipe_proto_header);
-	bufferlist[2].iov_base = buf;
-	bufferlist[2].iov_len  = len;
-	bufferlist[3].iov_base = &aligned_data;
-	bufferlist[3].iov_len  = packetlen_aligned - packetlen;
-
-	return hv_ringbuffer_write(channel, bufferlist, 4);
-}
-EXPORT_SYMBOL_GPL(vmbus_sendpacket_hvsock);
-
-/*
  * vmbus_sendpacket_pagebuffer - Send a range of single-page buffer
  * packets using a GPADL Direct packet type.
  */
