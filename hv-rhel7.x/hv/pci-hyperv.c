@@ -51,6 +51,7 @@
 #include <linux/module.h>
 #include "include/linux/hyperv.h"
 #include <linux/pci.h>
+#include <linux/delay.h>
 #include <linux/semaphore.h>
 #include <linux/irqdomain.h>
 #include <linux/msi.h>
@@ -1106,7 +1107,12 @@ static void hv_compose_msi_msg(struct pci_dev *pdev, unsigned int irq,
 		goto free_int_desc;
 	}
 
-	wait_for_completion(&comp.comp_pkt.host_event);
+	/*
+	 * Since this function is called with IRQ locks held, can't
+	 * do normal wait for completion; instead poll.
+	 */
+	while (!try_wait_for_completion(&comp.comp_pkt.host_event))
+		udelay(100);
 
 	if (comp.comp_pkt.completion_status < 0) {
 		pr_err("Request for interrupt failed: 0x%x",
