@@ -231,17 +231,6 @@ struct hv_context {
 
 	struct hv_per_cpu_context __percpu *cpu_context;
 
-	/*
-	 * Hypervisor's notion of virtual processor ID is different from
-	 * Linux' notion of CPU ID. This information can only be retrieved
-	 * in the context of the calling CPU. Setup a map for easy access
-	 * to this information:
-	 *
-	 * vp_index[a] is the Hyper-V's processor ID corresponding to
-	 * Linux cpuid 'a'.
-	 */
-	u32 vp_index[NR_CPUS];
-
 	struct clock_event_device *clk_evt[NR_CPUS];
 
 	/*
@@ -405,6 +394,8 @@ struct hv_device *vmbus_device_create(const uuid_le *type,
 
 int vmbus_device_register(struct hv_device *child_device_obj);
 void vmbus_device_unregister(struct hv_device *device_obj);
+int vmbus_add_channel_kobj(struct hv_device *device_obj,
+			   struct vmbus_channel *channel);
 
 struct vmbus_channel *relid2channel(u32 relid);
 

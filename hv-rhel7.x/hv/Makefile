@@ -6,7 +6,6 @@ obj-m	+= hid-hyperv.o
 obj-m	+= hyperv_fb.o
 obj-m	+= hv_balloon.o
 obj-m	+= hyperv-keyboard.o
-obj-m	+= hv_sock.o
 
 # Get machine bit length
 arch=$(shell getconf LONG_BIT)
@@ -20,6 +19,15 @@ endif
 rhel_major=$(shell grep -Eoh [0-9]+\.[0-9]+ /etc/{issue,*release} | head -1 | awk -F'.' '{ print $$1 }')
 rhel_minor=$(shell grep -Eoh [0-9]+\.[0-9]+ /etc/{issue,*release} | head -1 | awk -F'.' '{ print $$2 }')
 rhel_release_code=$(shell echo $$(($(rhel_major) << 8 | $(rhel_minor))))
+
+# Kernel support for Hyper-V Sockets driver was introduced in RHEL/CentOS 7.4
+# Only build the hv_sock driver on RHEL 7.4 and newer.
+# The RHEL_RELEASE_CODE for RHEL/CentOS 7.3 = 1795.
+
+build_hvsock=$(shell test $(rhel_release_code) -gt 1795; echo $$?)
+ifeq ($(build_hvsock),0)
+        obj-m	+= hv_sock.o
+endif
 
 # Kernel support for the Hyper-V PCI driver was introduced in RHEL/CentOS 7.3
 # Only build the pci-hyperv driver on RHEL 7.3 and newer.
@@ -69,7 +77,7 @@ hv_storvsc-y := storvsc_drv.o
 hv_netvsc-y := netvsc_drv.o netvsc.o rndis_filter.o
 hyperv_keyboard-y := hyperv-keyboard.o
 hv_network_direct-y := provider.o vmbus_rdma.o hvnd_addr.o
-hv_sock-y := af_hvsock.o
+hv_sock-y := hyperv_transport.o
 hv_uio_generic-y := uio_hv_generic.o
 
 # Build MLX4 on RHEL 7.3 only

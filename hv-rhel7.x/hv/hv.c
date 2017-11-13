@@ -315,7 +315,6 @@ void hv_synic_init(void *arg)
 	union hv_synic_siefp siefp;
 	union hv_synic_sint shared_sint;
 	union hv_synic_scontrol sctrl;
-	u64 vp_index;
 
 	int cpu = smp_processor_id();
 	struct hv_per_cpu_context *hv_cpu
@@ -362,13 +361,7 @@ void hv_synic_init(void *arg)
 
 	hv_context.synic_initialized = true;
 
-	/*
-	 * Setup the mapping between Hyper-V's notion
-	 * of cpuid and Linux' notion of cpuid.
-	 * This array will be indexed using Linux cpuid.
-	 */
-	hv_get_vp_index(vp_index);
-	hv_context.vp_index[cpu] = (u32)vp_index;
+	hv_cpu_init(cpu);
 
 #ifdef NOTYET
 	/*

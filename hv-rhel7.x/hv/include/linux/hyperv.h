@@ -662,18 +662,6 @@ union hv_connection_id {
 	} u;
 };
 
-/* Definition of the hv_signal_event hypercall input structure. */
-struct hv_input_signal_event {
-	union hv_connection_id connectionid;
-	u16 flag_number;
-	u16 rsvdz;
-};
-
-struct hv_input_signal_event_buffer {
-	u64 align8;
-	struct hv_input_signal_event event;
-};
-
 enum hv_numa_policy {
 	HV_BALANCED = 0,
 	HV_LOCALIZED,
@@ -768,8 +756,7 @@ struct vmbus_channel {
 	} callback_mode;
 
 	bool is_dedicated_interrupt;
-	struct hv_input_signal_event_buffer sig_buf;
-	struct hv_input_signal_event *sig_event;
+	u64 sig_event;
 
 	/*
 	 * Starting with win8, this field will be used to specify
@@ -862,6 +849,11 @@ struct vmbus_channel {
 	 * gone through grace period.
 	 */
 	struct rcu_head rcu;
+
+	/*
+	 * For sysfs per-channel properties.
+	 */
+	struct kobject			kobj;
 
 	/*
 	 * For performance critical channels (storage, networking
@@ -1130,6 +1122,7 @@ struct hv_device {
 	struct device device;
 
 	struct vmbus_channel *channel;
+	struct kset	     *channels_kset;
 };
 
 
@@ -1180,8 +1173,6 @@ int vmbus_allocate_mmio(struct resource **new, struct hv_device *device_obj,
 			bool fb_overlap_ok);
 
 void vmbus_free_mmio(resource_size_t start, resource_size_t size);
-int vmbus_cpu_number_to_vp_number(int cpu_number);
-u64 hv_do_hypercall(u64 control, void *input, void *output);
 
 /**
  * VMBUS_DEVICE - macro used to describe a specific hyperv vmbus device
@@ -1716,22 +1707,5 @@ hv_pkt_iter_next(struct vmbus_channel *channel,
 #define foreach_vmbus_pkt(pkt, channel) \
 	for (pkt = hv_pkt_iter_first(channel); pkt; \
 	    pkt = hv_pkt_iter_next(channel, pkt))
-
-struct vmpipe_proto_header {
-	u32 pkt_type;
-	u32 data_size;
-} __packed;
-
-#define HVSOCK_HEADER_LEN	(sizeof(struct vmpacket_descriptor) + \
-				 sizeof(struct vmpipe_proto_header))
-
-/* See 'prev_indices' hv_ringbuffer_read() and hv_ringbuffer_write() */
-#define PREV_INDICES_LEN	(sizeof(u64))
-
-#define HVSOCK_PKT_LEN(payload_len)	(HVSOCK_HEADER_LEN + \
-					ALIGN((payload_len), 8) + \
-					PREV_INDICES_LEN)
-
-#define HVSOCK_MIN_PKT_LEN	HVSOCK_PKT_LEN(1)
 
 #endif /* _HYPERV_H */
