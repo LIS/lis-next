@@ -113,6 +113,9 @@ static int vmbus_negotiate_version(struct vmbus_channel_msginfo *msginfo,
 	ret = vmbus_post_msg(msg,
 			       sizeof(struct vmbus_channel_initiate_contact),
 				true);
+
+	trace_vmbus_negotiate_version(msg, ret);
+
 	if (ret != 0) {
 		spin_lock_irqsave(&vmbus_connection.channelmsg_lock, flags);
 		list_del(&msginfo->msglistentry);
@@ -313,6 +316,8 @@ void vmbus_on_event(unsigned long data)
 {
 	struct vmbus_channel *channel = (void *) data;
 	unsigned long time_limit = jiffies + 2;
+
+	trace_vmbus_on_event(channel);
 
 	do {
 		void (*callback_fn)(void *);

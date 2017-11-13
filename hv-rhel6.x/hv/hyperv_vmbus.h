@@ -30,6 +30,7 @@
 #include <linux/atomic.h>
 #include <linux/interrupt.h>
 #include "include/linux/hyperv.h"
+#include "hv_trace.h"
 
 /*
  * Timeout for services such as KVP and fcopy.
