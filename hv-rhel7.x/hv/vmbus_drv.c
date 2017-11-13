@@ -60,7 +60,7 @@ static int hyperv_panic_event(struct notifier_block *nb, unsigned long val,
 
 	regs = current_pt_regs();
 
-	hyperv_report_panic(regs);
+	hyperv_report_panic(regs, val);
 	return NOTIFY_DONE;
 }
 
@@ -70,7 +70,7 @@ static int hyperv_die_event(struct notifier_block *nb, unsigned long val,
 	struct die_args *die = (struct die_args *)args;
 	struct pt_regs *regs = die->regs;
 
-	hyperv_report_panic(regs);
+	hyperv_report_panic(regs, val);
 	return NOTIFY_DONE;
 }
 
@@ -676,8 +676,7 @@ static void vmbus_device_release(struct device *device)
 	struct vmbus_channel *channel = hv_dev->channel;
 
 	mutex_lock(&vmbus_connection.channel_mutex);
-	hv_process_channel_removal(channel,
-				   channel->offermsg.child_relid);
+	hv_process_channel_removal(channel->offermsg.child_relid);
 	mutex_unlock(&vmbus_connection.channel_mutex);
 	kfree(hv_dev);
 
@@ -851,9 +850,12 @@ static void vmbus_chan_sched(struct hv_per_cpu_context *hv_cpu)
 		list_for_each_entry_rcu(channel, &hv_cpu->chan_list, percpu_list) {
 			if (channel->offermsg.child_relid != relid)
 				continue;
-		
+
+			if (channel->rescind)
+				continue;
+
 			trace_vmbus_chan_sched(channel);
-	
+
 			switch (channel->callback_mode) {
 			case HV_CALL_ISR:
 				vmbus_channel_isr(channel);

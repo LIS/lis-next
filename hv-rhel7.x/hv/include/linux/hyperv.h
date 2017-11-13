@@ -901,6 +901,8 @@ struct vmbus_channel {
 	 */
 	enum hv_numa_policy affinity_policy;
 
+	bool probe_done;
+
 };
 
 static inline bool is_hvsock_channel(const struct vmbus_channel *c)
@@ -1040,13 +1042,6 @@ extern int vmbus_sendpacket(struct vmbus_channel *channel,
 				  enum vmbus_packet_type type,
 				  u32 flags);
 
-extern int vmbus_sendpacket_ctl(struct vmbus_channel *channel,
-                                  void *buffer,
-                                  u32 bufferLen,
-                                  u64 requestid,
-                                  enum vmbus_packet_type type,
-                                  u32 flags);
-
 extern int vmbus_sendpacket_hvsock(struct vmbus_channel *channel,
 				   void *buf, u32 len);
 
@@ -1056,14 +1051,6 @@ extern int vmbus_sendpacket_pagebuffer(struct vmbus_channel *channel,
 					    void *buffer,
 					    u32 bufferlen,
 					    u64 requestid);
-
-extern int vmbus_sendpacket_pagebuffer_ctl(struct vmbus_channel *channel,
-                                           struct hv_page_buffer pagebuffers[],
-                                           u32 pagecount,
-                                           void *buffer,
-                                           u32 bufferlen,
-                                           u64 requestid,
-                                           u32 flags);
 
 extern int vmbus_sendpacket_mpb_desc(struct vmbus_channel *channel,
 				     struct vmbus_packet_mpb_array *mpb,
@@ -1632,8 +1619,7 @@ extern bool vmbus_prep_negotiate_resp(struct icmsg_hdr *icmsghdrp, u8 *buf,
 				const int *srv_version, int srv_vercnt,
 				int *nego_fw_version, int *nego_srv_version);
 
-
-void hv_process_channel_removal(struct vmbus_channel *channel, u32 relid);
+void hv_process_channel_removal(u32 relid);
 
 void vmbus_setevent(struct vmbus_channel *channel);
 
