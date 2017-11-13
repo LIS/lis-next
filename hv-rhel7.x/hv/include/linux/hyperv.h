@@ -1181,7 +1181,6 @@ int vmbus_allocate_mmio(struct resource **new, struct hv_device *device_obj,
 
 void vmbus_free_mmio(resource_size_t start, resource_size_t size);
 int vmbus_cpu_number_to_vp_number(int cpu_number);
-u64 hv_do_hypercall(u64 control, void *input, void *output);
 
 /**
  * VMBUS_DEVICE - macro used to describe a specific hyperv vmbus device
