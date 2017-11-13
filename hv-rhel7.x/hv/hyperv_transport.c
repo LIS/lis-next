@@ -311,11 +311,15 @@ static void hvs_close_connection(struct vmbus_channel *chan)
 	struct sock *sk = get_per_channel_state(chan);
 	struct vsock_sock *vsk = vsock_sk(sk);
 
+	lock_sock(sk);
+
 	sk->sk_state = SS_UNCONNECTED;
 	sock_set_flag(sk, SOCK_DONE);
 	vsk->peer_shutdown |= SEND_SHUTDOWN | RCV_SHUTDOWN;
 
 	sk->sk_state_change(sk);
+
+	release_sock(sk);
 }
 
 static void hvs_open_connection(struct vmbus_channel *chan)
@@ -344,6 +348,8 @@ static void hvs_open_connection(struct vmbus_channel *chan)
 	sk = vsock_find_bound_socket(&addr);
 	if (!sk)
 		return;
+
+	lock_sock(sk);
 
 	if ((conn_from_host && sk->sk_state != VSOCK_SS_LISTEN) ||
 	    (!conn_from_host && sk->sk_state != SS_CONNECTING))
@@ -396,9 +402,7 @@ static void hvs_open_connection(struct vmbus_channel *chan)
 
 		vsock_insert_connected(vnew);
 
-		lock_sock(sk);
 		vsock_enqueue_accept(sk, new);
-		release_sock(sk);
 	} else {
 		sk->sk_state = SS_CONNECTED;
 		sk->sk_socket->state = SS_CONNECTED;
@@ -411,6 +415,8 @@ static void hvs_open_connection(struct vmbus_channel *chan)
 out:
 	/* Release refcnt obtained when we called vsock_find_bound_socket() */
 	sock_put(sk);
+
+	release_sock(sk);
 }
 
 static u32 hvs_get_local_cid(void)
@@ -477,13 +483,21 @@ out:
 
 static void hvs_release(struct vsock_sock *vsk)
 {
+	struct sock *sk = sk_vsock(vsk);
 	struct hvsock *hvs = vsk->trans;
-	struct vmbus_channel *chan = hvs->chan;
+	struct vmbus_channel *chan;
 
+	lock_sock(sk);
+
+	sk->sk_state = SS_DISCONNECTING;
+	vsock_remove_sock(vsk);
+
+	release_sock(sk);
+
+	chan = hvs->chan;
 	if (chan)
 		hvs_shutdown(vsk, RCV_SHUTDOWN | SEND_SHUTDOWN);
 
-	vsock_remove_sock(vsk);
 }
 
 static void hvs_destruct(struct vsock_sock *vsk)
