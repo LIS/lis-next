@@ -694,6 +694,8 @@ static void vmbus_chan_sched(struct hv_per_cpu_context *hv_cpu)
 			if (channel->offermsg.child_relid != relid)
 				continue;
 
+			trace_vmbus_chan_sched(channel);
+
 			if (channel->rescind)
 				continue;
 
