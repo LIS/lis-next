@@ -263,13 +263,17 @@ u64 hv_do_hypercall(u64 control, void *input, void *output)
 }
 EXPORT_SYMBOL_GPL(hv_do_hypercall);
 
-void hyperv_report_panic(struct pt_regs *regs)
+void hyperv_report_panic(struct pt_regs *regs, long err)
 {
-	wrmsrl(HV_X64_MSR_CRASH_P0, regs->ip);
-	wrmsrl(HV_X64_MSR_CRASH_P1, regs->ax);
-	wrmsrl(HV_X64_MSR_CRASH_P2, regs->bx);
-	wrmsrl(HV_X64_MSR_CRASH_P3, regs->cx);
-	wrmsrl(HV_X64_MSR_CRASH_P4, regs->dx);
+	u64 guest_id;
+
+	rdmsrl(HV_X64_MSR_GUEST_OS_ID, guest_id);
+
+	wrmsrl(HV_X64_MSR_CRASH_P0, err);
+	wrmsrl(HV_X64_MSR_CRASH_P1, guest_id);
+	wrmsrl(HV_X64_MSR_CRASH_P2, regs->ip);
+	wrmsrl(HV_X64_MSR_CRASH_P3, regs->ax);
+	wrmsrl(HV_X64_MSR_CRASH_P4, regs->sp);
 
 	/*
 	 * Let Hyper-V know there is crash data available

@@ -103,7 +103,7 @@ int hyperv_panic_event(struct notifier_block *nb,
 
 	regs = task_pt_regs(current);
 
-	hyperv_report_panic(regs);
+	hyperv_report_panic(regs, event);
 	return NOTIFY_DONE;
 }
 
