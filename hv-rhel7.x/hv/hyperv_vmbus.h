@@ -231,17 +231,6 @@ struct hv_context {
 
 	struct hv_per_cpu_context __percpu *cpu_context;
 
-	/*
-	 * Hypervisor's notion of virtual processor ID is different from
-	 * Linux' notion of CPU ID. This information can only be retrieved
-	 * in the context of the calling CPU. Setup a map for easy access
-	 * to this information:
-	 *
-	 * vp_index[a] is the Hyper-V's processor ID corresponding to
-	 * Linux cpuid 'a'.
-	 */
-	u32 vp_index[NR_CPUS];
-
 	struct clock_event_device *clk_evt[NR_CPUS];
 
 	/*

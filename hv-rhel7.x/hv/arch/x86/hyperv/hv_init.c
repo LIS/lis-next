@@ -25,6 +25,7 @@
 #include <linux/vmalloc.h>
 #include <linux/mm.h>
 #include <linux/clockchips.h>
+#include <linux/slab.h>
 
 
 #ifdef CONFIG_X86_64
@@ -110,6 +111,20 @@ struct clocksource *hyperv_cs;
 EXPORT_SYMBOL_GPL(hyperv_cs);
 #endif
 
+u32 *hv_vp_index;
+EXPORT_SYMBOL_GPL(hv_vp_index);
+
+int hv_cpu_init(unsigned int cpu)
+{
+	u64 msr_vp_index;
+
+	hv_get_vp_index(msr_vp_index);
+
+	hv_vp_index[smp_processor_id()] = msr_vp_index;
+
+	return 0;
+}
+
 /*
  * This function is to be invoked early in the boot sequence after the
  * hypervisor has been detected.
@@ -125,6 +140,13 @@ void hyperv_init(void)
 	if (x86_hyper != &x86_hyper_ms_hyperv)
 		return;
 
+	/* Allocate percpu VP index */
+	hv_vp_index = kmalloc_array(num_possible_cpus(), sizeof(*hv_vp_index),
+				    GFP_KERNEL);
+	if (!hv_vp_index)
+		return;
+	/* We'll initialize hv_vp_index[] later in hv_synic_init. */
+
 	/*
 	 * Setup the hypercall page and enable hypercalls.
 	 * 1. Register the guest ID
@@ -136,7 +158,7 @@ void hyperv_init(void)
 	hv_hypercall_pg  = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL_RX);
 	if (hv_hypercall_pg == NULL) {
 		wrmsrl(HV_X64_MSR_GUEST_OS_ID, 0);
-		return;
+		goto free_vp_index;
 	}
 
 	rdmsrl(HV_X64_MSR_HYPERCALL, hypercall_msr.as_uint64);
@@ -176,6 +198,12 @@ register_msr_cs:
 	hyperv_cs = &hyperv_cs_msr;
 	if (ms_hyperv.features & HV_X64_MSR_TIME_REF_COUNT_AVAILABLE)
 		clocksource_register_hz(&hyperv_cs_msr, NSEC_PER_SEC/100);
+
+	return;
+
+free_vp_index:
+	kfree(hv_vp_index);
+	hv_vp_index = NULL;
 }
 
 /*
