@@ -165,7 +165,7 @@ void hv_remove_crash_handler(void);
 extern struct clocksource *hyperv_cs;
 
 void hyperv_init(void);
-void hyperv_report_panic(struct pt_regs *regs);
+void hyperv_report_panic(struct pt_regs *regs, long err);
 bool hv_is_hypercall_page_setup(void);
 void hyperv_cleanup(void);
 void hv_print_host_info(void);
