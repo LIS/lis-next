@@ -1702,21 +1702,4 @@ hv_pkt_iter_next(struct vmbus_channel *channel,
 	for (pkt = hv_pkt_iter_first(channel); pkt; \
 	    pkt = hv_pkt_iter_next(channel, pkt))
 
-struct vmpipe_proto_header {
-	u32 pkt_type;
-	u32 data_size;
-} __packed;
-
-#define HVSOCK_HEADER_LEN	(sizeof(struct vmpacket_descriptor) + \
-				 sizeof(struct vmpipe_proto_header))
-
-/* See 'prev_indices' hv_ringbuffer_read() and hv_ringbuffer_write() */
-#define PREV_INDICES_LEN	(sizeof(u64))
-
-#define HVSOCK_PKT_LEN(payload_len)	(HVSOCK_HEADER_LEN + \
-					ALIGN((payload_len), 8) + \
-					PREV_INDICES_LEN)
-
-#define HVSOCK_MIN_PKT_LEN	HVSOCK_PKT_LEN(1)
-
 #endif /* _HYPERV_H */
