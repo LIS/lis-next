@@ -957,20 +957,6 @@ static void vmbus_onoffer_rescind(struct vmbus_channel_message_header *hdr)
 	}
 }
 
-
-void vmbus_hvsock_device_unregister(struct vmbus_channel *channel)
-{
-	mutex_lock(&vmbus_connection.channel_mutex);
-
-	BUG_ON(!is_hvsock_channel(channel));
-
-	channel->rescind = true;
-	vmbus_device_unregister(channel->device_obj);
-
-	mutex_unlock(&vmbus_connection.channel_mutex);
-}
-EXPORT_SYMBOL_GPL(vmbus_hvsock_device_unregister);
-
 /*
  * vmbus_onoffers_delivered -
  * This is invoked when all offers have been delivered.
@@ -1344,11 +1330,3 @@ void vmbus_set_chn_rescind_callback(struct vmbus_channel *channel,
 	channel->chn_rescind_callback = chn_rescind_cb;
 }
 EXPORT_SYMBOL_GPL(vmbus_set_chn_rescind_callback);
-
-void vmbus_set_hvsock_event_callback(struct vmbus_channel *channel,
-		void (*hvsock_event_callback)(struct vmbus_channel *,
-					      enum hvsock_event))
-{
-	channel->hvsock_event_callback = hvsock_event_callback;
-}
-EXPORT_SYMBOL_GPL(vmbus_set_hvsock_event_callback);

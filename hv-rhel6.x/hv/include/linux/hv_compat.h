@@ -537,34 +537,6 @@ void __read_once_size(const volatile void *p, void *res, int size)
 #define READ_ONCE(x) \
 	({ union { typeof(x) __val; char __c[1]; } __u; __read_once_size(&(x), __u.__c, sizeof(x)); __u.__val; })
 #endif
- 
-/*
- * Define VMSock driver dependencies here
- */
-static inline int memcpy_from_msg(void *data, struct msghdr *msg, int len)
-{
-        return memcpy_fromiovec(data, msg->msg_iov, len);
-}
-
-static inline int memcpy_to_msg(struct msghdr *msg, void *data, int len)
-{
-        return memcpy_toiovec(msg->msg_iov, data, len);
-}
-
-#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(6,0))
-
-#include <linux/random.h>
-
-static inline void uuid_le_gen(uuid_le *lu)
-{
-        get_random_bytes(lu->b, 16);
-        lu->b[7] = (lu->b[7] & 0x0F) | 0x40;
-        lu->b[8] = (lu->b[8] & 0x3F) | 0x80;
-}
-#else
-extern void uuid_le_gen(uuid_le *u);
-extern void uuid_be_gen(uuid_be *u);
-#endif /* RHEL_RELEASE_VERSION(6,0) */
 
 /*
  * Define ethtool dependencies here.
