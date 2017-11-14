@@ -789,11 +789,12 @@ struct irq_cfg *irqd_cfg(struct irq_data *irq_data)
 }
 
 /* Interrupt management hooks */
-static int hv_set_affinity(struct irq_data *data, const struct cpumask *dest,
+static int hv_set_affinity(struct irq_data *data, const struct cpumask *mask,
 			   bool force)
 {
 	struct msi_desc *msi_desc = data->msi_desc;
 	struct irq_cfg *cfg = irqd_cfg(data);
+	struct cpumask *dest = cfg->domain;
 	struct retarget_msi_interrupt *params;
 	struct hv_pcibus_device *hbus;
 	struct pci_bus *pbus;
@@ -992,8 +993,8 @@ static void hv_compose_msi_msg(struct pci_dev *pdev, unsigned int irq,
 				unsigned int dest, struct msi_msg *msg,
 				u8 hpet_id)
 {
-	struct irq_data *data = irq_get_irq_data(irq);
 	struct irq_cfg *cfg = irq_get_chip_data(irq);
+	struct cpumask *affinity = cfg->domain;
 	struct hv_pcibus_device *hbus;
 	struct hv_pci_dev *hpdev;
 	struct pci_bus *pbus;
@@ -1028,13 +1029,13 @@ static void hv_compose_msi_msg(struct pci_dev *pdev, unsigned int irq,
 	switch (pci_protocol_version) {
 	case PCI_PROTOCOL_VERSION_1_1:
 		size = hv_compose_msi_req_v1(&ctxt.int_pkts.v1,
-					irq_data_get_affinity_mask(data),
+					affinity,
 					hpdev->desc.win_slot.slot,
 					cfg->vector);
 		break;
 	case PCI_PROTOCOL_VERSION_1_2:
 		size = hv_compose_msi_req_v2(&ctxt.int_pkts.v2,
-					irq_data_get_affinity_mask(data),
+					affinity,
 					hpdev->desc.win_slot.slot,
 					cfg->vector);
 		break;
