@@ -617,7 +617,9 @@ static inline void refcount_set(refcount_t *r, unsigned int n)
 }
 
 #ifndef GENMASK_ULL
-#define GENMASK_ULL(h, l)       (((U64_C(1) << ((h) - (l) + 1)) - 1) << (l))
+#define GENMASK_ULL(h, l) \
+	(((~0ULL) - (1ULL << (l)) + 1) & \
+	 (~0ULL >> (BITS_PER_LONG_LONG - 1 - (h))))
 #endif
 
 #ifndef U64_MAX
