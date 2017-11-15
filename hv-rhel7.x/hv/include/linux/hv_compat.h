@@ -616,6 +616,47 @@ static inline void refcount_set(refcount_t *r, unsigned int n)
 				  &qdisc_xmit_lock_key);	\
 }
 
+#ifndef GENMASK_ULL
+#define GENMASK_ULL(h, l) \
+	(((~0ULL) - (1ULL << (l)) + 1) & \
+	 (~0ULL >> (BITS_PER_LONG_LONG - 1 - (h))))
+#endif
+
+#ifndef U64_MAX
+#define U64_MAX                ((u64)~0ULL)
+#endif
+
+#ifndef __ASSEMBLY__
+
+#ifndef __ASM_FORM_RAW
+#define __ASM_FORM_RAW(x)     #x
+
+#ifndef __x86_64__
+/* 32 bit */
+# define __ASM_SEL_RAW(a,b) __ASM_FORM_RAW(a)
+#else
+/* 64 bit */
+# define __ASM_SEL_RAW(a,b) __ASM_FORM_RAW(b)
+#endif
+
+#ifdef __ASM_REG
+#undef __ASM_REG
+#define __ASM_REG(reg)         __ASM_SEL_RAW(e##reg, r##reg)
+#endif
+
+#endif
+
+#define _ASM_SP                __ASM_REG(sp)
+
+/*
+ * This output constraint should be used for any inline asm which has a "call"
+ * instruction.  Otherwise the asm may be inserted before the frame pointer
+ * gets set up by the containing function.  If you forget to do this, objtool
+ * may print a "call without frame pointer save/setup" warning.
+ */
+register unsigned long current_stack_pointer asm(_ASM_SP);
+#define ASM_CALL_CONSTRAINT "+r" (current_stack_pointer)
+#endif
 
 #endif //#ifdef __KERNEL__
 #endif //#if LINUX_VERSION_CODE <= KERNEL_VERSION(3, 10, 0)
