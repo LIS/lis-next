@@ -833,12 +833,9 @@ static void netvsc_link_change(void *data)
 	char *argv[] = { "/etc/init.d/network", "restart", NULL };
 	char *envp[] = { "HOME=/", "PATH=/sbin:/usr/sbin:/bin:/usr/bin", NULL };
 
-	ndev_ctx = container_of(w, struct net_device_context, dwork);
-	if (!rtnl_trylock()) {
-		schedule_delayed_work(&ndev_ctx->dwork, LINKCHANGE_INT);
-		return;
-	}
+	rtnl_lock();
 
+	ndev_ctx = container_of(w, struct net_device_context, dwork);
 	net_device = hv_get_drvdata(ndev_ctx->device_ctx);
 	rdev = net_device->extension;
 	net = net_device->ndev;
