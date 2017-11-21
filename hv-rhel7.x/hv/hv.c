@@ -247,7 +247,7 @@ void hv_synic_free(void)
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))  
 void hv_clockevents_bind(int cpu)
 {
-	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
+	if (ms_hyperv_ext.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
 		clockevents_config_and_register(hv_context.clk_evt[cpu],
 						HV_TIMER_FREQUENCY,
 						HV_MIN_DELTA_TICKS,
@@ -256,7 +256,7 @@ void hv_clockevents_bind(int cpu)
 
 void hv_clockevents_unbind(int cpu)
 {
-	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
+	if (ms_hyperv_ext.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
 		clockevents_unbind_device(hv_context.clk_evt[cpu], cpu);
 }
 
@@ -345,7 +345,7 @@ void hv_synic_init(void *arg)
 	shared_sint.vector = HYPERVISOR_CALLBACK_VECTOR;
 	shared_sint.masked = false;
 
-	if (ms_hyperv.hints & HV_X64_DEPRECATING_AEOI_RECOMMENDED)
+	if (ms_hyperv_ext.hints & HV_X64_DEPRECATING_AEOI_RECOMMENDED)
 		shared_sint.auto_eoi = false;
 	else
 		shared_sint.auto_eoi = true;
@@ -367,7 +367,7 @@ void hv_synic_init(void *arg)
 	/*
 	 * Register the per-cpu clockevent source.
 	 */
-	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE) 
+	if (ms_hyperv_ext.features & HV_X64_MSR_SYNTIMER_AVAILABLE) 
 		clockevents_config_and_register(hv_cpu->clk_evt, 
 			HV_TIMER_FREQUENCY, 
 			HV_MIN_DELTA_TICKS, 
@@ -388,7 +388,7 @@ void hv_synic_clockevents_cleanup(void)
 {
 	int cpu;
 
-	if (!(ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE))
+	if (!(ms_hyperv_ext.features & HV_X64_MSR_SYNTIMER_AVAILABLE))
 		return;
 
 	for_each_present_cpu(cpu)
@@ -419,7 +419,7 @@ void hv_synic_cleanup(void *arg)
 	Code locks on 7.3 with no reboot during kdump
 
 	#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,2))
-	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE) {
+	if (ms_hyperv_ext.features & HV_X64_MSR_SYNTIMER_AVAILABLE) {
 		struct hv_per_cpu_context *hv_cpu
 			= this_cpu_ptr(hv_context.cpu_context);
 
@@ -430,7 +430,7 @@ void hv_synic_cleanup(void *arg)
 #else
 */
 	/* Turn off clockevent device */
-	if (ms_hyperv.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
+	if (ms_hyperv_ext.features & HV_X64_MSR_SYNTIMER_AVAILABLE)
 		hv_ce_setmode(CLOCK_EVT_MODE_SHUTDOWN,
 			      hv_context.clk_evt[cpu]);
 
