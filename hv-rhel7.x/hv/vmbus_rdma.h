@@ -1921,7 +1921,12 @@ static inline int insert_handle(struct hvnd_dev *dev, struct idr *idr,
 		}
 		spin_lock_irqsave(&dev->id_lock, flags);
 		ret = idr_get_new_above(idr, handle, id, &newid);
-		WARN(newid != id, "Failed to allocate id=%d ret=%d\n", id, ret);
+		if (ret != -EAGAIN && newid != id) {
+			spin_unlock_irqrestore(&dev->id_lock, flags);
+			WARN(1, "hvnd insert_handle: idr allocation failed id=%d newid=%d ret=%d\n", id, newid, ret);
+			ret = -ENOSPC;
+			break;
+		}
 		spin_unlock_irqrestore(&dev->id_lock, flags);
 	} while (ret == -EAGAIN);
 	return ret;
