@@ -968,7 +968,10 @@ static int hvnd_destroy_qp(struct ib_qp *ib_qp)
 	 * Now wait for the disconnect.
 	 */
 	jiffies = get_jiffies_64();
-	wait_for_completion(&qp->connector->disconnect_event);
+	if (!wait_for_completion_timeout(&qp->connector->disconnect_event, 30*HZ)) {
+		hvnd_warn("connector disconnect timed out\n");
+	}
+
 	hvnd_debug("Completed disconnect connector=%p jiffies=%llu\n", qp->connector, get_jiffies_64() - jiffies);
 
 	/*
