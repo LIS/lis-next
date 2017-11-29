@@ -201,6 +201,7 @@ static void kvp_update_mem_state(int pool)
 			syslog(LOG_ERR,
 				"Failed to read file, pool: %d; error: %d %s",
 				 pool, errno, strerror(errno));
+				 kvp_release_lock(pool);
 			exit(EXIT_FAILURE);
 		}
 
@@ -213,6 +214,7 @@ static void kvp_update_mem_state(int pool)
 
 			if (record == NULL) {
 				syslog(LOG_ERR, "malloc failed");
+				kvp_release_lock(pool);
 				exit(EXIT_FAILURE);
 			}
 			continue;
@@ -254,6 +256,8 @@ static int kvp_file_init(void)
 		kvp_file_info[i].fd = fd;
 		kvp_file_info[i].num_blocks = 1;
 		kvp_file_info[i].records = malloc(alloc_unit);
+		if (kvp_file_info[i].records == NULL)
+			return 1;
 		kvp_file_info[i].num_records = 0;
 		kvp_update_mem_state(i);
 	}
