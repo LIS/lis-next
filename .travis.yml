@@ -1,3 +1,7 @@
+#
+# travis-ci definition file
+# below matrix points to docker images
+#
 sudo: false
 dist: trusty
 
