@@ -22,4 +22,4 @@ before_install:
   - sudo docker pull $CENTOS
 
 script:
-  - bash setup_tests.sh
+  - bash setup_travis_env.sh
