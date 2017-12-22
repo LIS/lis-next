@@ -529,9 +529,6 @@ struct hv_host_device {
 	struct mutex host_mutex;
 	struct work_struct host_scan_work;
 	struct Scsi_Host *host;
-	unsigned long *lun_remove_map;
-	unsigned int remove_map_size;
-
 };
 
 struct storvsc_scan_work {
@@ -1232,10 +1229,6 @@ static void storvsc_handle_error(struct vmscsi_request *vm_srb,
 	void (*process_err_fn)(struct work_struct *work);
 	struct hv_host_device *host_dev = shost_priv(host);
 	bool do_work = false;
-	int target_lun;
-	unsigned int lun_index;
-	unsigned int lun_bit_pos;
-
 
 	/*
 	 * Divergence from upstream:
@@ -1270,21 +1263,13 @@ static void storvsc_handle_error(struct vmscsi_request *vm_srb,
 		case TEST_UNIT_READY:
 			break;
 		default:
-			set_host_byte(scmnd, DID_TARGET_FAILURE);
+			set_host_byte(scmnd, DID_ERROR);
 		}
 		break;
 	case SRB_STATUS_INVALID_LUN:
-		target_lun = (vm_srb->target_id * host->max_lun) + vm_srb->lun;
-		lun_index = target_lun / BITS_PER_LONG;
-		lun_bit_pos = target_lun % BITS_PER_LONG;
-		if (!test_bit(lun_bit_pos,
-			&host_dev->lun_remove_map[lun_index])) {
-			set_bit(lun_bit_pos,
-				&host_dev->lun_remove_map[lun_index]);
-			host_dev->lun_remove_map[target_lun] = 1;
-			do_work = true;
-			process_err_fn = storvsc_remove_lun;
-		}
+		set_host_byte(scmnd, DID_NO_CONNECT);
+		do_work = true;
+		process_err_fn = storvsc_remove_lun;
 		break;
 	case SRB_STATUS_ABORTED:
 		if (vm_srb->srb_status & SRB_STATUS_AUTOSENSE_VALID &&
@@ -1796,10 +1781,6 @@ static void storvsc_device_destroy(struct scsi_device *sdevice)
 
 static int storvsc_device_configure(struct scsi_device *sdevice)
 {
-	struct hv_host_device *host_dev = shost_priv(sdevice->host);
-	int target_lun;
-	int lun_index;
-	int lun_bit_pos;
 
 	blk_queue_bounce_limit(sdevice->request_queue, BLK_BOUNCE_ANY);
 
@@ -1823,10 +1804,6 @@ static int storvsc_device_configure(struct scsi_device *sdevice)
 		if (vmstor_proto_version >= VMSTOR_PROTO_VERSION_WIN10)
 			sdevice->no_write_same = 0;
 	}
-	target_lun = (sdevice->id * sdevice->host->max_lun) + sdevice->lun;
-	lun_index = target_lun / BITS_PER_LONG;
-	lun_bit_pos = target_lun % BITS_PER_LONG;
-	clear_bit(lun_bit_pos, &host_dev->lun_remove_map[lun_index]);
 
 	return 0;
 }
@@ -2326,21 +2303,10 @@ static int storvsc_probe(struct hv_device *device,
 		goto err_out2;
 
 	INIT_WORK(&host_dev->host_scan_work, storvsc_host_scan);
-	
-	host_dev->remove_map_size =
-		(host->max_id * host->max_lun) / BITS_PER_LONG;
-	if (host_dev->remove_map_size % BITS_PER_LONG)
-		host_dev->remove_map_size++;
-	host_dev->lun_remove_map =
-		kcalloc(host_dev->remove_map_size, sizeof(unsigned long),
-				 GFP_KERNEL);
-	if (!host_dev->lun_remove_map)
-		goto err_out3;
-
 	/* Register the HBA and start the scsi bus scan */
 	ret = scsi_add_host(host, &device->device);
 	if (ret != 0)
-		goto err_out4;
+		goto err_out3;
 
 	if (!dev_is_ide) {
 		scsi_scan_host(host);
@@ -2349,7 +2315,7 @@ static int storvsc_probe(struct hv_device *device,
 			 device->dev_instance.b[4]);
 		ret = scsi_add_device(host, 0, target, 0);
 		if (ret)
-			goto err_out5;
+			goto err_out4;
 	}
 #if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 	if (host->transportt == fc_transport_template) {
@@ -2361,17 +2327,14 @@ static int storvsc_probe(struct hv_device *device,
 		fc_host_port_name(host) = stor_device->port_name;
 		stor_device->rport = fc_remote_port_add(host, 0, &ids);
 		if (!stor_device->rport)
-			goto err_out5;
+			goto err_out4;
 	}
 #endif
 	mutex_unlock(&probe_mutex);
 	return 0;
 
-err_out5:
-	scsi_remove_host(host);
-
 err_out4:
-	kfree(host_dev->lun_remove_map);
+	scsi_remove_host(host);
 
 err_out3:
 	destroy_workqueue(host_dev->handle_error_wq);
@@ -2409,7 +2372,6 @@ static int storvsc_remove(struct hv_device *dev)
 	}
 #endif
 	destroy_workqueue(host_dev->handle_error_wq);
-	kfree(host_dev->lun_remove_map);
 	scsi_remove_host(host);
 	storvsc_dev_remove(dev);
 	scsi_host_put(host);
