@@ -136,11 +136,9 @@ static void put_rndis_request(struct rndis_device *dev,
 	kfree(req);
 }
 
-static void dump_rndis_message(struct hv_device *hv_dev,
+static void dump_rndis_message(struct net_device *netdev,
 			       const struct rndis_message *rndis_msg)
 {
-	struct net_device *netdev = hv_get_drvdata(hv_dev);
-
 	switch (rndis_msg->ndis_msg_type) {
 	case RNDIS_MSG_PACKET:
 		netdev_dbg(netdev, "RNDIS_MSG_PACKET (len %u, "
@@ -401,7 +399,6 @@ static int rndis_filter_receive_data(struct net_device *ndev,
 
 int rndis_filter_receive(struct net_device *ndev,
 			 struct netvsc_device *net_dev,
-			 struct hv_device *dev,
 			 struct vmbus_channel *channel,
 			 void *data, u32 buflen)
 {
@@ -423,7 +420,7 @@ int rndis_filter_receive(struct net_device *ndev,
 	}
 
 	if (netif_msg_rx_status(net_device_ctx))
-		dump_rndis_message(dev, rndis_msg);
+		dump_rndis_message(ndev, rndis_msg);
 
 	switch (rndis_msg->ndis_msg_type) {
 	case RNDIS_MSG_PACKET:
@@ -438,7 +435,7 @@ int rndis_filter_receive(struct net_device *ndev,
 
 	case RNDIS_MSG_INDICATE:
 		/* notification msgs */
-		netvsc_linkstatus_callback(dev, rndis_msg);
+		netvsc_linkstatus_callback(ndev, rndis_msg);
 		break;
 	default:
 		netdev_err(ndev,
