@@ -18,6 +18,9 @@ env:
   - CENTOS=centos:6.8 KERNEL=2.6.32-642 BUILD=6.8
   - CENTOS=centos:6.7 KERNEL=2.6.32-573 BUILD=6.7
   - CENTOS=centos:6.6 KERNEL=2.6.32-504 BUILD=6.6
+  # Not yet supported
+  #- CENTOS=chvale/centos:6.5 KERNEL=2.6.32-504 BUILD=6.5
+  #- CENTOS=chvale/centos:6.4 KERNEL=2.6.32-504 BUILD=6.4
 
 services:
   - docker
