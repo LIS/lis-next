@@ -14,3 +14,4 @@ Module.symvers
 modules.order
 *.img
 *.unsigned
+*.code-workspace
