@@ -1139,7 +1139,7 @@ struct rndis_message {
 	 sizeof(union rndis_message_container)))
 
 
-	 #define __struct_bcount(x)
+#define __struct_bcount(x)
 
 
 
