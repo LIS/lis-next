@@ -594,9 +594,9 @@ void netvsc_device_remove(struct hv_device *device)
  * Get the percentage of available bytes to write in the ring.
  * The return value is in range from 0 to 100.
  */
-statuc u32 hv_ringbuf_avail_percent(const struct hv_ring_buffer_info *ring_info)
+static u32 hv_ringbuf_avail_percent(const struct hv_ring_buffer_info *ring_info)
 {
-    u32 avail_write = hv_get_bytes_to_write(ring_info)
+    u32 avail_write = hv_get_bytes_to_write(ring_info);
     return reciprocal_divide(avail_write * 100, netvsc_ring_reciprocal);
 }
 

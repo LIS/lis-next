@@ -52,11 +52,11 @@
 #define LINKCHANGE_INT (2 * HZ)
 #define VF_TAKEOVER_INT (HZ / 10)
 
-static unsigned int ring_size __ro_after_init = 128;
+static unsigned int ring_size __read_only = 128;
 module_param(ring_size, uint, S_IRUGO);
 MODULE_PARM_DESC(ring_size, "Ring buffer size (# of pages)");
-unsigned int netvsc_ring_bytes __ro_after_init;
-struct reciprocal_value netvsc_ring_reciprocal __ro_after_init;
+unsigned int netvsc_ring_bytes;
+struct reciprocal_value netvsc_ring_reciprocal;
 
 static const u32 default_msg = NETIF_MSG_DRV | NETIF_MSG_PROBE |
 		NETIF_MSG_LINK | NETIF_MSG_IFUP |
