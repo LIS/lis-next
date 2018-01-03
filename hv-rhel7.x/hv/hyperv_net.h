@@ -202,6 +202,7 @@ int netvsc_send(struct net_device_context *ndc,
 void netvsc_linkstatus_callback(struct net_device *net,
 				struct rndis_message *resp);
 int netvsc_recv_callback(struct net_device *net,
+			 struct netvsc_device *nvdev,
 			 struct vmbus_channel *channel,
 			 void  *data, u32 len,
 			 const struct ndis_tcp_ip_checksum_info *csum_info,
@@ -704,6 +705,7 @@ struct netvsc_ethtool_stats {
 	unsigned long tx_busy;
 	unsigned long tx_send_full;
 	unsigned long rx_comp_busy;
+	unsigned long rx_no_memory;
 	unsigned long stop_queue;
 	unsigned long wake_queue;
 };
