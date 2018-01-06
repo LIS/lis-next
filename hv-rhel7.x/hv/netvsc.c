@@ -727,10 +727,8 @@ static void netvsc_copy_to_send_buf(struct netvsc_device *net_device,
 	if (xmit_more && remain) {
 #else
 	if (xmit_more && packet->xmit_more && remain &&
-		!packet->cp_partial) {
+	    !packet->cp_partial) {
 #endif
-
-	if (xmit_more && remain) {
 		padding = net_device->pkt_align - remain;
 		rndis_msg->msg_len += padding;
 		packet->total_data_buflen += padding;
