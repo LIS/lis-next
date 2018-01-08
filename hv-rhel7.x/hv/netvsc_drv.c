@@ -56,7 +56,12 @@ static unsigned int ring_size = 128;
 module_param(ring_size, uint, S_IRUGO);
 MODULE_PARM_DESC(ring_size, "Ring buffer size (# of pages)");
 unsigned int netvsc_ring_bytes;
+
+#if (RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(7,0))
+u32 netvsc_ring_reciprocal;
+#else
 struct reciprocal_value netvsc_ring_reciprocal;
+#endif
 
 static const u32 default_msg = NETIF_MSG_DRV | NETIF_MSG_PROBE |
 		NETIF_MSG_LINK | NETIF_MSG_IFUP |
