@@ -900,8 +900,10 @@ int netvsc_send(struct net_device *ndev,
 	/* Keep aggregating only if stack says more data is coming
 	 * and not doing mixed modes send and not flow blocked
 	 */
-	xmit_more = skb->xmit_more &&
-		!packet->cp_partial &&
+	xmit_more = !packet->cp_partial &&
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,2))
+		skb->xmit_more &&
+#endif
 		!netif_xmit_stopped(netdev_get_tx_queue(ndev, packet->q_idx));
 
 	if (section_index != NETVSC_INVALID_INDEX) {
