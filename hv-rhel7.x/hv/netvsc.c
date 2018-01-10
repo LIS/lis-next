@@ -710,7 +710,7 @@ static void netvsc_copy_to_send_buf(struct netvsc_device *net_device,
 				    struct hv_netvsc_packet *packet,
 				    struct rndis_message *rndis_msg,
 				    struct hv_page_buffer *pb,
-				    bool xmit_more)
+				    struct sk_buff *skb)
 {
 	char *start = net_device->send_buf;
 	char *dest = start + (section_index * net_device->send_section_size)
@@ -724,10 +724,10 @@ static void netvsc_copy_to_send_buf(struct netvsc_device *net_device,
 	/* Add padding */
 	remain = packet->total_data_buflen & (net_device->pkt_align - 1);
 #if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
-	if (xmit_more && remain) {
+	if (skb->xmit_more && remain && !packet->cp_partial) {
 #else
-	if (xmit_more && packet->xmit_more && remain &&
-	    !packet->cp_partial) {
+        if (skb && packet->xmit_more && remain &&
+            !packet->cp_partial) {
 #endif
 		padding = net_device->pkt_align - remain;
 		rndis_msg->msg_len += padding;
@@ -837,13 +837,12 @@ static inline void move_pkt_msd(struct hv_netvsc_packet **msd_send,
 }
 
 /* RCU already held by caller */
-int netvsc_send(struct net_device *ndev,
+int netvsc_send(struct net_device_context *ndev_ctx,
 		struct hv_netvsc_packet *packet,
 		struct rndis_message *rndis_msg,
 		struct hv_page_buffer *pb,
 		struct sk_buff *skb)
 {
-	struct net_device_context *ndev_ctx = netdev_priv(ndev);
 	struct netvsc_device *net_device
 		= rcu_dereference_bh(ndev_ctx->nvdev);
 	struct hv_device *device = ndev_ctx->device_ctx;
@@ -854,7 +853,7 @@ int netvsc_send(struct net_device *ndev,
 	struct multi_send_data *msdp;
 	struct hv_netvsc_packet *msd_send = NULL, *cur_send = NULL;
 	struct sk_buff *msd_skb = NULL;
-	bool try_batch, xmit_more;
+	bool try_batch;
 
 	/* If device is rescinded, return error and packet will get dropped. */
 	if (unlikely(!net_device || net_device->destroy))
@@ -897,17 +896,11 @@ int netvsc_send(struct net_device *ndev,
 			msd_len = 0;
 		}
 	}
-	/* Keep aggregating only if stack says more data is coming
-	 * and not doing mixed modes send and not flow blocked
-	 */
-	xmit_more = skb->xmit_more &&
-		!packet->cp_partial &&
-		!netif_xmit_stopped(netdev_get_tx_queue(ndev, packet->q_idx));
 
 	if (section_index != NETVSC_INVALID_INDEX) {
 		netvsc_copy_to_send_buf(net_device,
 					section_index, msd_len,
-					packet, rndis_msg, pb, xmit_more);
+					packet, rndis_msg, pb, skb);
 
 		packet->send_buf_index = section_index;
 
@@ -927,7 +920,7 @@ int netvsc_send(struct net_device *ndev,
 		if (msdp->skb)
 			dev_consume_skb_any(msdp->skb);
 
-		if (xmit_more) {
+		if (packet->xmit_more && !packet->cp_partial) {
 			msdp->skb = skb;
 			msdp->pkt = packet;
 			msdp->count++;
