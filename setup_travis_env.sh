@@ -43,11 +43,11 @@ fi
 
 # installing lis-next
 if [[ "$BUILD" == "7"* ]]; then
-  docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "cd /home/travis/build/chvalean/lis-next/hv-rhel7.x/hv/ ; bash -e rhel7-hv-driver-install"
   docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "cd /home/travis/build/chvalean/lis-next/hv-rhel7.x/hv/tools ; make"
+  docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "cd /home/travis/build/chvalean/lis-next/hv-rhel7.x/hv/ ; bash -e rhel7-hv-driver-install"
 elif [[ "$BUILD" == "6."* ]]; then
-  docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "cd /home/travis/build/chvalean/lis-next/hv-rhel6.x/hv/ ; bash -e rhel6-hv-driver-install"
   docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "cd /home/travis/build/chvalean/lis-next/hv-rhel6.x/hv/tools ; make"
+  docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "cd /home/travis/build/chvalean/lis-next/hv-rhel6.x/hv/ ; bash -e rhel6-hv-driver-install"
 fi
 
 # clean-up container
