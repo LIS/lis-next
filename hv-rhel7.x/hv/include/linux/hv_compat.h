@@ -616,6 +616,32 @@ static inline void refcount_set(refcount_t *r, unsigned int n)
 				  &qdisc_xmit_lock_key);	\
 }
 
+
+static inline int cpumask_next_wrap(int n, const struct cpumask *mask, int start, bool wrap)
+{
+        int next;
+
+again:
+        next = cpumask_next(n, mask);
+
+        if (wrap && n < start && next >= start) {
+                return nr_cpumask_bits;
+
+        } else if (next >= nr_cpumask_bits) {
+                wrap = true;
+                n = -1;
+                goto again;
+        }
+
+        return next;
+}
+
+#define for_each_cpu_wrap(cpu, mask, start)                                     \
+        for ((cpu) = cpumask_next_wrap((start)-1, (mask), (start), false);      \
+             (cpu) < nr_cpumask_bits;                                           \
+             (cpu) = cpumask_next_wrap((cpu), (mask), (start), true))
+
+
 #ifndef GENMASK_ULL
 #define GENMASK_ULL(h, l) \
 	(((~0ULL) - (1ULL << (l)) + 1) & \

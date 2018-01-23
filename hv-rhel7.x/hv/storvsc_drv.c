@@ -1668,7 +1668,7 @@ static int storvsc_do_io(struct hv_device *device,
 			 */
 			cpumask_and(&alloced_mask, &stor_device->alloced_cpus,
 				    cpumask_of_node(cpu_to_node(q_num)));
-			for_each_cpu(tgt_cpu, &alloced_mask) {
+			for_each_cpu_wrap(tgt_cpu, &alloced_mask, outgoing_channel->target_cpu + 1) {
 				if (tgt_cpu != outgoing_channel->target_cpu) {
 					outgoing_channel =
 					stor_device->stor_chns[tgt_cpu];
@@ -2138,7 +2138,7 @@ static struct scsi_host_template scsi_driver = {
 	.slave_alloc =		storvsc_device_alloc,
 	.slave_destroy =	storvsc_device_destroy,
 	.slave_configure =	storvsc_device_configure,
-	.cmd_per_lun =		255,
+	.cmd_per_lun =		2048,
 	.this_id =		-1,
 	.sg_tablesize = STORVSC_TABLE_SEZE,
 	.use_clustering =	ENABLE_CLUSTERING,
