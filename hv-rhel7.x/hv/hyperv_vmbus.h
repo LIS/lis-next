@@ -242,6 +242,8 @@ struct hv_context {
 
 extern struct hv_context hv_context;
 
+extern int affinity_mode;
+
 /* Hv Interface */
 
 extern int hv_init(void);
