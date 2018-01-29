@@ -667,6 +667,11 @@ enum hv_numa_policy {
 	HV_LOCALIZED,
 };
 
+enum hv_channel_affinity_mode {
+	HV_KEEP_HT_CPU = 0,
+	HV_SKIP_HT_CPU,
+};
+
 enum vmbus_device_type {
 	HV_IDE = 0,
 	HV_SCSI,
