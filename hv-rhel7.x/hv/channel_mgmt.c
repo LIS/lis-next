@@ -712,22 +712,24 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 			continue;
 		}
 
-#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))  
-		cpu_sibling_mask = topology_sibling_cpumask(cur_cpu);
-		cpumask_and(cpu_thread_tmp_mask,
-			    cpu_sibling_mask,
-			    &available_mask);
-		if (!cpumask_equal(cpu_thread_tmp_mask, cpu_sibling_mask)) {
-			/*
-			 * NOTE: The thread sibling of this CPU has been
-			 * assigned to a channel.
-			 * We do not assign both Hyper-Threading CPUs of
-			 * the same physical core to vmbus channels.
-			 * So, mark this CPU as occupied too then move to
-			 * next one and try.
-			 */
-			cpumask_set_cpu(cur_cpu, alloced_mask);
-			continue;
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
+		if (affinity_mode == HV_SKIP_HT_CPU) {
+			cpu_sibling_mask = topology_sibling_cpumask(cur_cpu);
+			cpumask_and(cpu_thread_tmp_mask,
+				    cpu_sibling_mask,
+				    &available_mask);
+			if (!cpumask_equal(cpu_thread_tmp_mask, cpu_sibling_mask)) {
+				/*
+				 * NOTE: The thread sibling of this CPU has been
+				 * assigned to a channel.
+				 * We do not assign both Hyper-Threading CPUs of
+				 * the same physical core to vmbus channels.
+				 * So, mark this CPU as occupied too then move to
+				 * next one and try.
+				 */
+				cpumask_set_cpu(cur_cpu, alloced_mask);
+				continue;
+			}
 		}
 #endif
 

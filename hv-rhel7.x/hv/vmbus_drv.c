@@ -48,6 +48,10 @@
 
 static struct acpi_device  *hv_acpi_dev;
 
+int affinity_mode = 1;
+module_param(affinity_mode, int, S_IRUGO);
+MODULE_PARM_DESC(affinity_mode, "vmbus channel cpu affinity mode: 0, 1");
+
 static struct completion probe_event;
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 static int irq;
@@ -1838,6 +1842,7 @@ static int __init hv_acpi_init(void)
 	hv_setup_crash_handler(hv_crash_handler);
 #endif
 
+	pr_info("vmbus channel cpu affinity mode: %d\n", affinity_mode);
 	return 0;
 
 cleanup:
