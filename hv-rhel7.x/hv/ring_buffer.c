@@ -413,55 +413,118 @@ __hv_pkt_iter_next(struct vmbus_channel *channel,
 EXPORT_SYMBOL_GPL(__hv_pkt_iter_next);
 
 /*
- * Update host ring buffer after iterating over packets.
+ * Update host ring buffer after iterating over packets. If the ring buffer
+ * is blocked on the host side due to being full, and sufficient space is
+ * being freed up, signal the host. But be careful to only signal the host
+ * when necesary, both for performance reasons and because Hyper-V protects
+ * itself by throttling guests that signal inappropriately.
+ *
+ * Determing when to signal is tricky. There are three key data inputs that
+ * must be handled in this order to avoid race conditions:
+ *
+ * 1. Update the read_index
+ * 2. Read the pending_send_sz
+ * 3. Read the current write_index
+ *
+ * Note that the interrupt_mask is not used to determine when to signal.
+ * The interrupt_mask is used only on the guest->host ring buffer when
+ * sending requests to the host. The host does not use it on the host->
+ * guest ring buffer to indicate whether it should be signaled.
+ *
  */
 void hv_pkt_iter_close(struct vmbus_channel *channel)
 {
 	struct hv_ring_buffer_info *rbi = &channel->inbound;
-	u32 orig_write_sz = hv_get_bytes_to_write(rbi);
+	u32 orig_read_index, read_index, write_index, pending_sz;
+	u32 orig_free_space, free_space;
 
 	/*
-	 * Make sure all reads are done before we update the read index since
+	 * Make sure all reads are done before updating the read index since
 	 * the writer may start writing to the read area once the read index
 	 * is updated.
 	 */
 	rmb();
+	orig_read_index = rbi->ring_buffer->read_index;
 	rbi->ring_buffer->read_index = rbi->priv_read_index;
 
 	/*
+	 * Older versions of Hyper-V (before WS2012 and Win8) do not
+	 * implement pending_send_sz and simply poll if the host->guest
+	 * ring buffer is full. No signaling is needed or expected.
+	 */
+	if (!rbi->ring_buffer->feature_bits.feat_pending_send_sz)
+		return;
+
+	/*
 	 * Issue a full memory barrier before making the signaling decision.
-	 * Here is the reason for having this barrier:
-	 * If the reading of the pend_sz (in this function)
-	 * were to be reordered and read before we commit the new read
-	 * index (in the calling function)  we could
-	 * have a problem. If the host were to set the pending_sz after we
-	 * have sampled pending_sz and go to sleep before we commit the
-	 * read index, we could miss sending the interrupt. Issue a full
+	 * If the reading of pending_send_sz were to be reordered and happen
+	 * before we commit the new read_index, a race could occur.  If the
+	 * host were to set the pending_send_sz after we have sampled
+	 * pending_send_sz, and the ring buffer blocks before we commit the
+	 * read index, we could miss signaling the host.  Issue a full
 	 * memory barrier to address this.
 	 */
 	mb();
 
-	/* If host has disabled notifications then skip */
-	if (rbi->ring_buffer->interrupt_mask)
+	/*
+	 * If the pending_send_sz is zero, then the ring buffer is not
+	 * blocked and there is no need to signal. This is by far the
+	 * most common case, so exit quickly for best performance.
+	 */
+	pending_sz = READ_ONCE(rbi->ring_buffer->pending_send_sz);
+	if (!pending_sz)
 		return;
 
-	if (rbi->ring_buffer->feature_bits.feat_pending_send_sz) {
-		u32 pending_sz = READ_ONCE(rbi->ring_buffer->pending_send_sz);
+	/*
+	 * Since pending_send_sz is non-zero, this ring buffer is probably
+	 * blocked on the host, though we don't know for sure because the
+	 * host may check the ring buffer at any time. In any case, see
+	 * if we're freeing enough space in the ring buffer to warrant
+	 * signaling the host. To avoid duplicates, signal the host only if
+	 * transitioning from a "not enough free space" state to a "enough
+	 * free space" state. For example, it's possible that this function
+	 * could run and free up enough space to signal the host, and then
+	 * run again and free up additional space before the host has a
+	 * chance to clear the pending_send_sz. The 2nd invocation would be
+	 * a null transition from "enough free space" to "enough free space",
+	 * which doesn't warrant a signal.
+	 * 
+	 * To do this, calculate the amount of free space that was available
+	 * before updating the read_index and the amount of free space
+	 * available after updating the read_index. Base the calculation
+	 * on the current write_index, protected by READ_ONCE() because
+	 * the host could be changing the value. rmb() ensures the
+	 * value is read after pending_send_sz is read.
+	 */
+	rmb();
+	write_index = READ_ONCE(rbi->ring_buffer->write_index);
 
-		/*
-		 * If there was space before we began iteration,
-		 * then host was not blocked. Also handles case where
-		 * pending_sz is zero then host has nothing pending
-		 * and does not need to be signaled.
-		 */
-		if (orig_write_sz > pending_sz)
-			return;
+	/*
+	 * If the state was "enough free space" prior to updating
+	 * the read_index, then there's no need to signal.
+	 */
+	orig_free_space = (write_index >= orig_read_index)
+			? rbi->ring_datasize - (write_index - orig_read_index)
+			: orig_read_index - write_index;
+	if (orig_free_space > pending_sz)
+		return;
 
-		/* If pending write will not fit, don't give false hope. */
-		if (hv_get_bytes_to_write(rbi) < pending_sz)
-			return;
-	}
+	/* 
+	 * If still in a "not enough space" situation after updating the
+	 * read_index, there's no need to signal. A later invocation of
+	 * this routine will free up enough space and signal the host.
+	 */
+	read_index = rbi->ring_buffer->read_index;
+	free_space = (write_index >= read_index)
+			? rbi->ring_datasize - (write_index - read_index)
+			: read_index - write_index;
+	if (free_space <= pending_sz)
+		return;
 
+	/*
+	 * We're transitioning from "not enough free space" to
+	 * "enough free space", so signal the host.
+	 */
 	vmbus_setevent(channel);
 }
 EXPORT_SYMBOL_GPL(hv_pkt_iter_close);
