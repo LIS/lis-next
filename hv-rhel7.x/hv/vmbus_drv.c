@@ -48,7 +48,7 @@
 
 static struct acpi_device  *hv_acpi_dev;
 
-int affinity_mode = 1;
+int affinity_mode = HV_KEEP_HT_CPU;
 module_param(affinity_mode, int, S_IRUGO);
 MODULE_PARM_DESC(affinity_mode, "vmbus channel cpu affinity mode: 0, 1");
 
