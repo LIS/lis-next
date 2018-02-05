@@ -1019,8 +1019,9 @@ cr_cq_err:
 int hvnd_destroy_cq(struct hvnd_dev *nd_dev, struct hvnd_cq *cq)
 {
 	struct pkt_nd_free_cq free_cq_pkt;
-	int ret;
  
+	remove_handle(nd_dev, &nd_dev->cqidr, cq->cqn);
+
 	memset(&free_cq_pkt, 0, sizeof(free_cq_pkt)); //KYS try to avoid having to zero everything
 	hvnd_init_hdr(&free_cq_pkt.hdr,
 		      sizeof(struct pkt_nd_free_cq) -
@@ -1035,19 +1036,9 @@ int hvnd_destroy_cq(struct hvnd_dev *nd_dev, struct hvnd_cq *cq)
 	free_cq_pkt.ioctl.in.version = ND_VERSION_1;
 	free_cq_pkt.ioctl.in.handle = cq->cq_handle; 
  
-	ret = hvnd_send_ioctl_pkt(nd_dev, &free_cq_pkt.hdr, 
+	return hvnd_send_ioctl_pkt(nd_dev, &free_cq_pkt.hdr, 
 			       sizeof(struct pkt_nd_free_cq),
 			       (u64)&free_cq_pkt);
-
-	if (ret)
-		goto free_cq_err;
-
-	remove_handle(nd_dev, &nd_dev->cqidr, cq->cqn);
-
-	return 0;
-
-free_cq_err:
-	return ret;
 }
 
 
@@ -2255,11 +2246,8 @@ cr_qp_err:
 int hvnd_free_qp(struct hvnd_dev *nd_dev, struct hvnd_ucontext *uctx,
 		 struct hvnd_qp *qp)
 {
-	int ret;
-	ret = hvnd_free_handle(nd_dev, uctx, qp->qp_handle, IOCTL_ND_QP_FREE);
-	if (ret == 0)
-		remove_handle(nd_dev, &nd_dev->qpidr, qp->qpn);
-	return ret;
+	remove_handle(nd_dev, &nd_dev->qpidr, qp->qpn);
+	return hvnd_free_handle(nd_dev, uctx, qp->qp_handle, IOCTL_ND_QP_FREE);
 }
 
 int hvnd_flush_qp(struct hvnd_dev *nd_dev, struct hvnd_ucontext *uctx,
