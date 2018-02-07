@@ -230,6 +230,8 @@ int vmbus_connect(void)
 	vmbus_proto_version = version;
 	pr_info("Vmbus version:%d.%d\n",
 		version >> 16, version & 0xFFFF);
+	pr_info("Vmbus LIS version: %s\n",
+                HV_DRV_VERSION);
 
 	kfree(msginfo);
 	return 0;

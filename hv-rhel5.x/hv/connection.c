@@ -211,6 +211,8 @@ int vmbus_connect(void)
 		    host_info_ebx & 0xFFFF, host_info_ecx,
 		    host_info_edx >> 24, host_info_edx & 0xFFFFFF,
 		    version >> 16, version & 0xFFFF);
+	pr_info("Vmbus LIS version: %s\n",
+                HV_DRV_VERSION);
 
 	kfree(msginfo);
 	return 0;
