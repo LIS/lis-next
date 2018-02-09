@@ -37,7 +37,7 @@
 #endif
 
 #define HV_DRV_VERSION	"master"
-
+#define _HV_DRV_VERSION 0x1A8
 
 #ifdef __KERNEL__
 
