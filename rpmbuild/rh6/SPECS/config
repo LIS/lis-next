@@ -1,3 +1,0 @@
-%defattr (-,root,root)
-/lib/modules/%2-%1
-%config /etc/depmod.d/hyperv.conf
