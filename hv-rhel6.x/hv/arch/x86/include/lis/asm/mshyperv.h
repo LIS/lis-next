@@ -4,6 +4,7 @@
 #include <linux/types.h>
 #include <linux/interrupt.h>
 #include <linux/clocksource.h>
+#include <linux/hv_compat.h>
 #include <lis/asm/hyperv.h>
 
 /*
