@@ -794,7 +794,7 @@ static int hv_set_affinity(struct irq_data *data, const struct cpumask *mask,
 {
 	struct msi_desc *msi_desc = data->msi_desc;
 	struct irq_cfg *cfg = irqd_cfg(data);
-	struct cpumask *dest = cfg->domain;
+	const struct cpumask *dest;
 	struct retarget_msi_interrupt *params;
 	struct hv_pcibus_device *hbus;
 	struct pci_bus *pbus;
@@ -805,6 +805,10 @@ static int hv_set_affinity(struct irq_data *data, const struct cpumask *mask,
 	u64 res;
 	u32 var_size = 0;
 
+	if (cpumask_equal(mask, cpu_online_mask))
+		dest = cfg->domain;
+	else
+		dest = mask;
 	ret = __ioapic_set_affinity(data, dest, &dest_id);
 	if (ret)
 		return ret;

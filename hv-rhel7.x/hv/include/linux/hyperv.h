@@ -127,28 +127,6 @@ struct hv_ring_buffer_info {
 	u32 priv_read_index;
 };
 
-/*
- *
- * hv_get_ringbuffer_availbytes()
- *
- * Get number of bytes available to read and to write to
- * for the specified ring buffer
- */
-static inline void
-hv_get_ringbuffer_availbytes(const struct hv_ring_buffer_info *rbi,
-			     u32 *read, u32 *write)
-{
-	u32 read_loc, write_loc, dsize;
-
-	/* Capture the read/write indices before they changed */
-	read_loc = rbi->ring_buffer->read_index;
-	write_loc = rbi->ring_buffer->write_index;
-	dsize = rbi->ring_datasize;
-
-	*write = write_loc >= read_loc ? dsize - (write_loc - read_loc) :
-		read_loc - write_loc;
-	*read = dsize - *write;
-}
 
 static inline u32 hv_get_bytes_to_read(const struct hv_ring_buffer_info *rbi)
 {
@@ -665,6 +643,11 @@ union hv_connection_id {
 enum hv_numa_policy {
 	HV_BALANCED = 0,
 	HV_LOCALIZED,
+};
+
+enum hv_channel_affinity_mode {
+	HV_KEEP_HT_CPU = 0,
+	HV_SKIP_HT_CPU,
 };
 
 enum vmbus_device_type {

@@ -37,7 +37,7 @@
 #endif
 
 #define HV_DRV_VERSION	"master"
-
+#define _HV_DRV_VERSION 0x1A8
 
 #ifdef __KERNEL__
 
@@ -544,7 +544,7 @@ static inline enum blk_eh_timer_return fc_eh_timed_out(struct scsi_cmnd *scmd)
 {
 	struct fc_rport *rport = starget_to_rport(scsi_target(scmd->device));
 
-	if (rport->port_state == FC_PORTSTATE_BLOCKED)
+	if (rport && rport->port_state == FC_PORTSTATE_BLOCKED)
 		return BLK_EH_RESET_TIMER;
 
 	return BLK_EH_NOT_HANDLED;
@@ -615,6 +615,32 @@ static inline void refcount_set(refcount_t *r, unsigned int n)
 		lockdep_set_class(&(dev)->_tx[i]._xmit_lock,	\
 				  &qdisc_xmit_lock_key);	\
 }
+
+
+static inline int cpumask_next_wrap(int n, const struct cpumask *mask, int start, bool wrap)
+{
+        int next;
+
+again:
+        next = cpumask_next(n, mask);
+
+        if (wrap && n < start && next >= start) {
+                return nr_cpumask_bits;
+
+        } else if (next >= nr_cpumask_bits) {
+                wrap = true;
+                n = -1;
+                goto again;
+        }
+
+        return next;
+}
+
+#define for_each_cpu_wrap(cpu, mask, start)                                     \
+        for ((cpu) = cpumask_next_wrap((start)-1, (mask), (start), false);      \
+             (cpu) < nr_cpumask_bits;                                           \
+             (cpu) = cpumask_next_wrap((cpu), (mask), (start), true))
+
 
 #ifndef GENMASK_ULL
 #define GENMASK_ULL(h, l) \

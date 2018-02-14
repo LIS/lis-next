@@ -272,7 +272,7 @@ void hyperv_report_panic(struct pt_regs *regs, long err)
 	wrmsrl(HV_X64_MSR_CRASH_P0, err);
 	wrmsrl(HV_X64_MSR_CRASH_P1, guest_id);
 	wrmsrl(HV_X64_MSR_CRASH_P2, regs->ip);
-	wrmsrl(HV_X64_MSR_CRASH_P3, regs->ax);
+	wrmsrl(HV_X64_MSR_CRASH_P3, _HV_DRV_VERSION);
 	wrmsrl(HV_X64_MSR_CRASH_P4, regs->sp);
 
 	/*
