@@ -1258,7 +1258,7 @@ static ssize_t out_mask_show(const struct vmbus_channel *channel, char *buf)
 
 	return sprintf(buf, "%u\n", rbi->ring_buffer->interrupt_mask);
 }
-VMBUS_CHAN_ATTR_RO(out_mask);
+static VMBUS_CHAN_ATTR_RO(out_mask);
 
 static ssize_t in_mask_show(const struct vmbus_channel *channel, char *buf)
 {
@@ -1266,7 +1266,7 @@ static ssize_t in_mask_show(const struct vmbus_channel *channel, char *buf)
 
 	return sprintf(buf, "%u\n", rbi->ring_buffer->interrupt_mask);
 }
-VMBUS_CHAN_ATTR_RO(in_mask);
+static VMBUS_CHAN_ATTR_RO(in_mask);
 
 static ssize_t read_avail_show(const struct vmbus_channel *channel, char *buf)
 {
@@ -1274,7 +1274,7 @@ static ssize_t read_avail_show(const struct vmbus_channel *channel, char *buf)
 
 	return sprintf(buf, "%u\n", hv_get_bytes_to_read(rbi));
 }
-VMBUS_CHAN_ATTR_RO(read_avail);
+static VMBUS_CHAN_ATTR_RO(read_avail);
 
 static ssize_t write_avail_show(const struct vmbus_channel *channel, char *buf)
 {
@@ -1282,13 +1282,13 @@ static ssize_t write_avail_show(const struct vmbus_channel *channel, char *buf)
 
 	return sprintf(buf, "%u\n", hv_get_bytes_to_write(rbi));
 }
-VMBUS_CHAN_ATTR_RO(write_avail);
+static VMBUS_CHAN_ATTR_RO(write_avail);
 
 static ssize_t show_target_cpu(const struct vmbus_channel *channel, char *buf)
 {
 	return sprintf(buf, "%u\n", channel->target_cpu);
 }
-VMBUS_CHAN_ATTR(cpu, S_IRUGO, show_target_cpu, NULL);
+static VMBUS_CHAN_ATTR(cpu, S_IRUGO, show_target_cpu, NULL);
 
 static ssize_t channel_pending_show(const struct vmbus_channel *channel,
 				    char *buf)
@@ -1297,7 +1297,7 @@ static ssize_t channel_pending_show(const struct vmbus_channel *channel,
 		       channel_pending(channel,
 				       vmbus_connection.monitor_pages[1]));
 }
-VMBUS_CHAN_ATTR(pending, S_IRUGO, channel_pending_show, NULL);
+static VMBUS_CHAN_ATTR(pending, S_IRUGO, channel_pending_show, NULL);
 
 static ssize_t channel_latency_show(const struct vmbus_channel *channel,
 				    char *buf)
@@ -1306,7 +1306,7 @@ static ssize_t channel_latency_show(const struct vmbus_channel *channel,
 		       channel_latency(channel,
 				       vmbus_connection.monitor_pages[1]));
 }
-VMBUS_CHAN_ATTR(latency, S_IRUGO, channel_latency_show, NULL);
+static VMBUS_CHAN_ATTR(latency, S_IRUGO, channel_latency_show, NULL);
 
 static ssize_t subchannel_monitor_id_show(const struct vmbus_channel *channel,
 					  char *buf)
