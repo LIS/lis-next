@@ -898,7 +898,7 @@ int netvsc_send(struct net_device *ndev,
 	#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
 	xmit_more = skb->xmit_more &&
 	#else
-	xmit_more = skb &&
+	xmit_more = 
 	#endif
 		!packet->cp_partial &&
 		!netif_xmit_stopped(netdev_get_tx_queue(ndev, packet->q_idx));
