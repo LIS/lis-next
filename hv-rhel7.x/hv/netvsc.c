@@ -709,8 +709,12 @@ static void netvsc_copy_to_send_buf(struct netvsc_device *net_device,
 				    u32 pend_size,
 				    struct hv_netvsc_packet *packet,
 				    struct rndis_message *rndis_msg,
-				    struct hv_page_buffer *pb,
-				    bool xmit_more)
+					struct hv_page_buffer *pb,
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+					bool xmit_more)
+#else
+					struct sk_buff *skb)
+#endif
 {
 	char *start = net_device->send_buf;
 	char *dest = start + (section_index * net_device->send_section_size)
@@ -723,7 +727,12 @@ static void netvsc_copy_to_send_buf(struct netvsc_device *net_device,
 
 	/* Add padding */
 	remain = packet->total_data_buflen & (net_device->pkt_align - 1);
+	
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
 	if (xmit_more && remain) {
+#else
+	if (skb && packet->xmit_more && remain && !packet->cp_partial) {
+#endif
 		padding = net_device->pkt_align - remain;
 		rndis_msg->msg_len += padding;
 		packet->total_data_buflen += padding;
@@ -849,7 +858,7 @@ int netvsc_send(struct net_device *ndev,
 	struct multi_send_data *msdp;
 	struct hv_netvsc_packet *msd_send = NULL, *cur_send = NULL;
 	struct sk_buff *msd_skb = NULL;
-	bool try_batch, xmit_more;
+	bool try_batch;
 
 	/* If device is rescinded, return error and packet will get dropped. */
 	if (unlikely(!net_device || net_device->destroy))
@@ -895,19 +904,20 @@ int netvsc_send(struct net_device *ndev,
 	/* Keep aggregating only if stack says more data is coming
 	 * and not doing mixed modes send and not flow blocked
 	 */
-	#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
-	xmit_more = skb->xmit_more &&
-	#else
-	xmit_more = 
-	#endif
-		!packet->cp_partial &&
-		!netif_xmit_stopped(netdev_get_tx_queue(ndev, packet->q_idx));
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+	bool xmit_more = skb->xmit_more &&
+					!packet->cp_partial &&
+					!netif_xmit_stopped(netdev_get_tx_queue(ndev, packet->q_idx));
+#endif
 
 	if (section_index != NETVSC_INVALID_INDEX) {
 		netvsc_copy_to_send_buf(net_device,
 					section_index, msd_len,
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
 					packet, rndis_msg, pb, xmit_more);
-
+#else
+					packet, rndis_msg, pb, skb);
+#endif
 		packet->send_buf_index = section_index;
 
 		if (packet->cp_partial) {
