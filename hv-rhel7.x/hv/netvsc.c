@@ -709,11 +709,11 @@ static void netvsc_copy_to_send_buf(struct netvsc_device *net_device,
 				    u32 pend_size,
 				    struct hv_netvsc_packet *packet,
 				    struct rndis_message *rndis_msg,
-					struct hv_page_buffer *pb,
+				    struct hv_page_buffer *pb,
 #if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
-					bool xmit_more)
+				    bool xmit_more)
 #else
-					struct sk_buff *skb)
+				    struct sk_buff *skb)
 #endif
 {
 	char *start = net_device->send_buf;
@@ -935,8 +935,11 @@ int netvsc_send(struct net_device *ndev,
 
 		if (msdp->skb)
 			dev_consume_skb_any(msdp->skb);
-
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1)) 
 		if (xmit_more) {
+#else
+		if (skb->xmit_more && !packet->cp_partial) {
+#endif
 			msdp->skb = skb;
 			msdp->pkt = packet;
 			msdp->count++;
