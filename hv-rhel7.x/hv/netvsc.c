@@ -859,7 +859,9 @@ int netvsc_send(struct net_device *ndev,
 	struct hv_netvsc_packet *msd_send = NULL, *cur_send = NULL;
 	struct sk_buff *msd_skb = NULL;
 	bool try_batch;
-
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+	bool xmit_more;
+#endif
 	/* If device is rescinded, return error and packet will get dropped. */
 	if (unlikely(!net_device || net_device->destroy))
 		return -ENODEV;
@@ -905,9 +907,9 @@ int netvsc_send(struct net_device *ndev,
 	 * and not doing mixed modes send and not flow blocked
 	 */
 #if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
-	bool xmit_more = skb->xmit_more &&
-					!packet->cp_partial &&
-					!netif_xmit_stopped(netdev_get_tx_queue(ndev, packet->q_idx));
+	xmit_more = skb->xmit_more &&
+			!packet->cp_partial &&
+			!netif_xmit_stopped(netdev_get_tx_queue(ndev, packet->q_idx));
 #endif
 
 	if (section_index != NETVSC_INVALID_INDEX) {
@@ -938,7 +940,7 @@ int netvsc_send(struct net_device *ndev,
 #if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1)) 
 		if (xmit_more) {
 #else
-		if (skb->xmit_more && !packet->cp_partial) {
+		if (packet->xmit_more && !packet->cp_partial) {
 #endif
 			msdp->skb = skb;
 			msdp->pkt = packet;
