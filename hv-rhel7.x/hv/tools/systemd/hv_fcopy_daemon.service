@@ -1,6 +1,7 @@
 [Unit]
 Description=Hyper-V FCOPY daemon
 BindsTo=sys-devices-virtual-misc-vmbus\x21hv_fcopy.device
+ConditionPathExists=/dev/vmbus/hv_fcopy
 
 [Service]
 ExecStart=/usr/sbin/hv_fcopy_daemon -n
