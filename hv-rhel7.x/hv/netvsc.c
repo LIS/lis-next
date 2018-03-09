@@ -1309,7 +1309,6 @@ struct netvsc_device *netvsc_device_add(struct hv_device *device,
 		netvsc_channel_cb, net_device->chan_table);
 
 	if (ret != 0) {
-		netif_napi_del(&net_device->chan_table[0].napi);
 		netdev_err(ndev, "unable to open channel: %d\n", ret);
 		goto cleanup;
 	}
@@ -1342,6 +1341,7 @@ close:
 	vmbus_close(device->channel);
 
 cleanup:
+	netif_napi_del(&net_device->chan_table[0].napi);
 	free_netvsc_device(&net_device->rcu);
 
 	return ERR_PTR(ret);
