@@ -10,11 +10,13 @@
  * Since the driver does not declare any device ids, you must allocate
  * id and bind the device to the driver yourself.  For example:
  *
+ * Associate Network GUID with UIO device
  * # echo "f8615163-df3e-46c5-913f-f2d2f965ed0e" \
- *    > /sys/bus/vmbus/drivers/uio_hv_generic
- * # echo -n vmbus-ed963694-e847-4b2a-85af-bc9cfc11d6f3 \
+ *    > /sys/bus/vmbus/drivers/uio_hv_generic/new_id
+ * Then rebind
+ * # echo -n "ed963694-e847-4b2a-85af-bc9cfc11d6f3" \
  *    > /sys/bus/vmbus/drivers/hv_netvsc/unbind
- * # echo -n vmbus-ed963694-e847-4b2a-85af-bc9cfc11d6f3 \
+ * # echo -n "ed963694-e847-4b2a-85af-bc9cfc11d6f3" \
  *    > /sys/bus/vmbus/drivers/uio_hv_generic/bind
  */
 
@@ -53,24 +55,6 @@ struct hv_uio_private_data {
 	struct uio_info info;
 	struct hv_device *device;
 };
-
-static int
-hv_uio_mmap(struct uio_info *info, struct vm_area_struct *vma)
-{
-	int mi;
-
-	if (vma->vm_pgoff >= MAX_UIO_MAPS)
-		return -EINVAL;
-
-	if (info->mem[vma->vm_pgoff].size == 0)
-		return -EINVAL;
-
-	mi = (int)vma->vm_pgoff;
-
-	return remap_pfn_range(vma, vma->vm_start,
-			virt_to_phys((void *)info->mem[mi].addr) >> PAGE_SHIFT,
-			vma->vm_end - vma->vm_start, vma->vm_page_prot);
-}
 
 /*
  * This is the irqcontrol callback to be registered to uio_info.
@@ -125,13 +109,12 @@ hv_uio_probe(struct hv_device *dev,
 		goto fail;
 
 	dev->channel->inbound.ring_buffer->interrupt_mask = 1;
-	set_channel_read_mode(dev->channel, HV_CALL_DIRECT);
+	set_channel_read_mode(dev->channel, HV_CALL_ISR);
 
 	/* Fill general uio info */
 	pdata->info.name = "uio_hv_generic";
 	pdata->info.version = DRIVER_VERSION;
 	pdata->info.irqcontrol = hv_uio_irqcontrol;
-	pdata->info.mmap = hv_uio_mmap;
 	pdata->info.irq = UIO_IRQ_CUSTOM;
 
 	/* mem resources */
@@ -139,18 +122,18 @@ hv_uio_probe(struct hv_device *dev,
 	pdata->info.mem[TXRX_RING_MAP].addr
 		= (phys_addr_t)dev->channel->ringbuffer_pages;
 	pdata->info.mem[TXRX_RING_MAP].size
-		= dev->channel->ringbuffer_pagecount * PAGE_SIZE;
+		= dev->channel->ringbuffer_pagecount << PAGE_SHIFT;
 	pdata->info.mem[TXRX_RING_MAP].memtype = UIO_MEM_LOGICAL;
 
 	pdata->info.mem[INT_PAGE_MAP].name = "int_page";
-	pdata->info.mem[INT_PAGE_MAP].addr =
-		(phys_addr_t)vmbus_connection.int_page;
+	pdata->info.mem[INT_PAGE_MAP].addr
+		= (phys_addr_t)vmbus_connection.int_page;
 	pdata->info.mem[INT_PAGE_MAP].size = PAGE_SIZE;
 	pdata->info.mem[INT_PAGE_MAP].memtype = UIO_MEM_LOGICAL;
 
-	pdata->info.mem[MON_PAGE_MAP].name = "monitor_pages";
-	pdata->info.mem[MON_PAGE_MAP].addr =
-		(phys_addr_t)vmbus_connection.monitor_pages[1];
+	pdata->info.mem[MON_PAGE_MAP].name = "monitor_page";
+	pdata->info.mem[MON_PAGE_MAP].addr
+		= (phys_addr_t)vmbus_connection.monitor_pages[1];
 	pdata->info.mem[MON_PAGE_MAP].size = PAGE_SIZE;
 	pdata->info.mem[MON_PAGE_MAP].memtype = UIO_MEM_LOGICAL;
 
