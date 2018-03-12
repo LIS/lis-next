@@ -828,6 +828,9 @@ static int rndis_filter_set_packet_filter(struct rndis_device *dev,
 	struct rndis_set_request *set;
 	int ret;
 
+	if (dev->filter == new_filter)
+		return 0;
+
 	request = get_rndis_request(dev, RNDIS_MSG_SET,
 			RNDIS_MESSAGE_SIZE(struct rndis_set_request) +
 			sizeof(u32));
@@ -845,8 +848,10 @@ static int rndis_filter_set_packet_filter(struct rndis_device *dev,
 	       &new_filter, sizeof(u32));
 
 	ret = rndis_filter_send_request(dev, request);
-	if (ret == 0)
+	if (ret == 0) {
 		wait_for_completion(&request->wait_event);
+		dev->filter = new_filter;
+	}
 
 	put_rndis_request(dev, request);
 
