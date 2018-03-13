@@ -335,9 +335,41 @@ static u16 netvsc_pick_tx(struct net_device *ndev, struct sk_buff *skb)
 // 5b54dac856cb5bd6f33f4159012773e4a33704f7
 static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb,
 			void *accel_priv, select_queue_fallback_t fallback)
+{
+         struct net_device_context *ndc = netdev_priv(ndev);
+         struct net_device *vf_netdev;
+         u16 txq;
+    
+         rcu_read_lock();
+         vf_netdev = rcu_dereference(ndc->vf_netdev);
+         if (vf_netdev) {
+			const struct net_device_ops *vf_ops = vf_netdev->netdev_ops;
+
+		if (vf_ops->ndo_select_queue)
+			txq = vf_ops->ndo_select_queue(vf_netdev, skb,
+						       accel_priv, fallback);
+		else
+			txq = fallback(vf_netdev, skb);
+
+		/* Record the queue selected by VF so that it can be
+		 * used for common case where VF has more queues than
+		 * the synthetic device.
+		 */
+		qdisc_skb_cb(skb)->slave_dev_queue_mapping = txq;
+
+         } else {
+             txq = netvsc_pick_tx(ndev, skb);
+         }
+         rcu_read_unlock();
+    
+         while (unlikely(txq >= ndev->real_num_tx_queues))
+             txq -= ndev->real_num_tx_queues;
+    
+         return txq;
+     }
+
 #else
 static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
-#endif
 {
 	struct net_device_context *ndc = netdev_priv(ndev);
 	struct net_device *vf_netdev;
@@ -358,6 +390,7 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 
 	return txq;
 }
+#endif
 
 static u32 fill_pg_buf(struct page *page, u32 offset, u32 len,
 		       struct hv_page_buffer *pb)
