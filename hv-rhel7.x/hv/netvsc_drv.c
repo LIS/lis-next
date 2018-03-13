@@ -72,10 +72,36 @@ static int debug = -1;
 module_param(debug, int, S_IRUGO);
 MODULE_PARM_DESC(debug, "Debug level (0=none,...,16=all)");
 
-static void netvsc_set_multicast_list(struct net_device *net)
+static void netvsc_change_rx_flags(struct net_device *net, int change)
 {
-	struct net_device_context *net_device_ctx = netdev_priv(net);
-	struct netvsc_device *nvdev = rtnl_dereference(net_device_ctx->nvdev);
+	struct net_device_context *ndev_ctx = netdev_priv(net);
+	struct net_device *vf_netdev = rtnl_dereference(ndev_ctx->vf_netdev);
+	int inc;
+
+	if (!vf_netdev)
+		return;
+
+	if (change & IFF_PROMISC) {
+		inc = (net->flags & IFF_PROMISC) ? 1 : -1;
+		dev_set_promiscuity(vf_netdev, inc);
+	}
+
+	if (change & IFF_ALLMULTI) {
+		inc = (net->flags & IFF_ALLMULTI) ? 1 : -1;
+		dev_set_allmulti(vf_netdev, inc);
+	}
+}
+
+static void netvsc_set_rx_mode(struct net_device *net)
+{
+	struct net_device_context *ndev_ctx = netdev_priv(net);
+	struct net_device *vf_netdev = rtnl_dereference(ndev_ctx->vf_netdev);
+	struct netvsc_device *nvdev = rtnl_dereference(ndev_ctx->nvdev);
+
+	if (vf_netdev) {
+		dev_uc_sync(vf_netdev, net);
+		dev_mc_sync(vf_netdev, net);
+	}
 
 	rndis_filter_update(nvdev);
 }
@@ -335,9 +361,41 @@ static u16 netvsc_pick_tx(struct net_device *ndev, struct sk_buff *skb)
 // 5b54dac856cb5bd6f33f4159012773e4a33704f7
 static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb,
 			void *accel_priv, select_queue_fallback_t fallback)
+{
+         struct net_device_context *ndc = netdev_priv(ndev);
+         struct net_device *vf_netdev;
+         u16 txq;
+    
+         rcu_read_lock();
+         vf_netdev = rcu_dereference(ndc->vf_netdev);
+         if (vf_netdev) {
+			const struct net_device_ops *vf_ops = vf_netdev->netdev_ops;
+
+		if (vf_ops->ndo_select_queue)
+			txq = vf_ops->ndo_select_queue(vf_netdev, skb,
+						       accel_priv, fallback);
+		else
+			txq = fallback(vf_netdev, skb);
+
+		/* Record the queue selected by VF so that it can be
+		 * used for common case where VF has more queues than
+		 * the synthetic device.
+		 */
+		qdisc_skb_cb(skb)->slave_dev_queue_mapping = txq;
+
+         } else {
+             txq = netvsc_pick_tx(ndev, skb);
+         }
+         rcu_read_unlock();
+    
+         while (unlikely(txq >= ndev->real_num_tx_queues))
+             txq -= ndev->real_num_tx_queues;
+    
+         return txq;
+     }
+
 #else
 static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
-#endif
 {
 	struct net_device_context *ndc = netdev_priv(ndev);
 	struct net_device *vf_netdev;
@@ -358,6 +416,7 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 
 	return txq;
 }
+#endif
 
 static u32 fill_pg_buf(struct page *page, u32 offset, u32 len,
 		       struct hv_page_buffer *pb)
@@ -1558,7 +1617,8 @@ static const struct net_device_ops device_ops = {
 	.ndo_open =			netvsc_open,
 	.ndo_stop =			netvsc_close,
 	.ndo_start_xmit =		netvsc_start_xmit,
-	.ndo_set_rx_mode =		netvsc_set_multicast_list,
+	.ndo_change_rx_flags =		netvsc_change_rx_flags,
+	.ndo_set_rx_mode =		netvsc_set_rx_mode,
 	.ndo_change_mtu =		netvsc_change_mtu,
 	.ndo_validate_addr =		eth_validate_addr,
 	.ndo_set_mac_address =		netvsc_set_mac_addr,
@@ -1788,6 +1848,11 @@ static void __netvsc_vf_setup(struct net_device *ndev,
 	if (ret)
 		netdev_warn(vf_netdev,
 			    "unable to change mtu to %u\n", ndev->mtu);
+
+	/* set multicast etc flags on VF */
+	dev_change_flags(vf_netdev, ndev->flags | IFF_SLAVE);
+	dev_uc_sync(vf_netdev, ndev);
+	dev_mc_sync(vf_netdev, ndev);
 
 	if (netif_running(ndev)) {
 		ret = dev_open(vf_netdev);

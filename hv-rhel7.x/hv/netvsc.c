@@ -1254,8 +1254,11 @@ void netvsc_channel_cb(void *context)
 	if (napi_schedule_prep(&nvchan->napi)) {
 		/* disable interupts from host */
 		hv_begin_read(rbi);
-
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
 		__napi_schedule(&nvchan->napi);
+#else
+		__napi_schedule_irqoff(&nvchan->napi);
+#endif
 	}
 }
 
