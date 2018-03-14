@@ -38,6 +38,9 @@
 #define DRIVER_VERSION	"0.02.0"
 #define DRIVER_AUTHOR	"Stephen Hemminger <sthemmin at microsoft.com>"
 #define DRIVER_DESC	"Generic UIO driver for VMBus devices"
+#define HV_RING_SIZE	 512	/* pages */
+#define SEND_BUFFER_SIZE (15 * 1024 * 1024)
+#define RECV_BUFFER_SIZE (15 * 1024 * 1024)
 
 /*
  * List of resources to be mapped to user space
@@ -47,13 +50,20 @@ enum hv_uio_map {
 	TXRX_RING_MAP = 0,
 	INT_PAGE_MAP,
 	MON_PAGE_MAP,
+	RECV_BUF_MAP,
+	SEND_BUF_MAP
 };
-
-#define HV_RING_SIZE	512
 
 struct hv_uio_private_data {
 	struct uio_info info;
 	struct hv_device *device;
+	void	*recv_buf;
+	u32	recv_gpadl;
+	char	recv_name[32];	/* "recv_4294967295" */
+
+	void	*send_buf;
+	u32	send_gpadl;
+	char	send_name[32];
 };
 
 /*
@@ -91,6 +101,36 @@ static void hv_uio_channel_cb(void *context)
 	uio_event_notify(&pdata->info);
 }
 
+/*
+ * Callback from vmbus_event when channel is rescinded.
+ */
+static void hv_uio_rescind(struct vmbus_channel *channel)
+{
+	struct hv_device *hv_dev = channel->primary_channel->device_obj;
+	struct hv_uio_private_data *pdata = hv_get_drvdata(hv_dev);
+
+	/*
+	 * Turn off the interrupt file handle
+	 * Next read for event will return -EIO
+	 */
+	pdata->info.irq = 0;
+
+	/* Wake up reader */
+	uio_event_notify(&pdata->info);
+}
+
+static void
+hv_uio_cleanup(struct hv_device *dev, struct hv_uio_private_data *pdata)
+{
+	if (pdata->send_gpadl)
+		vmbus_teardown_gpadl(dev->channel, pdata->send_gpadl);
+	vfree(pdata->send_buf);
+
+	if (pdata->recv_gpadl)
+		vmbus_teardown_gpadl(dev->channel, pdata->recv_gpadl);
+	vfree(pdata->recv_buf);
+}
+
 static int
 hv_uio_probe(struct hv_device *dev,
 	     const struct hv_vmbus_device_id *dev_id)
@@ -107,6 +147,13 @@ hv_uio_probe(struct hv_device *dev,
 			 hv_uio_channel_cb, pdata);
 	if (ret)
 		goto fail;
+
+	/* Communicating with host has to be via shared memory not hypercall */
+	if (!dev->channel->offermsg.monitor_allocated) {
+		dev_err(&dev->device, "vmbus channel requires hypercall\n");
+		ret = -ENOTSUPP;
+		goto fail_close;
+	}
 
 	dev->channel->inbound.ring_buffer->interrupt_mask = 1;
 	set_channel_read_mode(dev->channel, HV_CALL_ISR);
@@ -136,6 +183,45 @@ hv_uio_probe(struct hv_device *dev,
 		= (phys_addr_t)vmbus_connection.monitor_pages[1];
 	pdata->info.mem[MON_PAGE_MAP].size = PAGE_SIZE;
 	pdata->info.mem[MON_PAGE_MAP].memtype = UIO_MEM_LOGICAL;
+	pdata->recv_buf = vzalloc(RECV_BUFFER_SIZE);
+	if (pdata->recv_buf == NULL) {
+		ret = -ENOMEM;
+		goto fail_close;
+	}
+
+	ret = vmbus_establish_gpadl(dev->channel, pdata->recv_buf,
+				    RECV_BUFFER_SIZE, &pdata->recv_gpadl);
+	if (ret)
+		goto fail_close;
+
+	/* put Global Physical Address Label in name */
+	snprintf(pdata->recv_name, sizeof(pdata->recv_name),
+		 "recv:%u", pdata->recv_gpadl);
+	pdata->info.mem[RECV_BUF_MAP].name = pdata->recv_name;
+	pdata->info.mem[RECV_BUF_MAP].addr
+		= (phys_addr_t)pdata->recv_buf;
+	pdata->info.mem[RECV_BUF_MAP].size = RECV_BUFFER_SIZE;
+	pdata->info.mem[RECV_BUF_MAP].memtype = UIO_MEM_VIRTUAL;
+
+
+	pdata->send_buf = vzalloc(SEND_BUFFER_SIZE);
+	if (pdata->send_buf == NULL) {
+		ret = -ENOMEM;
+		goto fail_close;
+	}
+
+	ret = vmbus_establish_gpadl(dev->channel, pdata->send_buf,
+				    SEND_BUFFER_SIZE, &pdata->send_gpadl);
+	if (ret)
+		goto fail_close;
+
+	snprintf(pdata->send_name, sizeof(pdata->send_name),
+		 "send:%u", pdata->send_gpadl);
+	pdata->info.mem[SEND_BUF_MAP].name = pdata->send_name;
+	pdata->info.mem[SEND_BUF_MAP].addr
+		= (phys_addr_t)pdata->send_buf;
+	pdata->info.mem[SEND_BUF_MAP].size = SEND_BUFFER_SIZE;
+	pdata->info.mem[SEND_BUF_MAP].memtype = UIO_MEM_VIRTUAL;
 
 	pdata->info.priv = pdata;
 	pdata->device = dev;
@@ -146,11 +232,14 @@ hv_uio_probe(struct hv_device *dev,
 		goto fail_close;
 	}
 
+	vmbus_set_chn_rescind_callback(dev->channel, hv_uio_rescind);
+
 	hv_set_drvdata(dev, pdata);
 
 	return 0;
 
 fail_close:
+	hv_uio_cleanup(dev, pdata);
 	vmbus_close(dev->channel);
 fail:
 	kfree(pdata);
@@ -167,6 +256,7 @@ hv_uio_remove(struct hv_device *dev)
 		return 0;
 
 	uio_unregister_device(&pdata->info);
+	hv_uio_cleanup(dev, pdata);
 	hv_set_drvdata(dev, NULL);
 	vmbus_close(dev->channel);
 	kfree(pdata);
