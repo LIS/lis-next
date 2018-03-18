@@ -37,7 +37,6 @@
 #include <linux/clockchips.h>
 #include <linux/cpu.h>
 #include <lis/asm/hyperv.h>
-#include <asm/hypervisor.h>
 #include <linux/screen_info.h>
 #include <linux/efi.h>
 #include <linux/random.h>
@@ -1821,7 +1820,7 @@ static int __init hv_acpi_init(void)
 {
 	int ret, t;
 
-	if (x86_hyper != &x86_hyper_ms_hyperv)
+	if (!hv_is_hyperv_initialized())
 		return -ENODEV;
 
 	init_ms_hyperv_ext();

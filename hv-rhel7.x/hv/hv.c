@@ -64,9 +64,6 @@ int hv_init(void)
 
 	hv_print_host_info();
 
-	if (!hv_is_hypercall_page_setup())
-		return -ENOTSUPP;
-
 	hv_context.cpu_context = alloc_percpu(struct hv_per_cpu_context);
 	if (!hv_context.cpu_context)
 		return -ENOMEM;
