@@ -314,7 +314,7 @@ static inline int hv_cpu_number_to_vp_number(int cpu_number)
 void hyperv_init(void);
 void hyperv_report_panic(struct pt_regs *regs, long err);
 int hv_cpu_init(unsigned int cpu);
-bool hv_is_hypercall_page_setup(void);
+bool hv_is_hyperv_initialized(void);
 void hyperv_cleanup(void);
 void hv_print_host_info(void);
 #endif
