@@ -26,13 +26,24 @@ enum hv_cpuid_function {
 	HVCPUID_IMPLEMENTATION_LIMITS		= 0x40000005,
 };
 
-struct ms_hyperv_info {
+/*
+ * Old RHEL 6.x kernels (e.g. 6.7) have different formats of struct
+ * ms_hyperv_info, so we shouldn't use the in-kenrel formats.
+ *
+ * Let's define a new struct ms_hyperv_info_external and use it in the non-builtin
+ * LIS drivers.
+ *
+ * The new struct is initialized in hv-rhel*.x/hv/arch/x86/hyperv/ms_hyperv_ext.c:
+ * void init_ms_hyperv_ext(void)
+ */
+struct ms_hyperv_info_external {
 	u32 features;
 	u32 misc_features;
 	u32 hints;
 };
 
-extern struct ms_hyperv_info ms_hyperv;
+extern struct ms_hyperv_info_external ms_hyperv_ext;
+extern void init_ms_hyperv_ext(void);
 
 /*
  *  * Declare the MSR used to setup pages used to communicate with the hypervisor.
