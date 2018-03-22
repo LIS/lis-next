@@ -60,16 +60,7 @@ EXPORT_SYMBOL(x86_hyper_ms_hyperv);
 void *x86_hyper = &x86_hyper_ms_hyperv;
 EXPORT_SYMBOL(x86_hyper);
 
-struct ms_hyperv_info ms_hyperv;
-EXPORT_SYMBOL(ms_hyperv);
-
 #endif
-
-/* RHEL provided LIS does not include the misc_features
- * in the ms_hyperv_info structure. Create a separate
- * variable to store the misc features.
- */
-static u32 mshyperv_misc_features;
 
 static struct acpi_device  *hv_acpi_dev;
 
@@ -890,26 +881,10 @@ static int vmbus_bus_init(int irq)
 
 	hv_cpu_hotplug_quirk(true);
 
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
-	/*
-	 * Query the host for available features. Store results
-	 * in the ms_hyperv structure for future reference.
-	 */
-	ms_hyperv.features = cpuid_eax(HYPERV_CPUID_FEATURES);
-	ms_hyperv.misc_features = cpuid_edx(HYPERV_CPUID_FEATURES);
-	ms_hyperv.hints = cpuid_eax(HYPERV_CPUID_ENLIGHTMENT_INFO);
-#endif
-
-	/* RHEL provided LIS does not include the misc_features
-	 * in the ms_hyperv_info structure. Store the misc_features
-	 * in a separate variable.
-	 */
-	mshyperv_misc_features = cpuid_edx(HYPERV_CPUID_FEATURES);
-
 	/*
 	 * Only register if the crash MSRs are available
 	 */
-	if (mshyperv_misc_features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
+	if (ms_hyperv_ext.misc_features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
 		atomic_notifier_chain_register(&panic_notifier_list,
 					       &hyperv_panic_block);
 	}
@@ -1412,6 +1387,8 @@ static int __init hv_acpi_init(void)
 
 	sema_init(&hyperv_mmio_lock, 1);
 
+	init_ms_hyperv_ext();
+
 	init_completion(&probe_event);
 
 	/*
@@ -1474,7 +1451,7 @@ static void __exit vmbus_exit(void)
 		tasklet_kill(&hv_cpu->msg_dpc);
 	}
 	vmbus_free_channels();
-	if (mshyperv_misc_features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
+	if (ms_hyperv_ext.misc_features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
 		atomic_notifier_chain_unregister(&panic_notifier_list,
 						 &hyperv_panic_block);
 	}

@@ -54,7 +54,10 @@ CFLAGS_hv_trace.o = -I$(src)
 
 hv_vmbus-y	:= vmbus_drv.o \
 		 hv.o connection.o channel.o hv_trace.o \
-		 channel_mgmt.o ring_buffer.o arch/$(SRCARCH)/hyperv/hv_init.o
+		 channel_mgmt.o ring_buffer.o \
+		 arch/$(SRCARCH)/hyperv/hv_init.o \
+		 arch/$(SRCARCH)/hyperv/ms_hyperv_ext.o
+
 hv_utils-y	:= hv_util.o hv_kvp.o hv_snapshot.o hv_fcopy.o hv_utils_transport.o
 hv_storvsc-y := storvsc_drv.o
 hv_uio_generic-y := uio_hv_generic.o
