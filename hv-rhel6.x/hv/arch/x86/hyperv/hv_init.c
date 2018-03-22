@@ -160,7 +160,7 @@ void hyperv_init(void)
 	 * Register Hyper-V specific clocksource.
 	 */
 #ifdef CONFIG_X86_64
-	if (ms_hyperv.features & HV_X64_MSR_REFERENCE_TSC_AVAILABLE) {
+	if (ms_hyperv_ext.features & HV_X64_MSR_REFERENCE_TSC_AVAILABLE) {
 		union hv_x64_msr_hypercall_contents tsc_msr;
 
 		tsc_pg = __vmalloc(PAGE_SIZE, GFP_KERNEL, PAGE_KERNEL);
@@ -190,7 +190,7 @@ void hyperv_init(void)
 
 register_msr_cs:
 	hyperv_cs = &hyperv_cs_msr;
-	if (ms_hyperv.features & HV_X64_MSR_TIME_REF_COUNT_AVAILABLE)
+	if (ms_hyperv_ext.features & HV_X64_MSR_TIME_REF_COUNT_AVAILABLE)
 #if  (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,3))
 		clocksource_register(&hyperv_cs_msr);
 #else
