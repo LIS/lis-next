@@ -1129,6 +1129,7 @@ void rndis_set_subchannel(struct work_struct *w)
 	for (i = 0; i < VRSS_SEND_TAB_SIZE; i++)
 		ndev_ctx->tx_table[i] = i % nvdev->num_chn;
 
+	netif_device_attach(ndev);
 	rtnl_unlock();
 	return;
 
@@ -1139,6 +1140,8 @@ failed:
 
 	nvdev->max_chn = 1;
 	nvdev->num_chn = 1;
+
+	netif_device_attach(ndev);
 unlock:
 	rtnl_unlock();
 }
@@ -1341,6 +1344,10 @@ out:
 		net_device->num_chn = 1;
 	}
 
+	/* No sub channels, device is ready */
+	if (net_device->num_chn == 1)
+		netif_device_attach(net);
+
 	return net_device;
 
 err_dev_remv:
@@ -1352,9 +1359,6 @@ void rndis_filter_device_remove(struct hv_device *dev,
 				struct netvsc_device *net_dev)
 {
 	struct rndis_device *rndis_dev = net_dev->extension;
-
-	/* Don't try and setup sub channels if about to halt */
-	cancel_work_sync(&net_dev->subchan_work);
 
 	/* Halt and release the rndis device */
 	rndis_filter_halt_device(net_dev, rndis_dev);
@@ -1379,11 +1383,4 @@ int rndis_filter_close(struct netvsc_device *nvdev)
 		return -EINVAL;
 
 	return rndis_filter_close_device(nvdev->extension);
-}
-
-bool rndis_filter_opened(const struct netvsc_device *nvdev)
-{
-	const struct rndis_device *dev = nvdev->extension;
-
-	return dev->state == RNDIS_DEV_DATAINITIALIZED;
 }
