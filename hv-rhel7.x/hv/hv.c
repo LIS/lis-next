@@ -341,7 +341,6 @@ void hv_synic_init(void *arg)
 	hv_get_synint_state(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT,
 			    shared_sint.as_uint64);
 
-	shared_sint.as_uint64 = 0;
 	shared_sint.vector = HYPERVISOR_CALLBACK_VECTOR;
 	shared_sint.masked = false;
 
