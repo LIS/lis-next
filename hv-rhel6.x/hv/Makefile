@@ -6,6 +6,7 @@ obj-m	+= hid-hyperv.o
 obj-m	+= hyperv_fb.o
 obj-m	+= hv_balloon.o
 obj-m	+= hyperv-keyboard.o
+obj-m   += pci-hyperv.o
 
 # Get RHEL/CentOS version information
 rhel_major=$(shell grep -Eoh [0-9]+\.[0-9]+ /etc/{issue,*release} | head -1 | awk -F'.' '{ print $$1 }')
