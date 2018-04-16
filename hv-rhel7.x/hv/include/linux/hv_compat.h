@@ -616,7 +616,7 @@ static inline void refcount_set(refcount_t *r, unsigned int n)
 				  &qdisc_xmit_lock_key);	\
 }
 
-
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5))
 static inline int cpumask_next_wrap(int n, const struct cpumask *mask, int start, bool wrap)
 {
         int next;
@@ -635,6 +635,7 @@ again:
 
         return next;
 }
+#endif
 
 #define for_each_cpu_wrap(cpu, mask, start)                                     \
         for ((cpu) = cpumask_next_wrap((start)-1, (mask), (start), false);      \
