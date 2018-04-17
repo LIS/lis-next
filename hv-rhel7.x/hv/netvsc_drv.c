@@ -1648,7 +1648,11 @@ static const struct net_device_ops device_ops = {
 	.ndo_start_xmit =		netvsc_start_xmit,
 	.ndo_change_rx_flags =		netvsc_change_rx_flags,
 	.ndo_set_rx_mode =		netvsc_set_rx_mode,
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5))
 	.ndo_change_mtu =		netvsc_change_mtu,
+#else
+	.ndo_change_mtu_rh74 =		netvsc_change_mtu,
+#endif
 	.ndo_validate_addr =		eth_validate_addr,
 	.ndo_set_mac_address =		netvsc_set_mac_addr,
 	.ndo_select_queue =		netvsc_select_queue,
