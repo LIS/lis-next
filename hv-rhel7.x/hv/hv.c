@@ -112,7 +112,7 @@ int hv_post_message(union hv_connection_id connection_id,
 static int hv_ce_set_next_event(unsigned long delta,
 				struct clock_event_device *evt)
 {
-	cycle_t current_tick;
+	u64 current_tick;
 
 	WARN_ON(evt->mode != CLOCK_EVT_MODE_ONESHOT);
 
@@ -345,7 +345,7 @@ void hv_synic_init(void *arg)
 	shared_sint.vector = HYPERVISOR_CALLBACK_VECTOR;
 	shared_sint.masked = false;
 
-#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,4))
+#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,5))
 	/*
 	 * RHEL 7.4 and older's hyperv_vector_handler() doesn't have the
 	 * patch: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=a33fd4c27b3ad11c66bdadc5fe6075297ca87a6d,
