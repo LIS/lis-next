@@ -331,9 +331,13 @@ static void debug_check(const char *func, int line)
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,4)) 
 static struct ib_ah *hvnd_ah_create(struct ib_pd *pd,
 				    struct ib_ah_attr *ah_attr)
-#else
+#elif (RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(7,4))
 static struct ib_ah *hvnd_ah_create(struct ib_pd *pd,
 				    struct ib_ah_attr *ah_attr,
+				    struct ib_udata *udata)
+#else
+static struct ib_ah *hvnd_ah_create(struct ib_pd *pd,
+				    struct rdma_ah_attr *ah_attr,
 				    struct ib_udata *udata)
 #endif
 {
@@ -2711,7 +2715,11 @@ int hvnd_register_device(struct hvnd_dev *dev, char *ip_addr, char *mac_addr)
 #endif
 
 	//DMA ops for mapping all possible addresses
+#if RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5)
 	dev->ibdev.dma_device->archdata.dma_ops = &vmbus_dma_ops;
+#else
+	set_dma_ops(&dev->ibdev.dev, &vmbus_dma_ops);
+#endif
 
 	dev->ibdev.iwcm = kmalloc(sizeof(struct iw_cm_verbs), GFP_KERNEL);
 	if (!dev->ibdev.iwcm)
