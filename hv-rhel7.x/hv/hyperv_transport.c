@@ -24,6 +24,9 @@
 
 #include "include/linux/hyperv.h"
 
+/* vsock-specific sock->sk_state constants */
+#define VSOCK_SS_LISTEN 255
+
 /* The host side's design of the feature requires 6 exact 4KB pages for
  * recv/send rings respectively -- this is suboptimal considering memory
  * consumption, however unluckily we have to live with it, before the
