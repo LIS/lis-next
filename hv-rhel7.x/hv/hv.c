@@ -344,7 +344,7 @@ void hv_synic_init(void *arg)
 	shared_sint.vector = HYPERVISOR_CALLBACK_VECTOR;
 	shared_sint.masked = false;
 
-#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,5))
+#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,4))
 	/*
 	 * RHEL 7.4 and older's hyperv_vector_handler() doesn't have the
 	 * patch: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=a33fd4c27b3ad11c66bdadc5fe6075297ca87a6d,
@@ -353,7 +353,6 @@ void hv_synic_init(void *arg)
 	 */
 	shared_sint.auto_eoi = true;
 #else
-#error  check the src code of RHEL kernel: arch/x86/kernel/cpu/mshyperv.c:hyperv_vector_handler()!!!
 	if (ms_hyperv_ext.hints & HV_X64_DEPRECATING_AEOI_RECOMMENDED)
 		shared_sint.auto_eoi = false;
 	else
