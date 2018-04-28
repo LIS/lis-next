@@ -28,6 +28,7 @@
 #include <linux/slab.h>
 
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5))
 #ifdef CONFIG_X86_64
 
 static struct ms_hyperv_tsc_page *tsc_pg;
@@ -101,11 +102,8 @@ static struct clocksource hyperv_cs_msr = {
 
 
 void *hv_hypercall_pg;
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5))
 EXPORT_SYMBOL_GPL(hv_hypercall_pg);
-#endif
 
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,4))
 /*
  *  The clocksource is exposed by kernel in RH7.4 and higher.
  *  Avoid redefining it for RH 7.4 and higher.
@@ -114,10 +112,28 @@ struct clocksource *hyperv_cs;
 EXPORT_SYMBOL_GPL(hyperv_cs);
 #endif
 
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,5))
+int hv_cpu_init(unsigned int cpu)
+{
+	/*
+	 * In RHEL 7.5+, the kernel initializes the hv_vp_index[]. So
+	 * in our LIS drivers, we don't need do anything.
+	 */
+	return 0;
+}
+
+void hyperv_init(void)
+{
+	/*
+	 * In RHEL 7.5+, hyperv_init() runs in the kernel: see
+	 * <RHEL 7.5+'s src code>/arch/x86/hyperv/hv_init.c: hyperv_init().
+	 * So, in our LIS drivers we don't need do anything.
+	 */
+}
+#else
+
 u32 *hv_vp_index;
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5))
 EXPORT_SYMBOL_GPL(hv_vp_index);
-#endif
 
 int hv_cpu_init(unsigned int cpu)
 {
@@ -222,7 +238,6 @@ free_vp_index:
  * This routine is called before kexec/kdump, it does the required cleanup.
  */
 
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5))
 void hyperv_cleanup(void)
 {
 	union hv_x64_msr_hypercall_contents hypercall_msr;
@@ -240,9 +255,6 @@ void hyperv_cleanup(void)
 }
 EXPORT_SYMBOL_GPL(hyperv_cleanup);
 
-#endif
-
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5))
 void hyperv_report_panic(struct pt_regs *regs, long err)
 {
 	static bool panic_reported;
@@ -272,9 +284,7 @@ void hyperv_report_panic(struct pt_regs *regs, long err)
 }
 EXPORT_SYMBOL_GPL(hyperv_report_panic);
 
-#endif
 
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5))
 bool hv_is_hypercall_page_setup(void)
 {
 	union hv_x64_msr_hypercall_contents hypercall_msr;
