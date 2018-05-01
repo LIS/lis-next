@@ -134,7 +134,7 @@ struct hv_netvsc_packet {
 	/* Bookkeeping stuff */
 
 	u8 xmit_more; /* from skb */
-	u8 cp_partial; /* partial copy into send buffer */	
+	u8 cp_partial; /* partial copy into send buffer */
 	u8 rmsg_size; /* RNDIS header and PPI size */
 	u8 rmsg_pgcnt; /* page count of RNDIS header and PPI */
 	u8 page_buf_cnt;
@@ -780,6 +780,7 @@ struct netvsc_channel {
 	struct multi_send_data msd;
 	struct multi_recv_comp mrc;
 	atomic_t queue_sends;
+
 	struct netvsc_stats tx_stats;
 	struct netvsc_stats rx_stats;
 };
@@ -812,7 +813,7 @@ struct netvsc_device {
 	struct nvsp_message revoke_packet;
 
 	u32 max_chn;
-	u32 num_chn;	
+	u32 num_chn;
 
 	atomic_t open_chn;
 	struct work_struct subchan_work;
@@ -824,6 +825,7 @@ struct netvsc_device {
 	u32 pkt_align; /* alignment bytes, e.g. 8 */
 
 	struct netvsc_channel chan_table[VRSS_CHANNEL_MAX];
+
 	struct rcu_head rcu;
 };
 
@@ -1254,7 +1256,7 @@ struct ndis_tcp_lso_info {
 
 /* Total size of all PPI data */
 #define NDIS_ALL_PPI_SIZE (NDIS_VLAN_PPI_SIZE + NDIS_CSUM_PPI_SIZE + \
-		NDIS_LSO_PPI_SIZE + NDIS_HASH_PPI_SIZE)
+			   NDIS_LSO_PPI_SIZE + NDIS_HASH_PPI_SIZE)
 
 /* Format of Information buffer passed in a SetRequest for the OID */
 /* OID_GEN_RNDIS_CONFIG_PARAMETER. */
