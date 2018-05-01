@@ -1,9 +1,0 @@
-# Assign Hyper-V VF NICs to stable names, and call bonding config script
-SUBSYSTEM=="net", DRIVERS=="hv_pci", ACTION=="add", GOTO="azure_sriov"
-GOTO="azure_end"
-
-LABEL="azure_sriov"
-PROGRAM="/usr/sbin/hv_vf_name", ENV{vf_name}="vf%c", NAME:="$env{vf_name}"
-RUN+="/usr/sbin/bondvf.sh $env{vf_name}"
-
-LABEL="azure_end"
