@@ -103,7 +103,9 @@ static struct clocksource hyperv_cs_msr = {
 
 void *hv_hypercall_pg;
 EXPORT_SYMBOL_GPL(hv_hypercall_pg);
+#endif
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,4))
 /*
  *  The clocksource is exposed by kernel in RH7.4 and higher.
  *  Avoid redefining it for RH 7.4 and higher.
