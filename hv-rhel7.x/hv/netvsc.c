@@ -1248,12 +1248,12 @@ int netvsc_poll(struct napi_struct *napi, int budget)
 	 *     and reschedule if ring is not empty.
 	 */
 	if (send_recv_completions(ndev, net_device, nvchan) == 0 &&
-	    work_done < budget) {
-		napi_complete(napi);
-		if (hv_end_read(&channel->inbound)) {
-			hv_begin_read(&channel->inbound);
-			napi_reschedule(napi);
-		}
+	    work_done < budget &&
+	    napi_complete_done(napi, work_done) &&
+	    hv_end_read(&channel->inbound) &&
+	    napi_schedule_prep(napi)) {
+		hv_begin_read(&channel->inbound);
+		__napi_schedule(napi);
 	}
 
 	/* Driver may overshoot since multiple packets per descriptor */
@@ -1275,11 +1275,8 @@ void netvsc_channel_cb(void *context)
 	if (napi_schedule_prep(&nvchan->napi)) {
 		/* disable interupts from host */
 		hv_begin_read(rbi);
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
-		__napi_schedule(&nvchan->napi);
-#else
+
 		__napi_schedule_irqoff(&nvchan->napi);
-#endif
 	}
 }
 
