@@ -34,6 +34,7 @@
 #include <linux/reciprocal_div.h>
 
 #include "hyperv_net.h"
+#include "netvsc_trace.h"
 
 /*
  * Switch the data path from the synthetic interface to the VF
@@ -54,6 +55,8 @@ void netvsc_switch_datapath(struct net_device *ndev, bool vf)
 	else
 		init_pkt->msg.v4_msg.active_dp.active_datapath =
 			NVSP_DATAPATH_SYNTHETIC;
+
+	trace_nvsp_send(ndev, init_pkt);
 
 	vmbus_sendpacket(dev->channel, init_pkt,
 			       sizeof(struct nvsp_message),
@@ -104,11 +107,11 @@ static void free_netvsc_device_rcu(struct netvsc_device *nvdev)
 	call_rcu(&nvdev->rcu, free_netvsc_device);
 }
 
-static void netvsc_revoke_buf(struct hv_device *device,
-			      struct netvsc_device *net_device)
+static void netvsc_revoke_recv_buf(struct hv_device *device,
+				   struct netvsc_device *net_device,
+				   struct net_device *ndev)
 {
 	struct nvsp_message *revoke_packet;
-	struct net_device *ndev = hv_get_drvdata(device);
 	int ret;
 
 	/*
@@ -127,12 +130,13 @@ static void netvsc_revoke_buf(struct hv_device *device,
 		revoke_packet->msg.v1_msg.
 		revoke_recv_buf.id = NETVSC_RECEIVE_BUFFER_ID;
 
+		trace_nvsp_send(ndev, revoke_packet);
+
 		ret = vmbus_sendpacket(device->channel,
 				       revoke_packet,
 				       sizeof(struct nvsp_message),
 				       (unsigned long)revoke_packet,
 				       VM_PKT_DATA_INBAND, 0);
-
 		/* If the failure is because the channel is rescinded;
 		 * ignore the failure since we cannot send on a rescinded
 		 * channel. This would allow us to properly cleanup
@@ -140,7 +144,6 @@ static void netvsc_revoke_buf(struct hv_device *device,
 		 */
 		if (device->channel->rescind)
 			ret = 0;
-
 		/*
 		 * If we failed here, we might as well return and
 		 * have a leak rather than continue and a bugchk
@@ -152,6 +155,14 @@ static void netvsc_revoke_buf(struct hv_device *device,
 		}
 		net_device->recv_section_cnt = 0;
 	}
+}
+
+static void netvsc_revoke_send_buf(struct hv_device *device,
+				   struct netvsc_device *net_device,
+				   struct net_device *ndev)
+{
+	struct nvsp_message *revoke_packet;
+	int ret;
 
 	/* Deal with the send buffer we may have setup.
 	 * If we got a  send section size, it means we received a
@@ -168,6 +179,8 @@ static void netvsc_revoke_buf(struct hv_device *device,
 			NVSP_MSG1_TYPE_REVOKE_SEND_BUF;
 		revoke_packet->msg.v1_msg.revoke_send_buf.id =
 			NETVSC_SEND_BUFFER_ID;
+
+		trace_nvsp_send(ndev, revoke_packet);
 
 		ret = vmbus_sendpacket(device->channel,
 				       revoke_packet,
@@ -195,10 +208,10 @@ static void netvsc_revoke_buf(struct hv_device *device,
 	}
 }
 
-static void netvsc_teardown_gpadl(struct hv_device *device,
-				  struct netvsc_device *net_device)
+static void netvsc_teardown_recv_gpadl(struct hv_device *device,
+				       struct netvsc_device *net_device,
+				       struct net_device *ndev)
 {
-	struct net_device *ndev = hv_get_drvdata(device);
 	int ret;
 
 	if (net_device->recv_buf_gpadl_handle) {
@@ -215,6 +228,13 @@ static void netvsc_teardown_gpadl(struct hv_device *device,
 		}
 		net_device->recv_buf_gpadl_handle = 0;
 	}
+}
+
+static void netvsc_teardown_send_gpadl(struct hv_device *device,
+				       struct netvsc_device *net_device,
+				       struct net_device *ndev)
+{
+	int ret;
 
 	if (net_device->send_buf_gpadl_handle) {
 		ret = vmbus_teardown_gpadl(device->channel,
@@ -298,6 +318,8 @@ static int netvsc_init_buf(struct hv_device *device,
 	init_packet->msg.v1_msg.
 		send_recv_buf.id = NETVSC_RECEIVE_BUFFER_ID;
 
+	trace_nvsp_send(ndev, init_packet);
+
 	/* Send the gpadl notification request */
 	ret = vmbus_sendpacket(device->channel, init_packet,
 			       sizeof(struct nvsp_message),
@@ -377,6 +399,8 @@ static int netvsc_init_buf(struct hv_device *device,
 		net_device->send_buf_gpadl_handle;
 	init_packet->msg.v1_msg.send_send_buf.id = NETVSC_SEND_BUFFER_ID;
 
+	trace_nvsp_send(ndev, init_packet);
+
 	/* Send the gpadl notification request */
 	ret = vmbus_sendpacket(device->channel, init_packet,
 			       sizeof(struct nvsp_message),
@@ -424,8 +448,10 @@ static int netvsc_init_buf(struct hv_device *device,
 	goto exit;
 
 cleanup:
-	netvsc_revoke_buf(device, net_device);
-	netvsc_teardown_gpadl(device, net_device);
+	netvsc_revoke_recv_buf(device, net_device, ndev);
+	netvsc_revoke_send_buf(device, net_device, ndev);
+	netvsc_teardown_recv_gpadl(device, net_device, ndev);
+	netvsc_teardown_send_gpadl(device, net_device, ndev);
 
 exit:
 	return ret;
@@ -444,6 +470,7 @@ static int negotiate_nvsp_ver(struct hv_device *device,
 	init_packet->hdr.msg_type = NVSP_MSG_TYPE_INIT;
 	init_packet->msg.init_msg.init.min_protocol_ver = nvsp_ver;
 	init_packet->msg.init_msg.init.max_protocol_ver = nvsp_ver;
+	trace_nvsp_send(ndev, init_packet);
 
 	/* Send the init request */
 	ret = vmbus_sendpacket(device->channel, init_packet,
@@ -476,6 +503,8 @@ static int negotiate_nvsp_ver(struct hv_device *device,
 		/* Teaming bit is needed to receive link speed updates */
 		init_packet->msg.v2_msg.send_ndis_config.capability.teaming = 1;
 	}
+
+	trace_nvsp_send(ndev, init_packet);
 
 	ret = vmbus_sendpacket(device->channel, init_packet,
 				sizeof(struct nvsp_message),
@@ -529,6 +558,8 @@ static int netvsc_connect_vsp(struct hv_device *device,
 		send_ndis_ver.ndis_minor_ver =
 				ndis_version & 0xFFFF;
 
+	trace_nvsp_send(ndev, init_packet);
+
 	/* Send the init request */
 	ret = vmbus_sendpacket(device->channel, init_packet,
 				sizeof(struct nvsp_message),
@@ -555,7 +586,17 @@ void netvsc_device_remove(struct hv_device *device)
 		= rtnl_dereference(net_device_ctx->nvdev);
 	int i;
 
-	netvsc_revoke_buf(device, net_device);
+	/*
+	 * Revoke receive buffer. If host is pre-Win2016 then tear down
+	 * receive buffer GPADL. Do the same for send buffer.
+	 */
+	netvsc_revoke_recv_buf(device, net_device, ndev);
+	if (vmbus_proto_version < VERSION_WIN10)
+		netvsc_teardown_recv_gpadl(device, net_device, ndev);
+
+	netvsc_revoke_send_buf(device, net_device, ndev);
+	if (vmbus_proto_version < VERSION_WIN10)
+		netvsc_teardown_send_gpadl(device, net_device, ndev);
 
 	RCU_INIT_POINTER(net_device_ctx->nvdev, NULL);
 
@@ -569,15 +610,17 @@ void netvsc_device_remove(struct hv_device *device)
 	 */
 	netdev_dbg(ndev, "net device safe to remove\n");
 
-	/* older versions require that buffer be revoked before close */
-	if (net_device->nvsp_version < NVSP_PROTOCOL_VERSION_4)
-		netvsc_teardown_gpadl(device, net_device);
-
 	/* Now, we can close the channel safely */
 	vmbus_close(device->channel);
 
-	if (net_device->nvsp_version >= NVSP_PROTOCOL_VERSION_4)
-		netvsc_teardown_gpadl(device, net_device);
+	/*
+	 * If host is Win2016 or higher then we do the GPADL tear down
+	 * here after VMBus is closed.
+	*/
+	if (vmbus_proto_version >= VERSION_WIN10) {
+		netvsc_teardown_recv_gpadl(device, net_device, ndev);
+		netvsc_teardown_send_gpadl(device, net_device, ndev);
+	}
 
 	/* Release all resources */
 	free_netvsc_device_rcu(net_device);
@@ -592,8 +635,9 @@ void netvsc_device_remove(struct hv_device *device)
  */
 static u32 hv_ringbuf_avail_percent(const struct hv_ring_buffer_info *ring_info)
 {
-    u32 avail_write = hv_get_bytes_to_write(ring_info);
-    return reciprocal_divide(avail_write * 100, netvsc_ring_reciprocal);
+	u32 avail_write = hv_get_bytes_to_write(ring_info);
+
+	return reciprocal_divide(avail_write  * 100, netvsc_ring_reciprocal);
 }
 
 static inline void netvsc_free_send_slot(struct netvsc_device *net_device,
@@ -637,7 +681,7 @@ static void netvsc_send_tx_complete(struct netvsc_device *net_device,
 #else
 		ndev->stats.tx_bytes += packet->total_bytes;
 		ndev->stats.tx_packets += packet->total_packets;
-#endif 
+#endif
 
 		napi_consume_skb(skb, budget);
 	}
@@ -657,12 +701,11 @@ static void netvsc_send_tx_complete(struct netvsc_device *net_device,
 			netif_tx_wake_queue(txq);
 			ndev_ctx->eth_stats.wake_queue++;
 		}
-
 	}
 }
 
 static void netvsc_send_completion(struct netvsc_device *net_device,
-                                   struct vmbus_channel *incoming_channel,
+				   struct vmbus_channel *incoming_channel,
 				   struct hv_device *device,
 				   const struct vmpacket_descriptor *desc,
 				   int budget)
@@ -702,6 +745,7 @@ static u32 netvsc_get_next_send_section(struct netvsc_device *net_device)
 		if (sync_test_and_set_bit(i, map_addr) == 0)
 			return i;
 	}
+
 	return NETVSC_INVALID_INDEX;
 }
 
@@ -759,7 +803,7 @@ static inline int netvsc_send_pkt(
 	struct sk_buff *skb)
 {
 	struct nvsp_message nvmsg;
-	struct nvsp_1_message_send_rndis_packet * const rpkt =
+	struct nvsp_1_message_send_rndis_packet *rpkt =
 		&nvmsg.msg.v1_msg.send_rndis_pkt;
 	struct netvsc_channel * const nvchan =
 		&net_device->chan_table[packet->q_idx];
@@ -787,6 +831,8 @@ static inline int netvsc_send_pkt(
 
 	if (out_channel->rescind)
 		return -ENODEV;
+
+	trace_nvsp_send_pkt(ndev, out_channel, rpkt);
 
 	if (packet->page_buf_cnt) {
 		if (packet->cp_partial)
@@ -873,7 +919,6 @@ int netvsc_send(struct net_device *ndev,
 	/* Send control message directly without accessing msd (Multi-Send
 	 * Data) field which may be changed during data packet processing.
 	 */
-
 	if (!skb)
 		return netvsc_send_pkt(device, packet, net_device, pb, skb);
 
@@ -902,6 +947,7 @@ int netvsc_send(struct net_device *ndev,
 			msd_len = 0;
 		}
 	}
+
 	/* Keep aggregating only if stack says more data is coming
 	 * and not doing mixed modes send and not flow blocked
 	 */
@@ -936,7 +982,7 @@ int netvsc_send(struct net_device *ndev,
 
 		if (msdp->skb)
 			dev_consume_skb_any(msdp->skb);
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1)) 
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
 		if (xmit_more) {
 #else
 		if (packet->xmit_more && !packet->cp_partial) {
@@ -1101,6 +1147,8 @@ static int netvsc_receive(struct net_device *ndev,
 			+ vmxferpage_packet->ranges[i].byte_offset;
 		u32 buflen = vmxferpage_packet->ranges[i].byte_count;
 
+		trace_rndis_recv(ndev, q_idx, data);
+
 		/* Pass it to the upper layer */
 		status = rndis_filter_receive(ndev, net_device,
 					      channel, data, buflen);
@@ -1155,7 +1203,6 @@ static inline void netvsc_receive_inband(struct hv_device *hdev,
 	}
 }
 
-
 static int netvsc_process_raw_pkt(struct hv_device *device,
 				  struct vmbus_channel *channel,
 				  struct netvsc_device *net_device,
@@ -1165,6 +1212,8 @@ static int netvsc_process_raw_pkt(struct hv_device *device,
 {
 	struct net_device_context *net_device_ctx = netdev_priv(ndev);
 	struct nvsp_message *nvmsg = hv_pkt_data(desc);
+
+	trace_nvsp_recv(ndev, channel, nvmsg);
 
 	switch (desc->type) {
 	case VM_PKT_COMP:
@@ -1226,14 +1275,14 @@ int netvsc_poll(struct napi_struct *napi, int budget)
 	 *   and not doing busy poll
 	 * then re-enable host interrupts
 	 *     and reschedule if ring is not empty.
- 	 */
+	 */
 	if (send_recv_completions(ndev, net_device, nvchan) == 0 &&
-	    work_done < budget) {
-		napi_complete(napi);
-		if (hv_end_read(&channel->inbound)) {
-			hv_begin_read(&channel->inbound);
-			napi_reschedule(napi);
-		}
+	    work_done < budget &&
+	    napi_complete_done(napi, work_done) &&
+	    hv_end_read(&channel->inbound) &&
+	    napi_schedule_prep(napi)) {
+		hv_begin_read(&channel->inbound);
+		__napi_schedule(napi);
 	}
 
 	/* Driver may overshoot since multiple packets per descriptor */
@@ -1255,11 +1304,8 @@ void netvsc_channel_cb(void *context)
 	if (napi_schedule_prep(&nvchan->napi)) {
 		/* disable interupts from host */
 		hv_begin_read(rbi);
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
-		__napi_schedule(&nvchan->napi);
-#else
+
 		__napi_schedule_irqoff(&nvchan->napi);
-#endif
 	}
 }
 
@@ -1297,7 +1343,7 @@ struct netvsc_device *netvsc_device_add(struct hv_device *device,
 	for (i = 0; i < VRSS_CHANNEL_MAX; i++) {
 		struct netvsc_channel *nvchan = &net_device->chan_table[i];
 
- 		nvchan->channel = device->channel;
+		nvchan->channel = device->channel;
 		nvchan->net_device = net_device;
 		u64_stats_init(&nvchan->tx_stats.syncp);
 		u64_stats_init(&nvchan->rx_stats.syncp);
@@ -1309,8 +1355,8 @@ struct netvsc_device *netvsc_device_add(struct hv_device *device,
 
 	/* Open the channel */
 	ret = vmbus_open(device->channel, netvsc_ring_bytes,
-		netvsc_ring_bytes, NULL, 0,
-		netvsc_channel_cb, net_device->chan_table);
+			 netvsc_ring_bytes,  NULL, 0,
+			 netvsc_channel_cb, net_device->chan_table);
 
 	if (ret != 0) {
 		netdev_err(ndev, "unable to open channel: %d\n", ret);

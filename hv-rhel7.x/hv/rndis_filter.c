@@ -30,6 +30,7 @@
 #include <linux/rtnetlink.h>
 
 #include "hyperv_net.h"
+#include "netvsc_trace.h"
 
 static void rndis_set_multicast(struct work_struct *w);
 
@@ -221,6 +222,7 @@ static int rndis_filter_send_request(struct rndis_device *dev,
 
 	/* Setup the packet to send it */
 	packet = &req->pkt;
+
 	packet->total_data_buflen = req->request_msg.msg_len;
 	packet->page_buf_cnt = 1;
 
@@ -241,9 +243,11 @@ static int rndis_filter_send_request(struct rndis_device *dev,
 		pb[1].len = req->request_msg.msg_len -
 			pb[0].len;
 	}
-	
+
 	packet->xmit_more = false;
 
+	trace_rndis_send(dev->ndev, 0, &req->request_msg);
+	
 	rcu_read_lock_bh();
 	ret = netvsc_send(dev->ndev, packet, NULL, pb, NULL);
 	rcu_read_unlock_bh();
@@ -437,10 +441,10 @@ int rndis_filter_receive(struct net_device *ndev,
 			"unhandled rndis message (type %u len %u)\n",
 			   rndis_msg->ndis_msg_type,
 			   rndis_msg->msg_len);
-		break;
+		return NVSP_STAT_FAIL;
 	}
 
-	return 0;
+	return NVSP_STAT_SUCCESS;;
 }
 
 static int rndis_filter_query_device(struct rndis_device *dev,
@@ -828,7 +832,6 @@ static int rndis_filter_set_packet_filter(struct rndis_device *dev,
 	request = get_rndis_request(dev, RNDIS_MSG_SET,
 			RNDIS_MESSAGE_SIZE(struct rndis_set_request) +
 			sizeof(u32));
-
 	if (!request)
 		return -ENOMEM;
 
@@ -869,7 +872,6 @@ static void rndis_set_multicast(struct work_struct *w)
 	}
 
 	rndis_filter_set_packet_filter(rdev, filter);
-
 }
 
 void rndis_filter_update(struct netvsc_device *nvdev)
@@ -1048,7 +1050,6 @@ static void netvsc_sc_open(struct vmbus_channel *new_sc)
 	ret = vmbus_open(new_sc, netvsc_ring_bytes,
 			 netvsc_ring_bytes, NULL, 0,
 			 netvsc_channel_cb, nvchan);
-
 	if (ret == 0)
 		napi_enable(&nvchan->napi);
 	else
@@ -1091,6 +1092,8 @@ void rndis_set_subchannel(struct work_struct *w)
 	init_packet->msg.v5_msg.subchn_req.op = NVSP_SUBCHANNEL_ALLOCATE;
 	init_packet->msg.v5_msg.subchn_req.num_subchannels =
 						nvdev->num_chn - 1;
+	trace_nvsp_send(ndev, init_packet);
+
 	ret = vmbus_sendpacket(hv_dev->channel, init_packet,
 			       sizeof(struct nvsp_message),
 			       (unsigned long)init_packet,
