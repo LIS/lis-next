@@ -1,0 +1,4 @@
+#!/bin/bash
+# A wrapper to call bondvf.sh. The flock prevents execution overlap.
+
+flock -e -w 2 /tmp/bondvf_lock.file /usr/sbin/bondvf.sh
