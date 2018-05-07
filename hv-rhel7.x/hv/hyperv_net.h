@@ -28,8 +28,6 @@
 #include "include/linux/hyperv.h"
 #include "include/linux/rndis.h"
 
-#include "netvsc_compat.h"
-
 /* RSS related */
 #define OID_GEN_RECEIVE_SCALE_CAPABILITIES 0x00010203  /* query only */
 #define OID_GEN_RECEIVE_SCALE_PARAMETERS 0x00010204  /* query and set */
