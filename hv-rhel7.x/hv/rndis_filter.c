@@ -221,7 +221,6 @@ static int rndis_filter_send_request(struct rndis_device *dev,
 
 	/* Setup the packet to send it */
 	packet = &req->pkt;
-
 	packet->total_data_buflen = req->request_msg.msg_len;
 	packet->page_buf_cnt = 1;
 
@@ -242,7 +241,7 @@ static int rndis_filter_send_request(struct rndis_device *dev,
 		pb[1].len = req->request_msg.msg_len -
 			pb[0].len;
 	}
-
+	
 	packet->xmit_more = false;
 
 	rcu_read_lock_bh();
@@ -444,10 +443,10 @@ int rndis_filter_receive(struct net_device *ndev,
 			"unhandled rndis message (type %u len %u)\n",
 			   rndis_msg->ndis_msg_type,
 			   rndis_msg->msg_len);
-		return NVSP_STAT_FAIL;
+		break;
 	}
 
-	return NVSP_STAT_SUCCESS;;
+	return 0;
 }
 
 static int rndis_filter_query_device(struct rndis_device *dev,
@@ -835,6 +834,7 @@ static int rndis_filter_set_packet_filter(struct rndis_device *dev,
 	request = get_rndis_request(dev, RNDIS_MSG_SET,
 			RNDIS_MESSAGE_SIZE(struct rndis_set_request) +
 			sizeof(u32));
+
 	if (!request)
 		return -ENOMEM;
 
@@ -875,6 +875,7 @@ static void rndis_set_multicast(struct work_struct *w)
 	}
 
 	rndis_filter_set_packet_filter(rdev, filter);
+
 }
 
 void rndis_filter_update(struct netvsc_device *nvdev)
@@ -1053,6 +1054,7 @@ static void netvsc_sc_open(struct vmbus_channel *new_sc)
 	ret = vmbus_open(new_sc, netvsc_ring_bytes,
 			 netvsc_ring_bytes, NULL, 0,
 			 netvsc_channel_cb, nvchan);
+
 	if (ret == 0)
 		napi_enable(&nvchan->napi);
 	else

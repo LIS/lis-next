@@ -127,6 +127,7 @@ static void netvsc_revoke_buf(struct hv_device *device,
 				       sizeof(struct nvsp_message),
 				       (unsigned long)revoke_packet,
 				       VM_PKT_DATA_INBAND, 0);
+
 		/* If the failure is because the channel is rescinded;
 		 * ignore the failure since we cannot send on a rescinded
 		 * channel. This would allow us to properly cleanup
@@ -134,6 +135,7 @@ static void netvsc_revoke_buf(struct hv_device *device,
 		 */
 		if (device->channel->rescind)
 			ret = 0;
+
 		/*
 		 * If we failed here, we might as well return and
 		 * have a leak rather than continue and a bugchk
@@ -593,9 +595,8 @@ void netvsc_device_remove(struct hv_device *device)
  */
 static u32 hv_ringbuf_avail_percent(const struct hv_ring_buffer_info *ring_info)
 {
-	u32 avail_write = hv_get_bytes_to_write(ring_info);
-
-	return reciprocal_divide(avail_write  * 100, netvsc_ring_reciprocal);
+    u32 avail_write = hv_get_bytes_to_write(ring_info);
+    return reciprocal_divide(avail_write * 100, netvsc_ring_reciprocal);
 }
 
 static inline void netvsc_free_send_slot(struct netvsc_device *net_device,
@@ -639,7 +640,7 @@ static void netvsc_send_tx_complete(struct netvsc_device *net_device,
 #else
 		ndev->stats.tx_bytes += packet->total_bytes;
 		ndev->stats.tx_packets += packet->total_packets;
-#endif
+#endif 
 
 		napi_consume_skb(skb, budget);
 	}
@@ -659,11 +660,12 @@ static void netvsc_send_tx_complete(struct netvsc_device *net_device,
 			netif_tx_wake_queue(txq);
 			ndev_ctx->eth_stats.wake_queue++;
 		}
+
 	}
 }
 
 static void netvsc_send_completion(struct netvsc_device *net_device,
-				   struct vmbus_channel *incoming_channel,
+                                   struct vmbus_channel *incoming_channel,
 				   struct hv_device *device,
 				   const struct vmpacket_descriptor *desc,
 				   int budget)
@@ -703,7 +705,6 @@ static u32 netvsc_get_next_send_section(struct netvsc_device *net_device)
 		if (sync_test_and_set_bit(i, map_addr) == 0)
 			return i;
 	}
-
 	return NETVSC_INVALID_INDEX;
 }
 
@@ -875,6 +876,7 @@ int netvsc_send(struct net_device *ndev,
 	/* Send control message directly without accessing msd (Multi-Send
 	 * Data) field which may be changed during data packet processing.
 	 */
+
 	if (!skb)
 		return netvsc_send_pkt(device, packet, net_device, pb, skb);
 
@@ -903,7 +905,6 @@ int netvsc_send(struct net_device *ndev,
 			msd_len = 0;
 		}
 	}
-
 	/* Keep aggregating only if stack says more data is coming
 	 * and not doing mixed modes send and not flow blocked
 	 */
@@ -938,7 +939,7 @@ int netvsc_send(struct net_device *ndev,
 
 		if (msdp->skb)
 			dev_consume_skb_any(msdp->skb);
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1)) 
 		if (xmit_more) {
 #else
 		if (packet->xmit_more && !packet->cp_partial) {
@@ -1157,6 +1158,7 @@ static inline void netvsc_receive_inband(struct hv_device *hdev,
 	}
 }
 
+
 static int netvsc_process_raw_pkt(struct hv_device *device,
 				  struct vmbus_channel *channel,
 				  struct netvsc_device *net_device,
@@ -1227,7 +1229,7 @@ int netvsc_poll(struct napi_struct *napi, int budget)
 	 *   and not doing busy poll
 	 * then re-enable host interrupts
 	 *     and reschedule if ring is not empty.
-	 */
+ 	 */
 	if (send_recv_completions(ndev, net_device, nvchan) == 0 &&
 	    work_done < budget) {
 		napi_complete(napi);
@@ -1298,7 +1300,7 @@ struct netvsc_device *netvsc_device_add(struct hv_device *device,
 	for (i = 0; i < VRSS_CHANNEL_MAX; i++) {
 		struct netvsc_channel *nvchan = &net_device->chan_table[i];
 
-		nvchan->channel = device->channel;
+ 		nvchan->channel = device->channel;
 		nvchan->net_device = net_device;
 		u64_stats_init(&nvchan->tx_stats.syncp);
 		u64_stats_init(&nvchan->rx_stats.syncp);
@@ -1310,8 +1312,8 @@ struct netvsc_device *netvsc_device_add(struct hv_device *device,
 
 	/* Open the channel */
 	ret = vmbus_open(device->channel, netvsc_ring_bytes,
-			 netvsc_ring_bytes,  NULL, 0,
-			 netvsc_channel_cb, net_device->chan_table);
+		netvsc_ring_bytes, NULL, 0,
+		netvsc_channel_cb, net_device->chan_table);
 
 	if (ret != 0) {
 		netdev_err(ndev, "unable to open channel: %d\n", ret);
