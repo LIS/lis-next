@@ -102,11 +102,11 @@ static void free_netvsc_device_rcu(struct netvsc_device *nvdev)
 	call_rcu(&nvdev->rcu, free_netvsc_device);
 }
 
-static void netvsc_revoke_recv_buf(struct hv_device *device,
-				   struct netvsc_device *net_device,
-				   struct net_device *ndev)
+static void netvsc_revoke_buf(struct hv_device *device,
+			      struct netvsc_device *net_device)
 {
 	struct nvsp_message *revoke_packet;
+	struct net_device *ndev = hv_get_drvdata(device);
 	int ret;
 
 	/*
@@ -150,14 +150,6 @@ static void netvsc_revoke_recv_buf(struct hv_device *device,
 		}
 		net_device->recv_section_cnt = 0;
 	}
-}
-
-static void netvsc_revoke_send_buf(struct hv_device *device,
-				   struct netvsc_device *net_device,
-				   struct net_device *ndev)
-{
-	struct nvsp_message *revoke_packet;
-	int ret;
 
 	/* Deal with the send buffer we may have setup.
 	 * If we got a  send section size, it means we received a
@@ -203,10 +195,10 @@ static void netvsc_revoke_send_buf(struct hv_device *device,
 	}
 }
 
-static void netvsc_teardown_recv_gpadl(struct hv_device *device,
-				       struct netvsc_device *net_device,
-				       struct net_device *ndev)
+static void netvsc_teardown_gpadl(struct hv_device *device,
+				  struct netvsc_device *net_device)
 {
+	struct net_device *ndev = hv_get_drvdata(device);
 	int ret;
 
 	if (net_device->recv_buf_gpadl_handle) {
@@ -223,13 +215,6 @@ static void netvsc_teardown_recv_gpadl(struct hv_device *device,
 		}
 		net_device->recv_buf_gpadl_handle = 0;
 	}
-}
-
-static void netvsc_teardown_send_gpadl(struct hv_device *device,
-				       struct netvsc_device *net_device,
-				       struct net_device *ndev)
-{
-	int ret;
 
 	if (net_device->recv_buf) {
 		/* Free up the receive buffer */
@@ -455,10 +440,8 @@ static int netvsc_init_buf(struct hv_device *device,
 	goto exit;
 
 cleanup:
-	netvsc_revoke_recv_buf(device, net_device, ndev);
-	netvsc_revoke_send_buf(device, net_device, ndev);
-	netvsc_teardown_recv_gpadl(device, net_device, ndev);
-	netvsc_teardown_send_gpadl(device, net_device, ndev);
+	netvsc_revoke_buf(device, net_device);
+	netvsc_teardown_gpadl(device, net_device);
 
 exit:
 	return ret;
@@ -593,17 +576,7 @@ void netvsc_device_remove(struct hv_device *device)
 		= rtnl_dereference(net_device_ctx->nvdev);
 	int i;
 
-	/*
-	 * Revoke receive buffer. If host is pre-Win2016 then tear down
-	 * receive buffer GPADL. Do the same for send buffer.
-	 */
-	netvsc_revoke_recv_buf(device, net_device, ndev);
-	if (vmbus_proto_version < VERSION_WIN10)
-		netvsc_teardown_recv_gpadl(device, net_device, ndev);
-
-	netvsc_revoke_send_buf(device, net_device, ndev);
-	if (vmbus_proto_version < VERSION_WIN10)
-		netvsc_teardown_send_gpadl(device, net_device, ndev);
+	netvsc_revoke_buf(device, net_device);
 
 	RCU_INIT_POINTER(net_device_ctx->nvdev, NULL);
 
@@ -613,17 +586,15 @@ void netvsc_device_remove(struct hv_device *device)
 	 */
 	netdev_dbg(ndev, "net device safe to remove\n");
 
+	/* older versions require that buffer be revoked before close */
+	if (net_device->nvsp_version < NVSP_PROTOCOL_VERSION_4)
+		netvsc_teardown_gpadl(device, net_device);
+
 	/* Now, we can close the channel safely */
 	vmbus_close(device->channel);
 
-	/*
-	 * If host is Win2016 or higher then we do the GPADL tear down
-	 * here after VMBus is closed.
-	*/
-	if (vmbus_proto_version >= VERSION_WIN10) {
-		netvsc_teardown_recv_gpadl(device, net_device, ndev);
-		netvsc_teardown_send_gpadl(device, net_device, ndev);
-	}
+	if (net_device->nvsp_version >= NVSP_PROTOCOL_VERSION_4)
+		netvsc_teardown_gpadl(device, net_device);
 
 	/* Release all resources */
 	free_netvsc_device_rcu(net_device);
