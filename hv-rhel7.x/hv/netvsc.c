@@ -34,7 +34,6 @@
 #include <linux/reciprocal_div.h>
 
 #include "hyperv_net.h"
-#include "netvsc_trace.h"
 
 /*
  * Switch the data path from the synthetic interface to the VF
@@ -55,8 +54,6 @@ void netvsc_switch_datapath(struct net_device *ndev, bool vf)
 	else
 		init_pkt->msg.v4_msg.active_dp.active_datapath =
 			NVSP_DATAPATH_SYNTHETIC;
-
-	trace_nvsp_send(ndev, init_pkt);
 
 	vmbus_sendpacket(dev->channel, init_pkt,
 			       sizeof(struct nvsp_message),
@@ -125,8 +122,6 @@ static void netvsc_revoke_buf(struct hv_device *device,
 		revoke_packet->msg.v1_msg.
 		revoke_recv_buf.id = NETVSC_RECEIVE_BUFFER_ID;
 
-		trace_nvsp_send(ndev, revoke_packet);
-
 		ret = vmbus_sendpacket(device->channel,
 				       revoke_packet,
 				       sizeof(struct nvsp_message),
@@ -166,8 +161,6 @@ static void netvsc_revoke_buf(struct hv_device *device,
 			NVSP_MSG1_TYPE_REVOKE_SEND_BUF;
 		revoke_packet->msg.v1_msg.revoke_send_buf.id =
 			NETVSC_SEND_BUFFER_ID;
-
-		trace_nvsp_send(ndev, revoke_packet);
 
 		ret = vmbus_sendpacket(device->channel,
 				       revoke_packet,
@@ -310,8 +303,6 @@ static int netvsc_init_buf(struct hv_device *device,
 	init_packet->msg.v1_msg.
 		send_recv_buf.id = NETVSC_RECEIVE_BUFFER_ID;
 
-	trace_nvsp_send(ndev, init_packet);
-
 	/* Send the gpadl notification request */
 	ret = vmbus_sendpacket(device->channel, init_packet,
 			       sizeof(struct nvsp_message),
@@ -391,8 +382,6 @@ static int netvsc_init_buf(struct hv_device *device,
 		net_device->send_buf_gpadl_handle;
 	init_packet->msg.v1_msg.send_send_buf.id = NETVSC_SEND_BUFFER_ID;
 
-	trace_nvsp_send(ndev, init_packet);
-
 	/* Send the gpadl notification request */
 	ret = vmbus_sendpacket(device->channel, init_packet,
 			       sizeof(struct nvsp_message),
@@ -460,7 +449,6 @@ static int negotiate_nvsp_ver(struct hv_device *device,
 	init_packet->hdr.msg_type = NVSP_MSG_TYPE_INIT;
 	init_packet->msg.init_msg.init.min_protocol_ver = nvsp_ver;
 	init_packet->msg.init_msg.init.max_protocol_ver = nvsp_ver;
-	trace_nvsp_send(ndev, init_packet);
 
 	/* Send the init request */
 	ret = vmbus_sendpacket(device->channel, init_packet,
@@ -493,8 +481,6 @@ static int negotiate_nvsp_ver(struct hv_device *device,
 		/* Teaming bit is needed to receive link speed updates */
 		init_packet->msg.v2_msg.send_ndis_config.capability.teaming = 1;
 	}
-
-	trace_nvsp_send(ndev, init_packet);
 
 	ret = vmbus_sendpacket(device->channel, init_packet,
 				sizeof(struct nvsp_message),
@@ -547,8 +533,6 @@ static int netvsc_connect_vsp(struct hv_device *device,
 	init_packet->msg.v1_msg.
 		send_ndis_ver.ndis_minor_ver =
 				ndis_version & 0xFFFF;
-
-	trace_nvsp_send(ndev, init_packet);
 
 	/* Send the init request */
 	ret = vmbus_sendpacket(device->channel, init_packet,
@@ -777,7 +761,7 @@ static inline int netvsc_send_pkt(
 	struct sk_buff *skb)
 {
 	struct nvsp_message nvmsg;
-	struct nvsp_1_message_send_rndis_packet *rpkt =
+	struct nvsp_1_message_send_rndis_packet * const rpkt =
 		&nvmsg.msg.v1_msg.send_rndis_pkt;
 	struct netvsc_channel * const nvchan =
 		&net_device->chan_table[packet->q_idx];
@@ -805,8 +789,6 @@ static inline int netvsc_send_pkt(
 
 	if (out_channel->rescind)
 		return -ENODEV;
-
-	trace_nvsp_send_pkt(ndev, out_channel, rpkt);
 
 	if (packet->page_buf_cnt) {
 		if (packet->cp_partial)
@@ -1121,8 +1103,6 @@ static int netvsc_receive(struct net_device *ndev,
 			+ vmxferpage_packet->ranges[i].byte_offset;
 		u32 buflen = vmxferpage_packet->ranges[i].byte_count;
 
-		trace_rndis_recv(ndev, q_idx, data);
-
 		/* Pass it to the upper layer */
 		status = rndis_filter_receive(ndev, net_device,
 					      channel, data, buflen);
@@ -1186,8 +1166,6 @@ static int netvsc_process_raw_pkt(struct hv_device *device,
 {
 	struct net_device_context *net_device_ctx = netdev_priv(ndev);
 	struct nvsp_message *nvmsg = hv_pkt_data(desc);
-
-	trace_nvsp_recv(ndev, channel, nvmsg);
 
 	switch (desc->type) {
 	case VM_PKT_COMP:
