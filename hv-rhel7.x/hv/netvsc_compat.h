@@ -4,7 +4,11 @@
 
 static inline bool compat_napi_complete_done(struct napi_struct *n, int work_done)
 {
+#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,3))
+	napi_complete(n);
+#else
 	napi_complete_done(n, work_done);
+#endif
 	return true;
 }
 	
