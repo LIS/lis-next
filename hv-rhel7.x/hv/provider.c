@@ -2667,7 +2667,6 @@ int hvnd_register_device(struct hvnd_dev *dev, char *ip_addr, char *mac_addr)
 	memcpy(&dev->ibdev.node_guid, mac_addr, 6);
 	dev->ibdev.phys_port_cnt = 1; //dev->nports;
 	dev->ibdev.num_comp_vectors = 1;
-	dev->ibdev.dma_device = &(dev->hvdev->device);
 	dev->ibdev.query_device = hvnd_query_device;
 	dev->ibdev.query_port = hvnd_query_port;
 	dev->ibdev.get_link_layer = hvnd_get_link_layer;
@@ -2716,8 +2715,12 @@ int hvnd_register_device(struct hvnd_dev *dev, char *ip_addr, char *mac_addr)
 
 	//DMA ops for mapping all possible addresses
 #if RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5)
+	dev->ibdev.dma_device = &(dev->hvdev->device);
 	dev->ibdev.dma_device->archdata.dma_ops = &vmbus_dma_ops;
 #else
+	dev->ibdev.dev.parent = &(dev->hvdev->device);
+	dev->ibdev.dev.dma_mask = (u64 *) DMA_BIT_MASK(64);
+	dev->ibdev.dev.coherent_dma_mask = DMA_BIT_MASK(64);
 	set_dma_ops(&dev->ibdev.dev, &vmbus_dma_ops);
 #endif
 
