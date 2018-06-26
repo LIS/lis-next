@@ -1196,7 +1196,7 @@ static void netvsc_get_vf_stats(struct net_device *net,
 	}
 }
 
-static struct rtnl_link_stats64 *netvsc_get_stats64(struct net_device *net,
+static void netvsc_get_stats64(struct net_device *net,
 						    struct rtnl_link_stats64 *t)
 {
 	struct net_device_context *ndev_ctx = netdev_priv(net);
@@ -1205,7 +1205,7 @@ static struct rtnl_link_stats64 *netvsc_get_stats64(struct net_device *net,
 	int i;
 
 	if (!nvdev)
-		return NULL;
+		return;
 
 	netdev_stats_to_stats64(t, &net->stats);
 
@@ -1245,7 +1245,7 @@ static struct rtnl_link_stats64 *netvsc_get_stats64(struct net_device *net,
 		t->multicast	+= multicast;
 	}
 
-	return t;
+	return;
 }
 
 static int netvsc_set_mac_addr(struct net_device *ndev, void *p)
