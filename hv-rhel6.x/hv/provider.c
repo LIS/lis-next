@@ -587,9 +587,11 @@ static int hvnd_query_gid(struct ib_device *ibdev, u8 port, int index,
 
 	debug_check(__func__, __LINE__);
 
-	ret = wait_for_completion_timeout(&nd_dev->addr_set, 60*HZ);
-	if (!ret)
-		return -ETIMEDOUT;
+	if (!nd_dev->bind_complete) {
+		ret = wait_for_completion_timeout(&nd_dev->addr_set, 60*HZ);
+		if (!ret && !nd_dev->bind_complete)
+			return -ETIMEDOUT;
+	}
 
 	memset(&(gid->raw[0]), 0, sizeof(gid->raw));
 	memcpy(&(gid->raw[0]), nd_dev->mac_addr, 6);
@@ -2718,8 +2720,8 @@ static int hvnd_try_bind_nic(unsigned char *mac, __be32 ip)
 
 	/* if we reach here, this means bind_nic is a success */
 	hvnd_error("successfully bound to IP %pI4 MAC %pM\n", nd_dev->ip_addr, nd_dev->mac_addr);
-	complete(&nd_dev->addr_set);
 	nd_dev->bind_complete=1;
+	complete_all(&nd_dev->addr_set);
 	mutex_unlock(&nd_dev->bind_mutex);
 
 	ret = hvnd_register_device(nd_dev, nd_dev->ip_addr, nd_dev->mac_addr);
