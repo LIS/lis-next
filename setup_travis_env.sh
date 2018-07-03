@@ -11,22 +11,27 @@ docker logs $DOCKER_CONTAINER_ID
 docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "cat /etc/centos-release"
 docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "yum -y -q install automake make gcc wget"
 
-if [[ "$BUILD" == "7.4.1708" ]]; then
+# current centos release must be kept updated here,
+# only the latest GA is in main repo, all previous releases go to vault
+if [[ "$BUILD" == "7.5.1804" ]]; then
   docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "wget http://mirror.centos.org/centos/7/os/x86_64/Packages/kernel-devel-${KERNEL}.el7.x86_64.rpm"
-  if [[ "$KERNEL" == "3.10.0-693.5.2" ]]; then
-    docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "wget http://mirror.centos.org/centos/7/updates/x86_64/Packages/kernel-devel-${KERNEL}.el7.x86_64.rpm"
-  fi
+# To be used for a future minor kernel update for 7.5
+#  if [[ "$KERNEL" == "3.10.0-xxx.y.z" ]]; then
+#    docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "wget http://mirror.centos.org/centos/7/updates/x86_64/Packages/kernel-devel-${KERNEL}.el7.x86_64.rpm"
+#  fi
 elif [[ "$BUILD" == "7."* ]]; then
-  docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "wget http://88.208.217.170/${BUILD}/os/x86_64/Packages/kernel-devel-${KERNEL}.el7.x86_64.rpm"
-  if [[ "$KERNEL" == "3.10.0-514.26.2" ]]; then
-    docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "wget http://88.208.217.170/${BUILD}/updates/x86_64/Packages/kernel-devel-${KERNEL}.el7.x86_64.rpm"
+  docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "wget http://vault.centos.org/${BUILD}/os/x86_64/Packages/kernel-devel-${KERNEL}.el7.x86_64.rpm"
+  if [[ "$KERNEL" == "3.10.0-693.21.1" ]]; then
+    docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "wget http://vault.centos.org/${BUILD}/updates/x86_64/Packages/kernel-devel-${KERNEL}.el7.x86_64.rpm"
   fi
 fi
 
+# current centos release must be kept updated here,
+# only the latest GA is in main repo, all previous releases go to vault
 if [[ "$BUILD" == "6.9" ]]; then
   docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "wget http://mirror.centos.org/centos/${BUILD}/os/x86_64/Packages/kernel-devel-${KERNEL}.el6.x86_64.rpm"
 elif [[ "$BUILD" == "6."* ]]; then
-  docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "wget http://88.208.217.170/${BUILD}/os/x86_64/Packages/kernel-devel-${KERNEL}.el6.x86_64.rpm"
+  docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "wget http://vault.centos.org/${BUILD}/os/x86_64/Packages/kernel-devel-${KERNEL}.el6.x86_64.rpm"
 fi
 
 docker exec -t $DOCKER_CONTAINER_ID /bin/bash -xec "rpm -ivh kernel-devel-${KERNEL}*"
