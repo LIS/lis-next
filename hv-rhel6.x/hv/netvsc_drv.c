@@ -686,8 +686,7 @@ vf_injection_done:
 	net->stats.rx_bytes += len;
 
 	napi_gro_receive(&nvchan->napi, skb);
-
-	return 0;
+	return NVSP_STAT_SUCCESS;
 }
 
 static void netvsc_get_drvinfo(struct net_device *net,
