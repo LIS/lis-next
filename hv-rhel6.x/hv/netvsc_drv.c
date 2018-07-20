@@ -50,7 +50,7 @@
 #define LINKCHANGE_INT (2 * HZ)
 
 static int ring_size = 128;
-module_param(ring_size, int, S_IRUGO);
+module_param(ring_size, int, 0444);
 MODULE_PARM_DESC(ring_size, "Ring buffer size (# of pages)");
 
 static const u32 default_msg = NETIF_MSG_DRV | NETIF_MSG_PROBE |
@@ -59,7 +59,7 @@ static const u32 default_msg = NETIF_MSG_DRV | NETIF_MSG_PROBE |
 		NETIF_MSG_TX_ERR;
 
 static int debug = -1;
-module_param(debug, int, S_IRUGO);
+module_param(debug, int, 0444);
 MODULE_PARM_DESC(debug, "Debug level (0=none,...,16=all)");
 
 static void netvsc_set_multicast_list(struct net_device *net)
@@ -686,8 +686,7 @@ vf_injection_done:
 	net->stats.rx_bytes += len;
 
 	napi_gro_receive(&nvchan->napi, skb);
-
-	return 0;
+	return NVSP_STAT_SUCCESS;
 }
 
 static void netvsc_get_drvinfo(struct net_device *net,
