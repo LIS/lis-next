@@ -299,7 +299,7 @@ void hv_synic_init(void *arg)
 	shared_sint.vector = HYPERVISOR_CALLBACK_VECTOR;
 	shared_sint.masked = false;
 
-#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(6,9))
+#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(6,10))
 	/*
 	 * RHEL 6.9 and older's hyperv_vector_handler() doesn't have the
 	 * patch: https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=a33fd4c27b3ad11c66bdadc5fe6075297ca87a6d,
@@ -350,7 +350,7 @@ void hv_synic_init(void *arg)
  * hv_synic_clockevents_cleanup - Cleanup clockevent devices
  */
 
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,9))
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,10))
 void hv_synic_clockevents_cleanup(void)
 {
 	int cpu;
@@ -381,7 +381,7 @@ void hv_synic_cleanup(void *arg)
 		return;
 
 	/* Turn off clockevent device */
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,9))
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,10))
 	if (ms_hyperv_ext.features & HV_X64_MSR_SYNTIMER_AVAILABLE) {
 		struct hv_per_cpu_context *hv_cpu
 			= this_cpu_ptr(hv_context.cpu_context);
