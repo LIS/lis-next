@@ -35,6 +35,12 @@
 #include "hyperv_net.h"
 #include "netvsc_trace.h"
 
+#if (RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(7,0))
+#include <linux/reciprocal_div.h>
+#else
+#include <linux/hyperv.h>
+#endif
+
 /*
  * Switch the data path from the synthetic interface to the VF
  * interface.
@@ -631,6 +637,18 @@ void netvsc_device_remove(struct hv_device *device)
 #define RING_AVAIL_PERCENT_HIWATER 20
 #define RING_AVAIL_PERCENT_LOWATER 10
 
+#if (RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(7, 0))
+/*
+ * Get the percentage of available bytes to write in the ring.
+ * The return value is in range from 0 to 100.
+ */
+static u32 hv_ringbuf_avail_percent(const struct hv_ring_buffer_info *ring_info)
+{
+	u32 avail_write = hv_get_bytes_to_write(ring_info);
+	return reciprocal_divide(avail_write * 100, netvsc_ring_reciprocal);
+}
+#endif
+
 static inline void netvsc_free_send_slot(struct netvsc_device *net_device,
 					 u32 index)
 {
@@ -687,8 +705,16 @@ static void netvsc_send_tx_complete(struct netvsc_device *net_device,
 		struct netdev_queue *txq = netdev_get_tx_queue(ndev, q_idx);
 
 		if (netif_tx_queue_stopped(txq) &&
-		    (hv_get_avail_to_write_percent(&channel->outbound) >
-		     RING_AVAIL_PERCENT_HIWATER || queue_sends < 1)) {
+#if (RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(7, 0))
+			 (hv_ringbuf_avail_percent(&channel->outbound) > RING_AVAIL_PERCENT_HIWATER ||
+			 queue_sends < 1))
+		{
+#else
+			(hv_get_avail_to_write_percent(&channel->outbound) >
+			 RING_AVAIL_PERCENT_HIWATER ||
+			 queue_sends < 1))
+		{
+#endif
 			netif_tx_wake_queue(txq);
 			ndev_ctx->eth_stats.wake_queue++;
 		}
@@ -804,7 +830,11 @@ static inline int netvsc_send_pkt(
 	struct netdev_queue *txq = netdev_get_tx_queue(ndev, packet->q_idx);
 	u64 req_id;
 	int ret;
+#if (RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(7, 0))
+	u32 ring_avail = hv_ringbuf_avail_percent(&out_channel->outbound);
+#else
 	u32 ring_avail = hv_get_avail_to_write_percent(&out_channel->outbound);
+#endif
 
 	nvmsg.hdr.msg_type = NVSP_MSG1_TYPE_SEND_RNDIS_PKT;
 	if (skb)
