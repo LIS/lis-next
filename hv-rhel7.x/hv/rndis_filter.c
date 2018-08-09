@@ -28,6 +28,7 @@
 #include <linux/if_vlan.h>
 #include <linux/nls.h>
 #include <linux/rtnetlink.h>
+#include <linux/ucs2_string.h>
 
 #include "hyperv_net.h"
 #include "netvsc_trace.h"
@@ -1225,6 +1226,80 @@ static int rndis_netdev_set_hwcaps(struct rndis_device *rndis_device,
 	return ret;
 }
 
+
+
+
+/*
+ * copy at most maxlength bytes of whole utf8 characters to dest from the
+ * ucs2 string src.
+ *
+ * The return value is the number of characters copied, not including the
+ * final NUL character.
+ */
+unsigned long
+ucs2_as_utf8(u8 *dest, const ucs2_char_t *src, unsigned long maxlength)
+{
+	unsigned int i;
+	unsigned long j = 0;
+	unsigned long limit = ucs2_strnlen(src, maxlength);
+
+	for (i = 0; maxlength && i < limit; i++) {
+		u16 c = src[i];
+
+		if (c >= 0x800) {
+			if (maxlength < 3)
+				break;
+			maxlength -= 3;
+			dest[j++] = 0xe0 | (c & 0xf000) >> 12;
+			dest[j++] = 0x80 | (c & 0x0fc0) >> 6;
+			dest[j++] = 0x80 | (c & 0x003f);
+		} else if (c >= 0x80) {
+			if (maxlength < 2)
+				break;
+			maxlength -= 2;
+			dest[j++] = 0xc0 | (c & 0x7c0) >> 6;
+			dest[j++] = 0x80 | (c & 0x03f);
+		} else {
+			maxlength -= 1;
+			dest[j++] = c & 0x7f;
+		}
+	}
+	if (maxlength)
+		dest[j] = '\0';
+	return j;
+}
+
+
+
+
+
+
+
+
+
+static void rndis_get_friendly_name(struct net_device *net,
+				    struct rndis_device *rndis_device,
+				    struct netvsc_device *net_device)
+{
+	ucs2_char_t wname[256];
+	unsigned long len;
+	u8 ifalias[256];
+	u32 size;
+
+	size = sizeof(wname);
+	if (rndis_filter_query_device(rndis_device, net_device,
+				      RNDIS_OID_GEN_FRIENDLY_NAME,
+				      wname, &size) != 0)
+		return;
+
+	/* Convert Windows Unicode string to UTF-8 */
+	len = ucs2_as_utf8(ifalias, wname, sizeof(ifalias));
+
+	/* ignore the default value from host */
+	if (strcmp(ifalias, "Network Adapter") != 0)
+		dev_set_alias(net, ifalias, len);
+}
+
 struct netvsc_device *rndis_filter_device_add(struct hv_device *dev,
 				      struct netvsc_device_info *device_info)
 {
@@ -1277,6 +1352,10 @@ struct netvsc_device *rndis_filter_device_add(struct hv_device *dev,
 		goto err_dev_remv;
 
 	memcpy(device_info->mac_adr, rndis_device->hw_mac_adr, ETH_ALEN);
+
+	/* Get friendly name as ifalias*/
+	if (!net->ifalias)
+		rndis_get_friendly_name(net, rndis_device, net_device);
 
 	/* Query and set hardware capabilities */
 	ret = rndis_netdev_set_hwcaps(rndis_device, net_device);
