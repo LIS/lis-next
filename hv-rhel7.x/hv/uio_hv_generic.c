@@ -31,7 +31,6 @@
 #include <linux/skbuff.h>
 #include <linux/vmalloc.h>
 #include <linux/slab.h>
-#include <linux/mm_types.h>
 
 #include "include/linux/hyperv.h"
 #include "hyperv_vmbus.h"
@@ -66,67 +65,6 @@ struct hv_uio_private_data {
 	u32	send_gpadl;
 	char	send_name[32];
 };
-
-/*
- * Handle fault when looking for sub channel ring buffer
- * Subchannel ring buffer is same as resource 0 which is main ring buffer
- * This is derived from uio_vma_fault
- */
-static int hv_uio_vma_fault(struct vm_fault *vmf)
-{
-	struct vm_area_struct *vma = vmf->vma;
-	void *ring_buffer = vma->vm_private_data;
-	struct page *page;
-	void *addr;
-
-	addr = ring_buffer + (vmf->pgoff << PAGE_SHIFT);
-	page = virt_to_page(addr);
-	get_page(page);
-	vmf->page = page;
-	return 0;
-}
-
-
-static const struct vm_operations_struct hv_uio_vm_ops = {
-	.fault = hv_uio_vma_fault,
-};
-
-/* Sysfs API to allow mmap of the ring buffers */
-static int hv_uio_ring_mmap(struct file *filp, struct kobject *kobj,
-			    struct bin_attribute *attr,
-			    struct vm_area_struct *vma)
-{
-	struct vmbus_channel *channel
-		= container_of(kobj, struct vmbus_channel, kobj);
-	unsigned long requested_pages, actual_pages;
-
-	if (vma->vm_end < vma->vm_start)
-		return -EINVAL;
-
-	/* only allow 0 for now */
-	if (vma->vm_pgoff > 0)
-		return -EINVAL;
-
-	requested_pages = vma_pages(vma);
-	actual_pages = 2 * HV_RING_SIZE;
-	if (requested_pages > actual_pages)
-		return -EINVAL;
-
-	vma->vm_private_data = channel->ringbuffer_pages;
-	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
-	vma->vm_ops = &hv_uio_vm_ops;
-	return 0;
-}
-
-static const struct bin_attribute ring_buffer_bin_attr = {
-	.attr = {
-		.name = "ring",
-		.mode = 0600,
-	},
-	.size = 2 * HV_RING_SIZE * PAGE_SIZE,
-	.mmap = hv_uio_ring_mmap,
-};
-
 
 /*
  * This is the irqcontrol callback to be registered to uio_info.
@@ -295,12 +233,7 @@ hv_uio_probe(struct hv_device *dev,
 	}
 
 	vmbus_set_chn_rescind_callback(dev->channel, hv_uio_rescind);
-    
-	ret = sysfs_create_bin_file(&dev->channel->kobj, &ring_buffer_bin_attr);
-	if (ret)
-		dev_notice(&dev->device,
-			   "sysfs create ring bin file failed; %d\n", ret);
-			   
+
 	hv_set_drvdata(dev, pdata);
 
 	return 0;
