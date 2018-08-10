@@ -1111,7 +1111,7 @@ static void netvsc_poll_controller(struct net_device *dev)
 }
 #endif
 
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,9))
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,10))
 static u32 netvsc_get_rxfh_key_size(struct net_device *dev)
 {
 	return NETVSC_HASH_KEYLEN;
@@ -1191,7 +1191,7 @@ static const struct ethtool_ops ethtool_ops = {
 	.get_settings	= netvsc_get_settings,
 	.set_settings	= netvsc_set_settings,
 	.get_rxnfc	= netvsc_get_rxnfc,
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,9))
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,10))
 	.get_rxfh_key_size = netvsc_get_rxfh_key_size,
 	.get_rxfh_indir_size = netvsc_rss_indir_size,
 	.get_rxfh	= netvsc_get_rxfh,
@@ -1690,7 +1690,7 @@ static struct  hv_driver netvsc_drv = {
 static int netvsc_netdev_event(struct notifier_block *this,
 			       unsigned long event, void *ptr)
 {
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,9))
+#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,10))
 	/* Not in RHEL 6.8 kernel - check again when 6.9 releases - NHM */
 	struct net_device *event_dev = netdev_notifier_info_to_dev(ptr);
 #else
