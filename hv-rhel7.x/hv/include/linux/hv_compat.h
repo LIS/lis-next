@@ -36,6 +36,10 @@
 #define rdtscll(now)    do { (now) = rdtsc_ordered(); } while (0)
 #endif
 
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,5))
+#define HV_FAULT_EXTENSION
+#endif
+
 #define HV_DRV_VERSION	"master"
 #define _HV_DRV_VERSION 0x1A8
 
