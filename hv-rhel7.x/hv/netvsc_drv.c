@@ -46,6 +46,10 @@
 
 #include "hyperv_net.h"
 
+#if (RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(7, 0))
+#include <linux/reciprocal_div.h>
+#endif
+
 #define RING_SIZE_MIN	64
 #define RETRY_US_LO	5000
 #define RETRY_US_HI	10000
@@ -58,6 +62,10 @@ static unsigned int ring_size = 128;
 module_param(ring_size, uint, 0444);
 MODULE_PARM_DESC(ring_size, "Ring buffer size (# of pages)");
 unsigned int netvsc_ring_bytes;
+
+#if (RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(7, 0))
+u32 netvsc_ring_reciprocal;
+#endif
 
 static const u32 default_msg = NETIF_MSG_DRV | NETIF_MSG_PROBE |
 				NETIF_MSG_LINK | NETIF_MSG_IFUP |
@@ -2222,6 +2230,9 @@ static int __init netvsc_drv_init(void)
 			ring_size);
 	}
 	netvsc_ring_bytes = ring_size * PAGE_SIZE;
+#if (RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(7, 0))
+	netvsc_ring_reciprocal = reciprocal_value(netvsc_ring_bytes);
+#endif
 
 	ret = vmbus_driver_register(&netvsc_drv);
 	if (ret)

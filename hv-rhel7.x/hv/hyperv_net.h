@@ -194,6 +194,10 @@ struct net_device_context;
 
 extern u32 netvsc_ring_bytes;
 
+#if (RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(7,0))
+extern u32 netvsc_ring_reciprocal;
+#endif
+
 struct netvsc_device *netvsc_device_add(struct hv_device *device,
 					const struct netvsc_device_info *info);
 int netvsc_alloc_recv_comp_ring(struct netvsc_device *net_device, u32 q_idx);
