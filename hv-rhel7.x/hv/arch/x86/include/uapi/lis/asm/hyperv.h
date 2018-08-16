@@ -2,6 +2,7 @@
 #define _ASM_X86_HYPERV_H
 
 #include <linux/types.h>
+#include <linux/version.h>
 
 /*
  * The below CPUID leaves are present if VersionAndFeatures.HypervisorPresent
@@ -155,11 +156,15 @@
  */
 #define HV_X64_EX_PROCESSOR_MASKS_RECOMMENDED	(1 < 11)
 
+#if(RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,0))
+#define BIT_ULL(nr) (1ULL << (nr))
+#endif
 
 /*
- * Crash notification flag.
+ * Crash notification flags.
  */
-#define HV_CRASH_CTL_CRASH_NOTIFY (1ULL << 63)
+#define HV_CRASH_CTL_CRASH_NOTIFY_MSG  BIT_ULL(62)
+#define HV_CRASH_CTL_CRASH_NOTIFY      BIT_ULL(63)
 
 /* MSR used to identify the guest OS. */
 #define HV_X64_MSR_GUEST_OS_ID			0x40000000

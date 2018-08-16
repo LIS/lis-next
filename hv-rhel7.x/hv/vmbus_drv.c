@@ -57,6 +57,8 @@ static struct completion probe_event;
 static int irq;
 #endif
 
+static void *hv_panic_page;
+
 static int hyperv_panic_event(struct notifier_block *nb, unsigned long val,
 			      void *args)
 {
@@ -67,6 +69,77 @@ static int hyperv_panic_event(struct notifier_block *nb, unsigned long val,
 	hyperv_report_panic(regs, val);
 	return NOTIFY_DONE;
 }
+
+/*
+ * Boolean to control whether to report panic messages over Hyper-V.
+ *
+ * It can be set via /proc/sys/kernel/hyperv/record_panic_msg
+ */
+static int sysctl_record_panic_msg = 1;
+
+/*
+ * Callback from kmsg_dump. Grab as much as possible from the end of the kmsg
+ * buffer and call into Hyper-V to transfer the data.
+ */
+static void hv_kmsg_dump(struct kmsg_dumper *dumper,
+                        enum kmsg_dump_reason reason)
+{
+        size_t bytes_written;
+        phys_addr_t panic_pa;
+  
+        /* We are only interested in panics. */
+        if ((reason != KMSG_DUMP_PANIC) || (!sysctl_record_panic_msg))
+                return;
+ 
+        panic_pa = virt_to_phys(hv_panic_page);
+ 
+        /*
+         * Write dump contents to the page. No need to synchronize; panic should
+         * be single-threaded.
+         */
+        if (!kmsg_dump_get_buffer(dumper, true, hv_panic_page,
+                                  PAGE_SIZE, &bytes_written)) {
+                pr_err("Hyper-V: Unable to get kmsg data for panic\n");
+                return;
+        }
+ 
+        hyperv_report_panic_msg(panic_pa, bytes_written);
+}
+
+static struct kmsg_dumper hv_kmsg_dumper = {
+       .dump = hv_kmsg_dump,
+};
+
+static struct ctl_table_header *hv_ctl_table_hdr;
+static int zero;
+static int one = 1;
+
+/*
+ * sysctl option to allow the user to control whether kmsg data should be
+ * reported to Hyper-V on panic.
+ */
+static struct ctl_table hv_ctl_table[] = {
+        {
+                .procname       = "hyperv_record_panic_msg",
+                .data           = &sysctl_record_panic_msg,
+                .maxlen         = sizeof(int),
+                .mode           = 0644,
+                .proc_handler   = proc_dointvec_minmax,
+                .extra1         = &zero,
+                .extra2         = &one
+        },
+        {}
+};
+
+static struct ctl_table hv_root_table[] = {
+        {
+                .procname       = "kernel",
+                .mode           = 0555,
+                .child          = hv_ctl_table
+        },
+        {}
+};
+
 
 static int hyperv_die_event(struct notifier_block *nb, unsigned long val,
 			    void *args)
@@ -1120,6 +1193,32 @@ static int vmbus_bus_init(int irq)
          * Only register if the crash MSRs are available
          */
 	if (ms_hyperv_ext.misc_features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
+                u64 hyperv_crash_ctl;
+                /*
+                 * Sysctl registration is not fatal, since by default
+                 * reporting is enabled.
+                 */
+                hv_ctl_table_hdr = register_sysctl_table(hv_root_table);
+                if (!hv_ctl_table_hdr)
+                        pr_err("Hyper-V: sysctl table register error");
+ 
+                /*
+                 * Register for panic kmsg callback only if the right
+                 * capability is supported by the hypervisor.
+                 */
+                rdmsrl(HV_X64_MSR_CRASH_CTL, hyperv_crash_ctl);
+                if (hyperv_crash_ctl & HV_CRASH_CTL_CRASH_NOTIFY_MSG) {
+                        hv_panic_page = (void *)get_zeroed_page(GFP_KERNEL);
+                        if (hv_panic_page) {
+                                ret = kmsg_dump_register(&hv_kmsg_dumper);
+                                if (ret)
+                                        pr_err("Hyper-V: kmsg dump register "
+                                                "error 0x%x\n", ret);
+                        } else
+                                pr_err("Hyper-V: panic message page memory "
+                                        "allocation failed");
+                }
+
 		register_die_notifier(&hyperv_die_block);
                 atomic_notifier_chain_register(&panic_notifier_list,
                                                &hyperv_panic_block);
@@ -1157,6 +1256,11 @@ err_alloc:
 err_unregister:
 #endif
 	bus_unregister(&hv_bus);
+        free_page((unsigned long)hv_panic_page);
+        if (!hv_ctl_table_hdr) {
+                unregister_sysctl_table(hv_ctl_table_hdr);
+                hv_ctl_table_hdr = NULL;
+        }
 
 	return ret;
 }
@@ -1888,10 +1992,18 @@ static void __exit vmbus_exit(void)
 	vmbus_free_channels();
 
         if (ms_hyperv_ext.misc_features & HV_FEATURE_GUEST_CRASH_MSR_AVAILABLE) {
+		kmsg_dump_unregister(&hv_kmsg_dumper);
 		unregister_die_notifier(&hyperv_die_block);
 		atomic_notifier_chain_unregister(&panic_notifier_list,
 						 &hyperv_panic_block);
 	}
+
+        free_page((unsigned long)hv_panic_page);
+        if (!hv_ctl_table_hdr) {
+                unregister_sysctl_table(hv_ctl_table_hdr);
+                hv_ctl_table_hdr = NULL;
+        }
+
 	bus_unregister(&hv_bus);
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
 	cpu_notifier_register_begin();
