@@ -68,6 +68,9 @@
 #define PCI_MAJOR_VERSION(version) ((u32)(version) >> 16)
 #define PCI_MINOR_VERSION(version) ((u32)(version) & 0xff)
 
+#define offsetofend(TYPE, MEMBER) \
+        (offsetof(TYPE, MEMBER) + sizeof(((TYPE *)0)->MEMBER))
+
 enum {
 	PCI_PROTOCOL_VERSION_1_1 = PCI_MAKE_VERSION(1, 1),
 	PCI_PROTOCOL_VERSION_CURRENT = PCI_PROTOCOL_VERSION_1_1
