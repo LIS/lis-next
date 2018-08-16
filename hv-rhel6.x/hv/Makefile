@@ -6,7 +6,6 @@ obj-m	+= hid-hyperv.o
 obj-m	+= hyperv_fb.o
 obj-m	+= hv_balloon.o
 obj-m	+= hyperv-keyboard.o
-obj-m   += pci-hyperv.o
 
 # Get RHEL/CentOS version information
 rhel_major=$(shell grep -Eoh [0-9]+\.[0-9]+ /etc/{issue,*release} | head -1 | awk -F'.' '{ print $$1 }')
@@ -30,6 +29,12 @@ ifeq ($(buildrdma),0)
         ifeq ($(arch), 64)
 		obj-m   += uio_hv_generic.o
 	 endif
+endif
+
+#Make it conditional for PCI driver to build 6.7 and above. 
+build_pci=$(shell test $(rhel_release_code) -ge 1543; echo $$?)
+ifeq ($(build_pci),0)
+        obj-m	+= pci-hyperv.o
 endif
 
 ccflags-y += -I$(M)/include/ -I$(M)/arch/$(SRCARCH)/include -I$(M)/arch/$(SRCARCH)/include/uapi
