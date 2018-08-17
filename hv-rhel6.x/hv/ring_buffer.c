@@ -414,12 +414,13 @@ __hv_pkt_iter_next(struct vmbus_channel *channel,
 EXPORT_SYMBOL_GPL(__hv_pkt_iter_next);
 
 /*
- * Update host ring buffer after iterating over packets. If the ring buffer
- * is blocked on the host side due to being full, and sufficient space is
- * being freed up, signal the host. But be careful to only signal the host
- * when necesary, both for performance reasons and because Hyper-V protects
- * itself by throttling guests that signal inappropriately.
- *
+ * Update host ring buffer after iterating over packets. If the host has
+ * stopped queuing new entries because it found the ring buffer full, and
+ * sufficient space is being freed up, signal the host. But be careful to 
+ * only signal the host when necesary, both for performance reasons and 
+ * because Hyper-V protects itself by throttling guests that signal 
+ * inappropriately.
+ * 
  * Determing when to signal is tricky. There are three key data inputs that
  * must be handled in this order to avoid race conditions:
  *
