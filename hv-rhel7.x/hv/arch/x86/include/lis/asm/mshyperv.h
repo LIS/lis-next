@@ -162,6 +162,9 @@ static inline void vmbus_signal_eom(struct hv_message *msg, u32 old_msg_type)
 #define hv_init_timer(timer, tick) wrmsrl(timer, tick)
 #define hv_init_timer_config(config, val) wrmsrl(config, val)
 
+#define hv_get_crash_ctl(val) \
+	rdmsrl(HV_X64_MSR_CRASH_CTL, val)
+
 void hyperv_callback_vector(void);
 #ifdef CONFIG_TRACING
 #define trace_hyperv_callback_vector hyperv_callback_vector
@@ -313,6 +316,7 @@ static inline int hv_cpu_number_to_vp_number(int cpu_number)
 
 void hyperv_init(void);
 void hyperv_report_panic(struct pt_regs *regs, long err);
+void hyperv_report_panic_msg(phys_addr_t pa, size_t size);
 int hv_cpu_init(unsigned int cpu);
 bool hv_is_hypercall_page_setup(void);
 void hyperv_cleanup(void);

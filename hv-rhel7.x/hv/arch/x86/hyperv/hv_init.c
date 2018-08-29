@@ -27,7 +27,6 @@
 #include <linux/clockchips.h>
 #include <linux/slab.h>
 
-
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5))
 #ifdef CONFIG_X86_64
 
@@ -303,6 +302,34 @@ bool hv_is_hypercall_page_setup(void)
 
 EXPORT_SYMBOL_GPL(hv_is_hypercall_page_setup);
 #endif
+
+/**
+ * hyperv_report_panic_msg - report panic message to Hyper-V
+ * @pa: physical address of the panic page containing the message
+ * @size: size of the message in the page
+ */
+void hyperv_report_panic_msg(phys_addr_t pa, size_t size)
+{
+        /*
+         * P3 to contain the physical address of the panic page & P4 to
+         * contain the size of the panic data in that page. Rest of the
+         * registers are no-op when the NOTIFY_MSG flag is set.
+         */
+        wrmsrl(HV_X64_MSR_CRASH_P0, 0);
+        wrmsrl(HV_X64_MSR_CRASH_P1, 0);
+        wrmsrl(HV_X64_MSR_CRASH_P2, 0);
+        wrmsrl(HV_X64_MSR_CRASH_P3, pa);
+        wrmsrl(HV_X64_MSR_CRASH_P4, size);
+ 
+        /*
+         * Let Hyper-V know there is crash data available along with
+         * the panic message.
+         */
+        wrmsrl(HV_X64_MSR_CRASH_CTL,
+               (HV_CRASH_CTL_CRASH_NOTIFY | HV_CRASH_CTL_CRASH_NOTIFY_MSG));
+}
+EXPORT_SYMBOL_GPL(hyperv_report_panic_msg);
+
 
 void hv_print_host_info(void) {
 	int hv_host_info_eax;
