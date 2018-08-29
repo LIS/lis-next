@@ -118,7 +118,7 @@ static int hv_ce_set_next_event(unsigned long delta,
 
 	current_tick = hyperv_cs->read(NULL);
 	current_tick += delta;
-	hv_init_timer(HV_X64_MSR_STIMER0_COUNT, current_tick);
+	hv_init_timer(0, current_tick);
 	return 0;
 }
 
@@ -136,13 +136,13 @@ static void hv_ce_setmode(enum clock_event_mode mode,
 		timer_cfg.enable = 1;
 		timer_cfg.auto_enable = 1;
 		timer_cfg.sintx = VMBUS_MESSAGE_SINT;
-		hv_init_timer_config(HV_X64_MSR_STIMER0_CONFIG, timer_cfg.as_uint64);
+		hv_init_timer_config(0, timer_cfg.as_uint64);
 		break;
 
 	case CLOCK_EVT_MODE_UNUSED:
 	case CLOCK_EVT_MODE_SHUTDOWN:
-		hv_init_timer(HV_X64_MSR_STIMER0_COUNT, 0);
-		hv_init_timer_config(HV_X64_MSR_STIMER0_CONFIG, 0);
+		hv_init_timer(0, 0);
+		hv_init_timer_config(0, 0);
 		break;
 	case CLOCK_EVT_MODE_RESUME:
 		break;
@@ -338,8 +338,7 @@ void hv_synic_init(void *arg)
 	hv_set_siefp(siefp.as_uint64);
 
 	/* Setup the shared SINT. */
-	hv_get_synint_state(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT,
-			    shared_sint.as_uint64);
+	hv_get_synint_state(VMBUS_MESSAGE_SINT, shared_sint.as_uint64);
 
 	shared_sint.vector = HYPERVISOR_CALLBACK_VECTOR;
 	shared_sint.masked = false;
@@ -359,8 +358,7 @@ void hv_synic_init(void *arg)
 		shared_sint.auto_eoi = true;
 #endif
 
-	hv_set_synint_state(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT,
-			    shared_sint.as_uint64);
+	hv_set_synint_state(VMBUS_MESSAGE_SINT, shared_sint.as_uint64);
 
 	/* Enable the global synic bit */
 	hv_get_synic_state(sctrl.as_uint64);
@@ -443,15 +441,13 @@ void hv_synic_cleanup(void *arg)
 		hv_ce_setmode(CLOCK_EVT_MODE_SHUTDOWN,
 			      hv_context.clk_evt[cpu]);
 
-	hv_get_synint_state(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT,
-			    shared_sint.as_uint64);
+	hv_get_synint_state(VMBUS_MESSAGE_SINT, shared_sint.as_uint64);
 
 	shared_sint.masked = 1;
 
 	/* Need to correctly cleanup in the case of SMP!!! */
 	/* Disable the interrupt */
-	hv_set_synint_state(HV_X64_MSR_SINT0 + VMBUS_MESSAGE_SINT,
-			    shared_sint.as_uint64);
+	hv_set_synint_state(VMBUS_MESSAGE_SINT, shared_sint.as_uint64);
 
         hv_get_simp(simp.as_uint64);
 	simp.simp_enabled = 0;
