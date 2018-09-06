@@ -231,14 +231,12 @@ void hv_synic_free(void)
 		struct hv_per_cpu_context *hv_cpu
 			= per_cpu_ptr(hv_context.cpu_context, cpu);
 
-		if (hv_cpu->synic_event_page)
-			free_page((unsigned long)hv_cpu->synic_event_page);
-		if (hv_cpu->synic_message_page)
-			free_page((unsigned long)hv_cpu->synic_message_page);
-		if (hv_cpu->post_msg_page)
-			free_page((unsigned long)hv_cpu->post_msg_page);
-		if (hv_context.clk_evt[cpu])
-			kfree(hv_context.clk_evt[cpu]);
+        	if (hv_context.clk_evt[cpu])
+                	kfree(hv_context.clk_evt[cpu]);
+        
+        	free_page((unsigned long)hv_cpu->synic_event_page);
+        	free_page((unsigned long)hv_cpu->synic_message_page);
+        	free_page((unsigned long)hv_cpu->post_msg_page);
 	}
 
 	kfree(hv_context.hv_numa_map);
