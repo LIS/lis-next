@@ -1,14 +1,18 @@
 echo "Building Modules"
+if [ "$KERNEL_VERSION" == "" ]
+then
+	KERNEL_VERSION = $(uname -r)
+fi
 
-make -C /lib/modules/$(uname -r)/build M=`pwd` clean
+make -C /lib/modules/$KERNEL_VERSION/build M=`pwd` clean
 [ $? -eq 0 ] || exit 1
 
-make -C /lib/modules/$(uname -r)/build M=`pwd` modules
+make -C /lib/modules/$KERNEL_VERSION/build M=`pwd` modules
 [ $? -eq 0 ] || exit 1
 
 echo "Installing Modules"
 
-cp -f ./*.ko /lib/modules/$(uname -r)/extra/
+cp -f ./*.ko /lib/modules/$KERNEL_VERSION/extra/
 [ $? -eq 0 ] || exit 1
 
 echo "Generating Module dependencies"
@@ -39,23 +43,23 @@ echo "Copying lsvmbus tool"
 
 echo "Generating initramfs"
 
-dracut --force  "initramfs-$(uname -r).img" $(uname -r)
+dracut --force  "initramfs-$KERNEL_VERSION.img" $KERNEL_VERSION
 [ $? -eq 0 ] || exit 1
 
 echo "Saving old initramfs"
 
-if [ ! -e /boot/"initramfs-$(uname -r).img-old" ]
+if [ ! -e /boot/"initramfs-$KERNEL_VERSION.img-old" ]
 then
-	cp -f /boot/"initramfs-$(uname -r).img" /boot/"initramfs-$(uname -r).img-old"
+	cp -f /boot/"initramfs-$KERNEL_VERSION.img" /boot/"initramfs-$KERNEL_VERSION.img-old"
 fi
 
 echo "Installing new initramfs"
 
-cp -f "initramfs-$(uname -r).img" /boot/"initramfs-$(uname -r).img"
+cp -f "initramfs-$KERNEL_VERSION.img" /boot/"initramfs-$KERNEL_VERSION.img"
 [ $? -eq 0 ] || exit 1
 
 echo "Update kernel commandline"
-grubby --update-kernel "/boot/vmlinuz-$(uname -r)" --args=disable_mtrr_trim
+grubby --update-kernel "/boot/vmlinuz-$KERNEL_VERSION" --args=disable_mtrr_trim
 [ $? -eq 0 ] || exit 1
 
 echo "Completed!"

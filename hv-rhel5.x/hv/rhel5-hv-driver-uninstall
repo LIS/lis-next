@@ -1,15 +1,19 @@
 echo "Get rid of the Hyper-V drivers and modprobe rules"
+if [ "$KERNEL_VERSION" == "" ]
+then
+	KERNEL_VERSION = $(uname -r)
+fi
 
 rm -f  /etc/X11/xorg.conf
 
-rm -rf  /lib/modules/$(uname -r)/extra/hv_*.ko
-rm -rf  /lib/modules/$(uname -r)/extra/hid*.ko
+rm -rf  /lib/modules/$KERNEL_VERSION/extra/hv_*.ko
+rm -rf  /lib/modules/$KERNEL_VERSION/extra/hid*.ko
 
 
 echo "Create and install initramfs without Hyper-V drivers"
 
-rm -f "initrd-$(uname -r).img"
+rm -f "initrd-$KERNEL_VERSION.img"
 
-mkinitrd "initrd-$(uname -r).img" "$(uname -r)"
+mkinitrd "initrd-$KERNEL_VERSION.img" "$KERNEL_VERSION"
 
-mv -f "initrd-$(uname -r).img" /boot/"initrd-$(uname -r).img"
+mv -f "initrd-$KERNEL_VERSION.img" /boot/"initrd-$KERNEL_VERSION.img"
