@@ -1266,6 +1266,59 @@ static void netvsc_get_pcpu_stats(struct net_device *net,
        }
 }
 
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5))
+static struct rtnl_link_stats64 * netvsc_get_stats64(struct net_device *net,
+						    struct rtnl_link_stats64 *t)
+{
+	struct net_device_context *ndev_ctx = netdev_priv(net);
+	struct netvsc_device *nvdev = rcu_dereference_rtnl(ndev_ctx->nvdev);
+	struct netvsc_vf_pcpu_stats vf_tot;
+	int i;
+
+	if (!nvdev)
+		return NULL;
+
+	netdev_stats_to_stats64(t, &net->stats);
+
+	netvsc_get_vf_stats(net, &vf_tot);
+	t->rx_packets += vf_tot.rx_packets;
+	t->tx_packets += vf_tot.tx_packets;
+	t->rx_bytes   += vf_tot.rx_bytes;
+	t->tx_bytes   += vf_tot.tx_bytes;
+	t->tx_dropped += vf_tot.tx_dropped;
+
+	for (i = 0; i < nvdev->num_chn; i++) {
+		const struct netvsc_channel *nvchan = &nvdev->chan_table[i];
+		const struct netvsc_stats *stats;
+		u64 packets, bytes, multicast;
+		unsigned int start;
+
+		stats = &nvchan->tx_stats;
+		do {
+			start = u64_stats_fetch_begin_irq(&stats->syncp);
+			packets = stats->packets;
+			bytes = stats->bytes;
+		} while (u64_stats_fetch_retry_irq(&stats->syncp, start));
+
+		t->tx_bytes	+= bytes;
+		t->tx_packets	+= packets;
+
+		stats = &nvchan->rx_stats;
+		do {
+			start = u64_stats_fetch_begin_irq(&stats->syncp);
+			packets = stats->packets;
+			bytes = stats->bytes;
+			multicast = stats->multicast + stats->broadcast;
+		} while (u64_stats_fetch_retry_irq(&stats->syncp, start));
+
+		t->rx_bytes	+= bytes;
+		t->rx_packets	+= packets;
+		t->multicast	+= multicast;
+	}
+
+	return t;
+}
+#else
 static void netvsc_get_stats64(struct net_device *net,
 						    struct rtnl_link_stats64 *t)
 {
@@ -1317,6 +1370,7 @@ static void netvsc_get_stats64(struct net_device *net,
 
 	return;
 }
+#endif
 
 static int netvsc_set_mac_addr(struct net_device *ndev, void *p)
 {
