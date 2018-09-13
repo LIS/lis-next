@@ -1,12 +1,16 @@
 echo "Get rid of the Hyper-V drivers and modprobe rules"
+if [ "$KERNEL_VERSION" == "" ]
+then
+	KERNEL_VERSION = $(uname -r)
+fi
 
-rm -rf  /lib/modules/$(uname -r)/extra/hv_*.ko
-rm -f  /lib/modules/$(uname -r)/extra/hyperv_fb.ko
-rm -f  /lib/modules/$(uname -r)/extra/hid-hyperv.ko
-rm -f  /lib/modules/$(uname -r)/extra/hyperv-keyboard.ko
-rm -f  /lib/modules/$(uname -r)/extra/uio_hv_generic.ko
+rm -rf  /lib/modules/$KERNEL_VERSION/extra/hv_*.ko
+rm -f  /lib/modules/$KERNEL_VERSION/extra/hyperv_fb.ko
+rm -f  /lib/modules/$KERNEL_VERSION/extra/hid-hyperv.ko
+rm -f  /lib/modules/$KERNEL_VERSION/extra/hyperv-keyboard.ko
+rm -f  /lib/modules/$KERNEL_VERSION/extra/uio_hv_generic.ko
 
-rm -rf  /lib/modules/$(uname -r)/extra/microsoft-hyper-v/hv_*.ko
+rm -rf  /lib/modules/$KERNEL_VERSION/extra/microsoft-hyper-v/hv_*.ko
 rm -rf /etc/modprobe.d/hyperv_pvdrivers.conf
 
 echo "Get rid of ip injection scripts"
@@ -20,8 +24,8 @@ rm -rf /usr/sbin/lsvmbus
 depmod
 
 echo "Create and install initramfs without Hyper-V drivers"
-dracut --force  "initramfs-$(uname -r).img" $(uname -r)
-cp -f "initramfs-$(uname -r).img" /boot/"initramfs-$(uname -r).img"
+dracut --force  "initramfs-$KERNEL_VERSION.img" $KERNEL_VERSION
+cp -f "initramfs-$KERNEL_VERSION.img" /boot/"initramfs-$KERNEL_VERSION.img"
 
 echo "Remove updates to kernel commandline"
-grubby --update-kernel "/boot/vmlinuz-$(uname -r)" --remove-args=disable_mtrr_trim
+grubby --update-kernel "/boot/vmlinuz-$KERNEL_VERSION" --remove-args=disable_mtrr_trim
