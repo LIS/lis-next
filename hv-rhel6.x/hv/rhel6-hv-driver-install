@@ -1,13 +1,15 @@
 echo "Building Modules"
 if [ "$KERNEL_VERSION" == "" ]
 then
-	KERNEL_VERSION = $(uname -r)
+	KERNEL_VERSION=$(uname -r)
 fi
+
+ParallelTasks=`cat /proc/cpuinfo | grep processor | wc -l`
 
 make -C /lib/modules/$KERNEL_VERSION/build M=`pwd` clean
 [ $? -eq 0 ] || exit 1
 
-make -C /lib/modules/$KERNEL_VERSION/build M=`pwd` modules
+make -j$ParallelTasks -C /lib/modules/$KERNEL_VERSION/build M=`pwd` modules
 [ $? -eq 0 ] || exit 1
 
 echo "Installing Modules"
