@@ -46,6 +46,11 @@
 #include <linux/kdebug.h>
 #include "hyperv_vmbus.h"
 
+struct vmbus_dynid {
+	struct list_head node;
+	struct hv_vmbus_device_id id;
+};
+
 static struct acpi_device  *hv_acpi_dev;
 
 int affinity_mode = HV_KEEP_HT_CPU;
@@ -572,8 +577,13 @@ static ssize_t device_show(struct device *dev,
 }
 static DEVICE_ATTR_RO(device);
 
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,4))
+/* Set up per device attributes in /sys/bus/vmbus/devices/<bus device> */
+static struct attribute *vmbus_dev_attrs[] = {
+#else
 /* Set up per device attributes in /sys/bus/vmbus/devices/<bus device> */
 static struct attribute *vmbus_attrs[] = {
+#endif
 	&dev_attr_id.attr,
 	&dev_attr_state.attr,
 	&dev_attr_monitor_id.attr,
@@ -604,7 +614,13 @@ static struct attribute *vmbus_attrs[] = {
 	&dev_attr_device.attr,
 	NULL,
 };
+
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,4))
+ATTRIBUTE_GROUPS(vmbus_dev);
+#else
 ATTRIBUTE_GROUPS(vmbus);
+#endif
+
 
 /*
  * vmbus_uevent - add uevent for our device
@@ -627,6 +643,71 @@ static int vmbus_uevent(struct device *device, struct kobj_uevent_env *env)
 	ret = add_uevent_var(env, "MODALIAS=vmbus:%s", alias_name);
 	return ret;
 }
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,4))
+/* vmbus_add_dynid - add a new device ID to this driver and re-probe devices */
+static int vmbus_add_dynid(struct hv_driver *drv, uuid_le *guid)
+{
+	struct vmbus_dynid *dynid;
+
+	dynid = kzalloc(sizeof(*dynid), GFP_KERNEL);
+	if (!dynid)
+		return -ENOMEM;
+
+	dynid->id.guid = *guid;
+
+	spin_lock(&drv->dynids.lock);
+	list_add_tail(&dynid->node, &drv->dynids.list);
+	spin_unlock(&drv->dynids.lock);
+
+	return driver_attach(&drv->driver);
+}
+
+static void vmbus_free_dynids(struct hv_driver *drv)
+{
+	struct vmbus_dynid *dynid, *n;
+
+	spin_lock(&drv->dynids.lock);
+	list_for_each_entry_safe(dynid, n, &drv->dynids.list, node) {
+		list_del(&dynid->node);
+		kfree(dynid);
+	}
+	spin_unlock(&drv->dynids.lock);
+}
+
+/* Parse string of form: 1b4e28ba-2fa1-11d2-883f-b9a761bde3f */
+static int get_uuid_le(const char *str, uuid_le *uu)
+{
+	unsigned int b[16];
+	int i;
+
+	if (strlen(str) < 37)
+		return -1;
+
+	for (i = 0; i < 36; i++) {
+		switch (i) {
+		case 8: case 13: case 18: case 23:
+			if (str[i] != '-')
+				return -1;
+			break;
+		default:
+			if (!isxdigit(str[i]))
+				return -1;
+		}
+	}
+
+	/* unparse little endian output byte order */
+	if (sscanf(str,
+		   "%2x%2x%2x%2x-%2x%2x-%2x%2x-%2x%2x-%2x%2x%2x%2x%2x%2x",
+		   &b[3], &b[2], &b[1], &b[0],
+		   &b[5], &b[4], &b[7], &b[6], &b[8], &b[9],
+		   &b[10], &b[11], &b[12], &b[13], &b[14], &b[15]) != 16)
+		return -1;
+
+	for (i = 0; i < 16; i++)
+		uu->b[i] = b[i];
+	return 0;
+}
+#endif
 
 static const uuid_le null_guid;
 
@@ -658,19 +739,109 @@ static const struct hv_vmbus_device_id *hv_vmbus_get_id(
 	return NULL;
 }
 #else
-static const struct hv_vmbus_device_id *hv_vmbus_get_id(
-                                        const struct hv_vmbus_device_id *id,
-                                        const uuid_le *guid)
+/*
+ * Return a matching hv_vmbus_device_id pointer.
+ * If there is no match, return NULL.
+ */
+static const struct hv_vmbus_device_id *hv_vmbus_get_id(struct hv_driver *drv,
+					const uuid_le *guid)
 {
-        for (; !is_null_guid(&id->guid); id++)
-                if (!memcmp(&id->guid, guid, sizeof(uuid_le)))
-                        return id;
+	const struct hv_vmbus_device_id *id = NULL;
+	struct vmbus_dynid *dynid;
+
+	/* Look at the dynamic ids first, before the static ones */
+	spin_lock(&drv->dynids.lock);
+	list_for_each_entry(dynid, &drv->dynids.list, node) {
+		if (!uuid_le_cmp(dynid->id.guid, *guid)) {
+			id = &dynid->id;
+			break;
+		}
+	}
+	spin_unlock(&drv->dynids.lock);
+
+	if (id)
+		return id;
+
+	id = drv->id_table;
+	if (id == NULL)
+		return NULL; /* empty device table */
+
+	for (; !is_null_guid(&id->guid); id++)
+		if (!uuid_le_cmp(id->guid, *guid))
+			return id;
 
         return NULL;
 }
 
 #endif
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,4))
+/*
+ * store_new_id - sysfs frontend to vmbus_add_dynid()
+ *
+ * Allow GUIDs to be added to an existing driver via sysfs.
+ */
 
+static ssize_t new_id_store(struct device_driver *driver, const char *buf,
+			    size_t count)
+{
+	struct hv_driver *drv = drv_to_hv_drv(driver);
+	uuid_le guid = NULL_UUID_LE;
+	ssize_t retval;
+
+	if (get_uuid_le(buf, &guid) != 0)
+		return -EINVAL;
+
+	if (hv_vmbus_get_id(drv, &guid))
+		return -EEXIST;
+
+	retval = vmbus_add_dynid(drv, &guid);
+	if (retval)
+		return retval;
+	return count;
+}
+
+static DRIVER_ATTR_WO(new_id);
+
+/*
+ * store_remove_id - remove a PCI device ID from this driver
+ *
+ * Removes a dynamic pci device ID to this driver.
+ */
+static ssize_t remove_id_store(struct device_driver *driver, const char *buf,
+			       size_t count)
+{
+	struct hv_driver *drv = drv_to_hv_drv(driver);
+	struct vmbus_dynid *dynid, *n;
+	uuid_le guid = NULL_UUID_LE;
+	size_t retval = -ENODEV;
+
+	if (get_uuid_le(buf, &guid))
+		return -EINVAL;
+
+	spin_lock(&drv->dynids.lock);
+	list_for_each_entry_safe(dynid, n, &drv->dynids.list, node) {
+		struct hv_vmbus_device_id *id = &dynid->id;
+
+		if (!uuid_le_cmp(id->guid, guid)) {
+			list_del(&dynid->node);
+			kfree(dynid);
+			retval = count;
+			break;
+		}
+	}
+	spin_unlock(&drv->dynids.lock);
+
+	return retval;
+}
+static DRIVER_ATTR_WO(remove_id);
+
+static struct attribute *vmbus_drv_attrs[] = {
+	&driver_attr_new_id.attr,
+	&driver_attr_remove_id.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(vmbus_drv);
+#endif
 /*
  * vmbus_match - Attempt to match the specified device to the specified driver
  */
@@ -685,7 +856,7 @@ static int vmbus_match(struct device *device, struct device_driver *driver)
 #if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,2))
 	if (hv_vmbus_get_id(drv->id_table, hv_dev->dev_type.b))
 #else
-	if (hv_vmbus_get_id(drv->id_table, &hv_dev->dev_type))
+	if (hv_vmbus_get_id(drv, &hv_dev->dev_type))
 #endif
 
 		return 1;
@@ -706,7 +877,7 @@ static int vmbus_probe(struct device *child_device)
 #if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,2))
 	dev_id = hv_vmbus_get_id(drv->id_table, dev->dev_type.b);
 #else
-	dev_id = hv_vmbus_get_id(drv->id_table, &dev->dev_type);
+	dev_id = hv_vmbus_get_id(drv, &dev->dev_type);
 #endif
 	if (drv->probe) {
 		ret = drv->probe(dev, dev_id);
@@ -783,7 +954,12 @@ static struct bus_type  hv_bus = {
 	.remove =		vmbus_remove,
 	.probe =		vmbus_probe,
 	.uevent =		vmbus_uevent,
-	.dev_groups =		vmbus_groups,
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,4))	
+    .dev_groups =           vmbus_dev_groups,
+    .drv_groups =           vmbus_drv_groups,
+#else
+    .dev_groups =           vmbus_groups,
+#endif
 };
 
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
@@ -1304,6 +1480,9 @@ int __vmbus_driver_register(struct hv_driver *hv_driver, struct module *owner, c
 	hv_driver->driver.mod_name = mod_name;
 	hv_driver->driver.bus = &hv_bus;
 
+	spin_lock_init(&hv_driver->dynids.lock);
+	INIT_LIST_HEAD(&hv_driver->dynids.list);
+
 	ret = driver_register(&hv_driver->driver);
 
 	return ret;
@@ -1322,8 +1501,12 @@ void vmbus_driver_unregister(struct hv_driver *hv_driver)
 {
 	pr_info("unregistering driver %s\n", hv_driver->name);
 
-	if (!vmbus_exists())
+	if (!vmbus_exists()) {
 		driver_unregister(&hv_driver->driver);
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,4))		
+		vmbus_free_dynids(hv_driver);
+#endif		
+	}
 }
 EXPORT_SYMBOL_GPL(vmbus_driver_unregister);
 
