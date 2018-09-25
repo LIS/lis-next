@@ -1,7 +1,7 @@
 echo "Building Modules"
 if [ "$KERNEL_VERSION" == "" ]
 then
-	KERNEL_VERSION = $(uname -r)
+	KERNEL_VERSION=$(uname -r)
 fi
 
 make -C /lib/modules/$KERNEL_VERSION/build M=`pwd` clean

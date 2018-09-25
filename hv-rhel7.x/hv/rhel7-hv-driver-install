@@ -1,7 +1,7 @@
 echo "Building Modules"
 if [ "$KERNEL_VERSION" == "" ]
 then
-	KERNEL_VERSION = $(uname -r)
+	KERNEL_VERSION=$(uname -r)
 fi
 
 echo "Cleaning up from any previous builds"
