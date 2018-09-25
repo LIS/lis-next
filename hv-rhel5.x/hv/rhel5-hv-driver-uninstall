@@ -1,7 +1,7 @@
 echo "Get rid of the Hyper-V drivers and modprobe rules"
 if [ "$KERNEL_VERSION" == "" ]
 then
-	KERNEL_VERSION = $(uname -r)
+	KERNEL_VERSION=$(uname -r)
 fi
 
 rm -f  /etc/X11/xorg.conf
