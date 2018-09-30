@@ -2272,10 +2272,14 @@ static void __exit exit_hv_pci_drv(void)
 static void *(*text_poke_ptr)(void *addr, const void *opcode, size_t len);
 static void hook_func(void *old, void *new)
 {
-        unsigned char trampoline[6];
+    unsigned char trampoline[6];
 
 	memcpy(trampoline, "\x68\x00\x00\x00\x00\xc3", 6);
-	text_poke_ptr(old, new, 6);
+
+    //using only the low 32 bits of "new" ?
+    *((unsigned int *)&trampoline[1]) = new;
+
+    text_poke_ptr(old, trampoline, 6);
 }
 
 static void *smi;
@@ -2334,7 +2338,7 @@ static int __init init_hv_pci_drv(void)
 	msi_ir_chip_ptr->set_affinity = hv_set_affinity;
 
 	// TODO: Resolve these 3 funcs
-	hook_func(smi, hv_setup_msi_irqs);
+	//hook_func(smi, hv_setup_msi_irqs);
 	hook_func(cmm, hv_compose_msi_msg);
 	hook_func(tmi, hv_teardown_msi_irqs);
 
