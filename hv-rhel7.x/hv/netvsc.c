@@ -69,7 +69,9 @@ static void netvsc_subchan_work(struct work_struct *w)
 {
 	struct netvsc_device *nvdev =
 		container_of(w, struct netvsc_device, subchan_work);
+	struct net_device_context *ndev_ctx;
 	struct rndis_device *rdev;
+	struct net_device *ndev;
 	int i, ret;
 
 	/* Avoid deadlock with device removal already under RTNL */
@@ -78,20 +80,27 @@ static void netvsc_subchan_work(struct work_struct *w)
 		return;
 	}
 
+	/* rdev can not be NULL, as we're initializing the NIC for the
+	 * first time, and we're protected by
+	 * ndev_ctx->initial_work_ongoing being true.
+	 */
 	rdev = nvdev->extension;
-	if (rdev) {
-		ret = rndis_set_subchannel(rdev->ndev, nvdev);
-		if (ret == 0) {
-			netif_device_attach(rdev->ndev);
-		} else {
-			/* fallback to only primary channel */
-			for (i = 1; i < nvdev->num_chn; i++)
-				netif_napi_del(&nvdev->chan_table[i].napi);
+	ndev = rdev->ndev;
+	ndev_ctx = netdev_priv(ndev);
 
-			nvdev->max_chn = 1;
-			nvdev->num_chn = 1;
-		}
+	ret = rndis_set_subchannel(ndev, nvdev);
+	if (ret == 0) {
+		netif_device_attach(ndev);
+	} else {
+		/* fallback to only primary channel */
+		for (i = 1; i < nvdev->num_chn; i++)
+			netif_napi_del(&nvdev->chan_table[i].napi);
+
+		nvdev->max_chn = 1;
+		nvdev->num_chn = 1;
 	}
+
+	ndev_ctx->initial_work_ongoing = false;
 
 	rtnl_unlock();
 }

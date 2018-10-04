@@ -1102,9 +1102,22 @@ int rndis_set_subchannel(struct net_device *ndev, struct netvsc_device *nvdev)
 	nvdev->num_chn = 1 +
 		init_packet->msg.v5_msg.subchn_comp.num_subchannels;
 
+	/* Temporarily drop the rtnl lock to avoid a deadlock between NIC1’s
+	 * rndis_set_subchannel() and NIC2’s netvsc_probe().
+	 *
+	 * netvsc_set_channels(), netvsc_change_mtu(), netvsc_set_ringparam()
+	 * are guarded by ndev_ctx->initial_work_ongoing, so it's safe to
+	 * temporarily drop the lock.
+	 */
+	if (ndev_ctx->initial_work_ongoing)
+		rtnl_unlock();
+
 	/* wait for all sub channels to open */
 	wait_event(nvdev->subchan_open,
 		   atomic_read(&nvdev->open_chn) == nvdev->num_chn);
+
+	if (ndev_ctx->initial_work_ongoing)
+		rtnl_lock(); /* regain the lock */
 
 	/* ignore failues from setting rss parameters, still have channels */
 	rndis_filter_set_rss_param(rdev, netvsc_hash_key);
