@@ -2267,7 +2267,7 @@ static struct hv_driver hv_pci_drv = {
 
 static void __exit exit_hv_pci_drv(void)
 {
-//	vmbus_driver_unregister(&hv_pci_drv);
+	vmbus_driver_unregister(&hv_pci_drv);
 }
 static void *(*text_poke_ptr)(void *addr, const void *opcode, size_t len);
 static void hook_func(void *old, void *new)
