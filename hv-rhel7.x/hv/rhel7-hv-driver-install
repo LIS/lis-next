@@ -4,6 +4,15 @@ then
 	KERNEL_VERSION=$(uname -r)
 fi
 
+echo "Building & installing MLX OFED ..."
+tar zxf mlnx-ofa_kernel-4.5.tgz
+cd mlnx-ofa_kernel-4.5
+./configure --with-mlx5-core-and-en-mod --with-mlx4_en-mod
+make
+mkdir -p /lib/modules/$KERNEL_VERSION/extra/lis-mlx
+find . -name *.ko -exec cp {} /lib/modules/$KERNEL_VERSION/extra/lis-mlx \;
+cd ..
+
 echo "Cleaning up from any previous builds"
 make -C /lib/modules/$KERNEL_VERSION/build M=`pwd` clean
 [ $? -eq 0 ] || exit 1

@@ -41,6 +41,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include "vmbus_rdma.h"
+#include <rdma/mlx4-abi.h>
 
 static struct hvnd_dev *g_nd_dev = NULL; // the one and only one
 
