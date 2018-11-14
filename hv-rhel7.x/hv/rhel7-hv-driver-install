@@ -4,10 +4,13 @@ then
 	KERNEL_VERSION=$(uname -r)
 fi
 
+echo "Deleting existing MLNX OFED"
+rm -rf mlnx-ofa_kernel-4.5
+
 echo "Building & installing MLX OFED ..."
 tar zxf mlnx-ofa_kernel-4.5.tgz
 cd mlnx-ofa_kernel-4.5
-./configure --with-mlx5-core-and-en-mod --with-mlx4_en-mod
+./configure --with-mlx5-core-and-en-mod --with-mlx4-mod --with-mlx4_en-mod --with-mlx5-mod --with-mlx5_inf-mod
 make
 mkdir -p /lib/modules/$KERNEL_VERSION/extra/lis-mlx
 find . -name *.ko -exec cp {} /lib/modules/$KERNEL_VERSION/extra/lis-mlx \;
