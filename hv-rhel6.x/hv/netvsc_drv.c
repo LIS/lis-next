@@ -34,6 +34,7 @@
 #include <linux/in.h>
 #include <linux/slab.h>
 #include <linux/ipv6.h>
+#include <linux/mii.h>
 #include <net/arp.h>
 #include <net/route.h>
 #include <net/sock.h>
@@ -41,13 +42,20 @@
 #include <net/pkt_sched.h>
 #include <net/checksum.h>
 #include <net/ip6_checksum.h>
+#include <net/flow_keys.h>
+#include <net/bonding.h>
+
 #include <linux/rtnetlink.h>
+#include <linux/netpoll.h>
 
 #include "include/linux/hyperv.h"
 #include "hyperv_net.h"
 
 #define RING_SIZE_MIN 64
 #define LINKCHANGE_INT (2 * HZ)
+#ifdef CONFIG_NET_POLL_CONTROLLER
+atomic_t netpoll_block_tx = ATOMIC_INIT(0);
+#endif
 
 static int ring_size = 128;
 module_param(ring_size, int, 0444);
@@ -73,6 +81,7 @@ static void netvsc_set_multicast_list(struct net_device *net)
 static int netvsc_open(struct net_device *net)
 {
 	struct net_device_context *ndev_ctx = netdev_priv(net);
+	struct net_device *vf_netdev = rtnl_dereference(ndev_ctx->vf_netdev);
 	struct netvsc_device *nvdev = ndev_ctx->nvdev;
 	struct rndis_device *rdev;
 	int ret = 0;
@@ -89,15 +98,30 @@ static int netvsc_open(struct net_device *net)
 	netif_tx_wake_all_queues(net);
 
 	rdev = nvdev->extension;
-	if (!rdev->link_state && !ndev_ctx->datapath)
+	if (!rdev->link_state)
 		netif_carrier_on(net);
 
-	return ret;
+	if (vf_netdev) {
+		/* Setting synthetic device up transparently sets
+		 * slave as up. If open fails, then slave will be
+		 * still be offline (and not used).
+		 */
+		ret = dev_open(vf_netdev);
+		if (ret)
+			netdev_warn(net,
+				    "unable to open slave: %s: %d\n",
+				    vf_netdev->name, ret);
+	}
+
+	return 0;
+
 }
 
 static int netvsc_close(struct net_device *net)
 {
 	struct net_device_context *net_device_ctx = netdev_priv(net);
+	struct net_device *vf_netdev
+			= rtnl_dereference(net_device_ctx->vf_netdev);
 	struct netvsc_device *nvdev = net_device_ctx->nvdev;
 	int ret = 0;
 	u32 aread, i, msec = 10, retry = 0, retry_max = 20;
@@ -148,6 +172,9 @@ static int netvsc_close(struct net_device *net)
 	}
 
 out:
+	if (vf_netdev)
+		dev_close(vf_netdev);
+
 	return ret;
 }
 
@@ -172,13 +199,28 @@ static void *init_ppi_data(struct rndis_message *msg, u32 ppi_size,
 	return ppi;
 }
 
+
 #ifdef NOTYET
-// Divergence from upstream commit:
-// 5b54dac856cb5bd6f33f4159012773e4a33704f7
-static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb,
-			void *accel_priv, select_queue_fallback_t fallback)
+static inline int netvsc_get_tx_queue(struct net_device *ndev,
+				      struct sk_buff *skb, int old_idx)
+{
+	const struct net_device_context *ndc = netdev_priv(ndev);
+	struct sock *sk = skb->sk;
+	int q_idx;
+
+	q_idx = ndc->tx_table[skb_get_hash(skb) &
+			      (VRSS_SEND_TAB_SIZE - 1)];
+
+	/* If queue index changed record the new value */
+	if (q_idx != old_idx &&
+	    sk && sk_fullsock(sk) && rcu_access_pointer(sk->sk_dst_cache))
+		sk_tx_queue_set(sk, q_idx);
+
+	return q_idx;
+}
 #endif
-static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
+
+static u16 netvsc_pick_tx(struct net_device *ndev, struct sk_buff *skb)
 {
 	struct net_device_context *net_device_ctx = netdev_priv(ndev);
 	u32 hash;
@@ -187,12 +229,46 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 	if (ndev->real_num_tx_queues <= 1)
 		return 0;
 
-	hash = skb_get_hash(skb);
-	q_idx = net_device_ctx->tx_send_table[hash % VRSS_SEND_TAB_SIZE] %
-		ndev->real_num_tx_queues;
+	if (netvsc_set_hash(&hash, skb)) {
+		q_idx = net_device_ctx->tx_table[hash % VRSS_SEND_TAB_SIZE] %
+			ndev->real_num_tx_queues;
+		skb_set_hash(skb, hash, PKT_HASH_TYPE_L3);
+	}
 
 	return q_idx;
 }
+
+
+#ifdef NOTYET
+// Divergence from upstream commit:
+// 5b54dac856cb5bd6f33f4159012773e4a33704f7
+static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb,
+			       void *accel_priv,
+			       select_queue_fallback_t fallback)
+#endif
+static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
+
+{
+	struct net_device_context *ndc = netdev_priv(ndev);
+	struct net_device *vf_netdev;
+	u16 txq;
+
+	rcu_read_lock();
+	vf_netdev = rcu_dereference(ndc->vf_netdev);
+	if (vf_netdev) {
+		txq = skb_rx_queue_recorded(skb) ? skb_get_rx_queue(skb) : 0;
+		qdisc_skb_cb(skb)->slave_dev_queue_mapping = skb->queue_mapping;
+	} else {
+		txq = netvsc_pick_tx(ndev, skb);
+	}
+	rcu_read_unlock();
+
+	while (unlikely(txq >= ndev->real_num_tx_queues))
+		txq -= ndev->real_num_tx_queues;
+
+	return txq;
+}
+
 
 static u32 fill_pg_buf(struct page *page, u32 offset, u32 len,
 			struct hv_page_buffer *pb)
@@ -226,6 +302,33 @@ static u32 fill_pg_buf(struct page *page, u32 offset, u32 len,
 	}
 
 	return j + 1;
+}
+
+/* Send skb on the slave VF device. */
+static int netvsc_vf_xmit(struct net_device *net, struct net_device *vf_netdev,
+		  struct sk_buff *skb)
+{
+	struct net_device_context *ndev_ctx = netdev_priv(net);
+	unsigned int len = skb->len;
+	int rc;
+
+	skb->dev = vf_netdev;
+	skb->queue_mapping = qdisc_skb_cb(skb)->slave_dev_queue_mapping;
+
+	rc = dev_queue_xmit(skb);
+	if (likely(rc == NET_XMIT_SUCCESS || rc == NET_XMIT_CN)) {
+		struct netvsc_vf_pcpu_stats *pcpu_stats
+			= this_cpu_ptr(ndev_ctx->vf_stats);
+
+		u64_stats_update_begin(&pcpu_stats->syncp);
+		pcpu_stats->tx_packets++;
+		pcpu_stats->tx_bytes += len;
+		u64_stats_update_end(&pcpu_stats->syncp);
+	} else {
+		this_cpu_inc(ndev_ctx->vf_stats->tx_dropped);
+	}
+
+	return rc;
 }
 
 static u32 init_page_array(void *hdr, u32 len, struct sk_buff *skb,
@@ -326,11 +429,21 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	unsigned int num_data_pgs;
 	struct rndis_message *rndis_msg;
 	struct rndis_packet *rndis_pkt;
+	struct net_device *vf_netdev;
 	u32 rndis_msg_size;
 	struct rndis_per_packet_info *ppi;
 	u32 hash;
 	struct hv_page_buffer page_buf[MAX_PAGE_BUFFER_COUNT];
 	struct hv_page_buffer *pb = page_buf;
+
+	/* if VF is present and up then redirect packets
+	 * already called with rcu_read_lock_bh
+	 */
+	vf_netdev = rcu_dereference_bh(net_device_ctx->vf_netdev);
+	if (vf_netdev && netif_running(vf_netdev) &&
+	    !netpoll_tx_running(net))
+	return netvsc_vf_xmit(net, vf_netdev, skb);
+
 
 	/* We will atmost need two pages to describe the rndis
 	 * header. We can only transmit MAX_PAGE_BUFFER_COUNT number
@@ -820,6 +933,7 @@ static int netvsc_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 {
 	struct net_device_context *ndevctx = netdev_priv(ndev);
+	struct net_device *vf_netdev = rtnl_dereference(ndevctx->vf_netdev);
 	struct netvsc_device *nvdev = ndevctx->nvdev;
 	struct hv_device *hdev = ndevctx->device_ctx;
 	int orig_mtu = ndev->mtu;
@@ -836,6 +950,13 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 
 	if (mtu < NETVSC_MTU_MIN || mtu > limit)
 		return -EINVAL;
+
+	/* Change MTU of underlying VF netdev first. */
+	if (vf_netdev) {
+		ret = dev_set_mtu(vf_netdev, mtu);
+		if (ret)
+			return ret;
+	}
 
 	netif_device_detach(ndev);
 	was_opened = rndis_filter_opened(nvdev);
@@ -857,6 +978,9 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 		/* Attempt rollback to original MTU */
 		ndev->mtu = orig_mtu;
 		rndis_filter_device_add(hdev, &device_info);
+
+		if (vf_netdev)
+			dev_set_mtu(vf_netdev, orig_mtu);
 	}
 
 	if (was_opened)
@@ -870,16 +994,57 @@ static int netvsc_change_mtu(struct net_device *ndev, int mtu)
 	return ret;
 }
 
+static void netvsc_get_vf_stats(struct net_device *net,
+				struct netvsc_vf_pcpu_stats *tot)
+{
+	struct net_device_context *ndev_ctx = netdev_priv(net);
+	int i;
+
+	memset(tot, 0, sizeof(*tot));
+
+	for_each_possible_cpu(i) {
+		const struct netvsc_vf_pcpu_stats *stats
+			= per_cpu_ptr(ndev_ctx->vf_stats, i);
+		u64 rx_packets, rx_bytes, tx_packets, tx_bytes;
+		unsigned int start;
+
+		do {
+			start = u64_stats_fetch_begin_irq(&stats->syncp);
+			rx_packets = stats->rx_packets;
+			tx_packets = stats->tx_packets;
+			rx_bytes = stats->rx_bytes;
+			tx_bytes = stats->tx_bytes;
+		} while (u64_stats_fetch_retry_irq(&stats->syncp, start));
+
+		tot->rx_packets += rx_packets;
+		tot->tx_packets += tx_packets;
+		tot->rx_bytes   += rx_bytes;
+		tot->tx_bytes   += tx_bytes;
+		tot->tx_dropped += stats->tx_dropped;
+	}
+}
+
+
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,0))
 static void *netvsc_get_stats64(struct net_device *net,
 				struct rtnl_link_stats64 *t)
 {
 	struct net_device_context *ndev_ctx = netdev_priv(net);
 	struct netvsc_device *nvdev = rcu_dereference_rtnl(ndev_ctx->nvdev);
+	struct netvsc_vf_pcpu_stats vf_tot;
 	int i;
 
 	if (!nvdev)
 		return;
+	netdev_stats_to_stats64(t, &net->stats);
+
+	netvsc_get_vf_stats(net, &vf_tot);
+	t->rx_packets += vf_tot.rx_packets;
+	t->tx_packets += vf_tot.tx_packets;
+	t->rx_bytes   += vf_tot.rx_bytes;
+	t->tx_bytes   += vf_tot.tx_bytes;
+	t->tx_dropped += vf_tot.tx_dropped;
+
 
 	for (i = 0; i < nvdev->num_chn; i++) {
 		const struct netvsc_channel *nvchan = &nvdev->chan_table[i];
@@ -910,11 +1075,6 @@ static void *netvsc_get_stats64(struct net_device *net,
 		t->multicast	+= multicast;
 	}
 
-	t->tx_dropped	= net->stats.tx_dropped;
-	t->tx_errors	= net->stats.tx_errors;
-
-	t->rx_dropped	= net->stats.rx_dropped;
-	t->rx_errors	= net->stats.rx_errors;
 }
 #endif
 
@@ -953,9 +1113,16 @@ static const struct {
 	{ "tx_busy",	  offsetof(struct netvsc_ethtool_stats, tx_busy) },
 	{ "stop_queue", offsetof(struct netvsc_ethtool_stats, stop_queue) },
 	{ "wake_queue", offsetof(struct netvsc_ethtool_stats, wake_queue) },
+}, vf_stats[] = {
+	{ "vf_rx_packets", offsetof(struct netvsc_vf_pcpu_stats, rx_packets) },
+	{ "vf_rx_bytes",   offsetof(struct netvsc_vf_pcpu_stats, rx_bytes) },
+	{ "vf_tx_packets", offsetof(struct netvsc_vf_pcpu_stats, tx_packets) },
+	{ "vf_tx_bytes",   offsetof(struct netvsc_vf_pcpu_stats, tx_bytes) },
+	{ "vf_tx_dropped", offsetof(struct netvsc_vf_pcpu_stats, tx_dropped) },
 };
 
 #define NETVSC_GLOBAL_STATS_LEN	ARRAY_SIZE(netvsc_stats)
+#define NETVSC_VF_STATS_LEN	ARRAY_SIZE(vf_stats)
 
 /* 4 statistics per queue (rx/tx packets/bytes) */
 #define NETVSC_QUEUE_STATS_LEN(dev) ((dev)->num_chn * 4)
@@ -970,7 +1137,9 @@ static int netvsc_get_sset_count(struct net_device *dev, int string_set)
 
 	switch (string_set) {
 	case ETH_SS_STATS:
-		return NETVSC_GLOBAL_STATS_LEN + NETVSC_QUEUE_STATS_LEN(nvdev);
+		return NETVSC_GLOBAL_STATS_LEN
+			+  NETVSC_VF_STATS_LEN
+			+ NETVSC_QUEUE_STATS_LEN(nvdev);
 	default:
 		return -EINVAL;
 	}
@@ -983,12 +1152,18 @@ static void netvsc_get_ethtool_stats(struct net_device *dev,
 	struct netvsc_device *nvdev = ndc->nvdev;
 	const void *nds = &ndc->eth_stats;
 	const struct netvsc_stats *qstats;
+	struct netvsc_vf_pcpu_stats sum;
 	unsigned int start;
 	u64 packets, bytes;
 	int i, j;
 
 	for (i = 0; i < NETVSC_GLOBAL_STATS_LEN; i++)
 		data[i] = *(unsigned long *)(nds + netvsc_stats[i].offset);
+
+	netvsc_get_vf_stats(dev, &sum);
+	for (j = 0; j < NETVSC_VF_STATS_LEN; j++)
+		data[i++] = *(u64 *)((void *)&sum + vf_stats[j].offset);
+
 
 	for (j = 0; j < nvdev->num_chn; j++) {
 		qstats = &nvdev->chan_table[j].tx_stats;
@@ -1021,11 +1196,16 @@ static void netvsc_get_strings(struct net_device *dev, u32 stringset, u8 *data)
 
 	switch (stringset) {
 	case ETH_SS_STATS:
-		for (i = 0; i < ARRAY_SIZE(netvsc_stats); i++)
-			memcpy(p + i * ETH_GSTRING_LEN,
-			       netvsc_stats[i].name, ETH_GSTRING_LEN);
+		for (i = 0; i < ARRAY_SIZE(netvsc_stats); i++) {
+			memcpy(p, netvsc_stats[i].name, ETH_GSTRING_LEN);
+			p += ETH_GSTRING_LEN;
+		}
 
-		p += i * ETH_GSTRING_LEN;
+		for (i = 0; i < ARRAY_SIZE(vf_stats); i++) {
+			memcpy(p, vf_stats[i].name, ETH_GSTRING_LEN);
+			p += ETH_GSTRING_LEN;
+		}
+
 		for (i = 0; i < nvdev->num_chn; i++) {
 			sprintf(p, "tx_queue_%u_packets", i);
 			p += ETH_GSTRING_LEN;
@@ -1276,7 +1456,7 @@ static void netvsc_link_change(struct work_struct *w)
 	case RNDIS_STATUS_MEDIA_CONNECT:
 		if (rdev->link_state) {
 			rdev->link_state = false;
-			if (!ndev_ctx->datapath)
+			//if (!ndev_ctx->datapath)
 				netif_carrier_on(net);
 			netif_tx_wake_all_queues(net);
 		} else {
@@ -1378,11 +1558,618 @@ static struct net_device *get_netvsc_byref(const struct net_device *vf_netdev)
 	return NULL;
 }
 
+/**
+ * bond_set_dev_addr - clone slave's address to bond
+ * @bond_dev: bond net device
+ * @slave_dev: slave net device
+ *
+ * Should be called with RTNL held.
+ */
+static void netvsc_bond_add_vlans_on_slave(struct bonding *bond, struct net_device *slave_dev)
+{
+	struct vlan_entry *vlan;
+	const struct net_device_ops *slave_ops = slave_dev->netdev_ops;
+
+	if (!bond->vlgrp)
+		return;
+
+	if ((slave_dev->features & NETIF_F_HW_VLAN_RX) &&
+	    slave_ops->ndo_vlan_rx_register)
+		slave_ops->ndo_vlan_rx_register(slave_dev, bond->vlgrp);
+
+	if (!(slave_dev->features & NETIF_F_HW_VLAN_FILTER) ||
+	    !(slave_ops->ndo_vlan_rx_add_vid))
+		return;
+
+	list_for_each_entry(vlan, &bond->vlan_list, vlan_list)
+		slave_ops->ndo_vlan_rx_add_vid(slave_dev, vlan->vlan_id);
+}
+
+/* Get link speed and duplex from the slave's base driver
+ * using ethtool. If for some reason the call fails or the
+ * values are invalid, set speed and duplex to -1,
+ * and return.
+ */
+static void netvsc_bond_update_speed_duplex(struct slave *slave)
+{
+	struct net_device *slave_dev = slave->dev;
+	struct ethtool_cmd etool = { .cmd = ETHTOOL_GSET };
+	u32 slave_speed;
+	int res;
+
+	slave->speed = SPEED_UNKNOWN;
+	slave->duplex = DUPLEX_UNKNOWN;
+
+	if (!slave_dev->ethtool_ops || !slave_dev->ethtool_ops->get_settings)
+		return;
+
+	res = slave_dev->ethtool_ops->get_settings(slave_dev, &etool);
+	if (res < 0)
+		return;
+
+	slave_speed = ethtool_cmd_speed(&etool);
+	if (slave_speed == 0 || slave_speed == ((__u32) -1))
+		return;
+
+	switch (etool.duplex) {
+	case DUPLEX_FULL:
+	case DUPLEX_HALF:
+		break;
+	default:
+		return;
+	}
+
+	slave->speed = slave_speed;
+	slave->duplex = etool.duplex;
+
+	return;
+}
+
+
+/* if <dev> supports MII link status reporting, check its link status.
+ *
+ * We either do MII/ETHTOOL ioctls, or check netif_carrier_ok(),
+ * depending upon the setting of the use_carrier parameter.
+ *
+ * Return either BMSR_LSTATUS, meaning that the link is up (or we
+ * can't tell and just pretend it is), or 0, meaning that the link is
+ * down.
+ *
+ * If reporting is non-zero, instead of faking link up, return -1 if
+ * both ETHTOOL and MII ioctls fail (meaning the device does not
+ * support them).  If use_carrier is set, return whatever it says.
+ * It'd be nice if there was a good way to tell if a driver supports
+ * netif_carrier, but there really isn't.
+ */
+static int netvsc_bond_check_dev_link(struct bonding *bond,
+			       struct net_device *slave_dev, int reporting)
+{
+	const struct net_device_ops *slave_ops = slave_dev->netdev_ops;
+	int (*ioctl)(struct net_device *, struct ifreq *, int);
+	struct ifreq ifr;
+	struct mii_ioctl_data *mii;
+
+	if (!reporting && !netif_running(slave_dev))
+		return 0;
+
+	if (bond->params.use_carrier)
+		return netif_carrier_ok(slave_dev) ? BMSR_LSTATUS : 0;
+
+	/* Try to get link status using Ethtool first. */
+	if (slave_dev->ethtool_ops->get_link)
+		return slave_dev->ethtool_ops->get_link(slave_dev) ?
+			BMSR_LSTATUS : 0;
+
+	/* Ethtool can't be used, fallback to MII ioctls. */
+	ioctl = slave_ops->ndo_do_ioctl;
+	if (ioctl) {
+		/* TODO: set pointer to correct ioctl on a per team member
+		 *       bases to make this more efficient. that is, once
+		 *       we determine the correct ioctl, we will always
+		 *       call it and not the others for that team
+		 *       member.
+		 */
+
+		/* We cannot assume that SIOCGMIIPHY will also read a
+		 * register; not all network drivers (e.g., e100)
+		 * support that.
+		 */
+
+		/* Yes, the mii is overlaid on the ifreq.ifr_ifru */
+		strncpy(ifr.ifr_name, slave_dev->name, IFNAMSIZ);
+		mii = if_mii(&ifr);
+		if (IOCTL(slave_dev, &ifr, SIOCGMIIPHY) == 0) {
+			mii->reg_num = MII_BMSR;
+			if (IOCTL(slave_dev, &ifr, SIOCGMIIREG) == 0)
+				return mii->val_out & BMSR_LSTATUS;
+		}
+	}
+
+	/* If reporting, report that either there's no dev->do_ioctl,
+	 * or both SIOCGMIIREG and get_link failed (meaning that we
+	 * cannot report link status).  If not reporting, pretend
+	 * we're ok.
+	 */
+	return reporting ? -1 : BMSR_LSTATUS;
+}
+
+
+#ifdef CONFIG_NET_POLL_CONTROLLER
+static inline int slave_enable_netpoll(struct slave *slave)
+{
+	struct netpoll *np;
+	int err = 0;
+
+	np = kzalloc(sizeof(*np), GFP_ATOMIC);
+	err = -ENOMEM;
+	if (!np)
+		goto out;
+
+	err = __netpoll_setup(np, slave->dev, GFP_ATOMIC);
+	if (err) {
+		kfree(np);
+		goto out;
+	}
+	slave->np = np;
+out:
+	return err;
+}
+#endif
+
+static int netvsc_bond_master_upper_dev_link(struct net_device *bond_dev,
+				      struct net_device *slave_dev,
+				      struct slave *slave)
+{
+	int err;
+
+	err = netdev_set_master(slave_dev, bond_dev);
+
+	return err;
+}
+
+
+#define BOND_VLAN_FEATURES	(NETIF_F_ALL_CSUM | NETIF_F_SG | \
+				 NETIF_F_FRAGLIST | NETIF_F_ALL_TSO | \
+				 NETIF_F_HIGHDMA | NETIF_F_LRO)
+
+static struct slave *netvsc_bond_alloc_slave(struct bonding *bond)
+{
+	struct slave *slave = NULL;
+
+	slave = kzalloc(sizeof(struct slave), GFP_KERNEL);
+	if (!slave)
+		return NULL;
+	INIT_LIST_HEAD(&slave->list);
+
+	return slave;
+}
+
+int netvsc_bond_create_slave_symlinks(struct net_device *master,
+			       struct net_device *slave)
+{
+	char linkname[IFNAMSIZ+7];
+	int ret = 0;
+
+	/* first, create a link from the slave back to the master */
+	ret = sysfs_create_link(&(slave->dev.kobj), &(master->dev.kobj),
+				"master");
+	if (ret)
+		return ret;
+	/* next, create a link from the master to the slave */
+	sprintf(linkname, "slave_%s", slave->name);
+	ret = sysfs_create_link(&(master->dev.kobj), &(slave->dev.kobj),
+				linkname);
+
+	/* free the master link created earlier in case of error */
+	if (ret)
+		sysfs_remove_link(&(slave->dev.kobj), "master");
+
+	return ret;
+}
+
+
+
+
+
+
+static void netdev_upper_dev_unlink(struct net_device *vf_netdev,
+                                  struct net_device *ndev)
+{
+        netdev_set_master(vf_netdev, NULL);
+}
+
+/* Called when VF is injecting data into network stack.
+ * Change the associated network device from VF to netvsc.
+ * note: already called with rcu_read_lock
+ */
+static rx_handler_result_t netvsc_vf_handle_frame(struct sk_buff **pskb)
+{
+	struct sk_buff *skb = *pskb;
+	struct net_device *ndev = rcu_dereference(skb->dev->master);
+	struct net_device_context *ndev_ctx = netdev_priv(ndev);
+	struct netvsc_vf_pcpu_stats *pcpu_stats
+		 = this_cpu_ptr(ndev_ctx->vf_stats);
+
+	skb->dev = ndev;
+	u64_stats_update_begin(&pcpu_stats->syncp);
+	pcpu_stats->rx_packets++;
+	pcpu_stats->rx_bytes += skb->len;
+	u64_stats_update_end(&pcpu_stats->syncp);
+
+	return RX_HANDLER_ANOTHER;
+}
+
+/* enslave device <slave> to bond device <master> */
+int netvsc_bond_enslave(struct net_device *bond_dev, struct net_device *slave_dev)
+{
+	struct bonding *bond = netdev_priv(bond_dev) + ALIGN(sizeof(struct net_device_context), NETDEV_ALIGN);
+	const struct net_device_ops *slave_ops = slave_dev->netdev_ops;
+	struct slave *new_slave = NULL, *prev_slave;
+	struct dev_mc_list *dmi;
+	struct sockaddr addr;
+	int link_reporting;
+	int res = 0, i;
+
+	if (!bond->params.use_carrier &&
+	    slave_dev->ethtool_ops->get_link == NULL &&
+	    slave_ops->ndo_do_ioctl == NULL) {
+		netdev_warn(bond_dev, "no link monitoring support for %s\n",
+			    slave_dev->name);
+	}
+
+	/* already enslaved */
+	if (slave_dev->flags & IFF_SLAVE) {
+		netdev_dbg(bond_dev, "Error: Device was already enslaved\n");
+		return -EBUSY;
+	}
+
+	if (bond_dev == slave_dev) {
+		netdev_err(bond_dev, "cannot enslave bond to itself.\n");
+		return -EPERM;
+	}
+
+	/* vlan challenged mutual exclusion */
+	/* no need to lock since we're protected by rtnl_lock */
+	if (slave_dev->features & NETIF_F_VLAN_CHALLENGED) {
+		netdev_dbg(bond_dev, "%s is NETIF_F_VLAN_CHALLENGED\n",
+			   slave_dev->name);
+		if (bond->vlgrp) {
+			netdev_err(bond_dev, "Error: cannot enslave VLAN challenged slave %s on VLAN enabled bond %s\n",
+				   slave_dev->name, bond_dev->name);
+			return -EPERM;
+		} else {
+			netdev_warn(bond_dev, "enslaved VLAN challenged slave %s. Adding VLANs will be blocked as long as %s is part of bond %s\n",
+				    slave_dev->name, slave_dev->name,
+				    bond_dev->name);
+		}
+	} else {
+		netdev_dbg(bond_dev, "%s is !NETIF_F_VLAN_CHALLENGED\n",
+			   slave_dev->name);
+	}
+
+	/* Old ifenslave binaries are no longer supported.  These can
+	 * be identified with moderate accuracy by the state of the slave:
+	 * the current ifenslave will set the interface down prior to
+	 * enslaving it; the old ifenslave will not.
+	 */
+	if ((slave_dev->flags & IFF_UP)) {
+		netdev_err(bond_dev, "%s is up - this may be due to an out of date ifenslave\n",
+			   slave_dev->name);
+		res = -EPERM;
+		goto err_undo_flags;
+	}
+
+	/* set bonding device ether type by slave - bonding netdevices are
+	 * created with ether_setup, so when the slave type is not ARPHRD_ETHER
+	 * there is a need to override some of the type dependent attribs/funcs.
+	 *
+	 * bond ether type mutual exclusion - don't allow slaves of dissimilar
+	 * ether type (eg ARPHRD_ETHER and ARPHRD_INFINIBAND) share the same bond
+	 */
+	if (!bond_has_slaves(bond)) {
+		res = -EBUSY;
+		goto err_undo_flags;
+	} else if (bond_dev->type != slave_dev->type) {
+		netdev_err(bond_dev, "%s ether type (%d) is different from other slaves (%d), can not enslave it\n",
+			   slave_dev->name, slave_dev->type, bond_dev->type);
+		res = -EINVAL;
+		goto err_undo_flags;
+	}
+
+	if (slave_ops->ndo_set_mac_address == NULL) {
+		netdev_warn(bond_dev, "The slave device specified does not support setting the MAC address\n");
+		if (BOND_MODE(bond) == BOND_MODE_ACTIVEBACKUP &&
+		    bond->params.fail_over_mac != BOND_FOM_ACTIVE) {
+			if (!bond_has_slaves(bond)) {
+				bond->params.fail_over_mac = BOND_FOM_ACTIVE;
+				netdev_warn(bond_dev, "Setting fail_over_mac to active for active-backup mode\n");
+			} else {
+				netdev_err(bond_dev, "The slave device specified does not support setting the MAC address, but fail_over_mac is not set to active\n");
+				res = -EOPNOTSUPP;
+				goto err_undo_flags;
+			}
+		}
+	}
+
+	call_netdevice_notifiers(NETDEV_JOIN, slave_dev);
+
+	new_slave = netvsc_bond_alloc_slave(bond);
+	if (!new_slave) {
+		res = -ENOMEM;
+		goto err_undo_flags;
+	}
+
+	new_slave->bond = bond;
+	new_slave->dev = slave_dev;
+	/* Set the new_slave's queue_id to be zero.  Queue ID mapping
+	 * is set via sysfs or module option if desired.
+	 */
+	new_slave->queue_id = 0;
+
+	/* Save slave's original mtu and then set it to match the bond */
+	new_slave->original_mtu = slave_dev->mtu;
+	res = dev_set_mtu(slave_dev, bond->dev->mtu);
+	if (res) {
+		netdev_dbg(bond_dev, "Error %d calling dev_set_mtu\n", res);
+		goto err_free;
+	}
+
+	/* Save slave's original ("permanent") mac address for modes
+	 * that need it, and for restoring it upon release, and then
+	 * set it to the master's address
+	 */
+	memcpy(new_slave->perm_hwaddr, slave_dev->dev_addr, ETH_ALEN);
+
+	if (!bond->params.fail_over_mac ||
+	    BOND_MODE(bond) != BOND_MODE_ACTIVEBACKUP) {
+		/* Set slave to master's mac address.  The application already
+		 * set the master's mac address to that of the first slave
+		 */
+		 
+		memcpy(addr.sa_data, bond_dev->dev_addr, bond_dev->addr_len);
+		addr.sa_family = slave_dev->type;
+		res = dev_set_mac_address(slave_dev, &addr);
+		if (res) {
+			netdev_dbg(bond_dev, "Error %d calling set_mac_address\n", res);
+			goto err_restore_mtu;
+		}
+	}
+
+	/* set slave flag before open to prevent IPv6 addrconf */
+	slave_dev->flags |= IFF_SLAVE;
+
+	/* open the slave since the application closed it */
+	res = dev_open(slave_dev);
+	if (res) {
+		netdev_dbg(bond_dev, "Opening slave %s failed\n", slave_dev->name);
+		goto err_restore_mac;
+	}
+
+	slave_dev->priv_flags |= IFF_BONDING;
+	/* initialize slave stats */
+	dev_get_stats64(new_slave->dev, &new_slave->slave_stats);
+
+	/* If the mode uses primary, then the new slave gets the
+	 * master's promisc (and mc) settings only if it becomes the
+	 * curr_active_slave, and that is taken care of later when calling
+	 * bond_change_active()
+	 */
+	if (!bond_uses_primary(bond)) {
+		/* set promiscuity level to new slave */
+		if (bond_dev->flags & IFF_PROMISC) {
+			res = dev_set_promiscuity(slave_dev, 1);
+			if (res)
+				goto err_close;
+		}
+
+		/* set allmulti level to new slave */
+		if (bond_dev->flags & IFF_ALLMULTI) {
+			res = dev_set_allmulti(slave_dev, 1);
+			if (res)
+				goto err_close;
+		}
+
+		netif_addr_lock_bh(bond_dev);
+		/* upload master's mc_list to new slave */
+		for (dmi = bond_dev->mc_list; dmi; dmi = dmi->next)
+		{	
+		    dev_mc_add(slave_dev, dmi->dmi_addr,
+				   dmi->dmi_addrlen, 0);
+		}
+		netif_addr_unlock_bh(bond_dev);
+	}
+
+	netvsc_bond_add_vlans_on_slave(bond, slave_dev);
+
+	prev_slave = bond_last_slave(bond);
+
+	new_slave->delay = 0;
+	new_slave->link_failure_count = 0;
+
+	netvsc_bond_update_speed_duplex(new_slave);
+
+	new_slave->last_rx = jiffies -
+		(msecs_to_jiffies(bond->params.arp_interval) + 1);
+	
+	for (i = 0; i < BOND_MAX_ARP_TARGETS; i++)
+	{
+	    new_slave->target_last_arp_rx[i] = new_slave->last_rx;
+	}
+
+	if (bond->params.miimon && !bond->params.use_carrier) {
+		link_reporting = netvsc_bond_check_dev_link(bond, slave_dev, 1);
+
+		if ((link_reporting == -1) && !bond->params.arp_interval) {
+			/* miimon is set but a bonded network driver
+			 * does not support ETHTOOL/MII and
+			 * arp_interval is not set.  Note: if
+			 * use_carrier is enabled, we will never go
+			 * here (because netif_carrier is always
+			 * supported); thus, we don't need to change
+			 * the messages for netif_carrier.
+			 */
+			netdev_warn(bond_dev, "MII and ETHTOOL support not available for interface %s, and arp_interval/arp_ip_target module parameters not specified, thus bonding will not detect link failures! see bonding.txt for details\n",
+				    slave_dev->name);
+		} else if (link_reporting == -1) {
+			/* unable get link status using mii/ethtool */
+			netdev_warn(bond_dev, "can't get link status from interface %s; the network driver associated with this interface does not support MII or ETHTOOL link status reporting, thus miimon has no effect on this interface\n",
+				    slave_dev->name);
+		}
+	}
+
+	/* check for initial state */
+    if (bond->params.arp_interval) {
+		new_slave->link = (netif_carrier_ok(slave_dev) ?
+			BOND_LINK_UP : BOND_LINK_DOWN);
+	} else {
+		new_slave->link = BOND_LINK_UP;
+	}
+
+	if (new_slave->link != BOND_LINK_DOWN)
+		new_slave->last_link_up = jiffies;
+	netdev_dbg(bond_dev, "Initial state of slave_dev is BOND_LINK_%s\n",
+		   new_slave->link == BOND_LINK_DOWN ? "DOWN" :
+		   (new_slave->link == BOND_LINK_UP ? "UP" : "BACK"));
+
+	(bond)->params.mode = BOND_MODE_ACTIVEBACKUP;
+	bond_set_slave_inactive_flags(new_slave,
+					      BOND_SLAVE_NOTIFY_NOW);
+
+#ifdef CONFIG_NET_POLL_CONTROLLER
+	slave_dev->npinfo = bond->dev->npinfo;
+	if (slave_dev->npinfo) {
+		if (slave_enable_netpoll(new_slave)) {
+			netdev_info(bond_dev, "master_dev is using netpoll, but new slave device does not support netpoll\n");
+			res = -EBUSY;
+			goto err_detach;
+		}
+	}
+#endif
+
+	res = netvsc_bond_create_slave_symlinks(bond_dev, slave_dev);
+	if (res)
+		goto err_detach;
+
+	if (!(bond_dev->features & NETIF_F_LRO))
+		dev_disable_lro(slave_dev);
+
+	res = netdev_rx_handler_register(slave_dev,netvsc_vf_handle_frame,new_slave);
+
+	if (res) {
+		netdev_dbg(bond_dev, "Error %d calling netdev_rx_handler_register\n", res);
+		goto err_dest_symlinks;
+	}
+
+	res = netvsc_bond_master_upper_dev_link(bond_dev, slave_dev, new_slave);
+
+	if (res) {
+		netdev_dbg(bond_dev, "Error %d calling bond_master_upper_dev_link\n", res);
+		goto err_unregister;
+	}
+
+/* Undo stages on error */
+err_unregister:
+	
+err_dest_symlinks:
+
+err_free:
+err_close:
+err_detach:
+
+err_undo_flags:
+
+err_restore_mac:
+
+err_restore_mtu:
+
+	return res;
+}
+
+static int netvsc_vf_join(struct net_device *vf_netdev,
+			  struct net_device *ndev)
+{
+	struct net_device_context *ndev_ctx = netdev_priv(ndev);
+	int ret;
+
+	ret = netvsc_bond_enslave(ndev, vf_netdev);
+    rcu_assign_pointer(netdev_extended(vf_netdev)->dev, vf_netdev);
+
+	if(ret != 0){
+		netdev_err(vf_netdev,
+			   "can not bond_enslave (err = %d)\n",
+			   ret);
+		goto rx_handler_failed;
+	}	
+	
+	if (ret != 0) {
+		netdev_err(vf_netdev,
+			   "can not register netvsc VF receive handler (err = %d)\n",
+			   ret);
+		goto rx_handler_failed;
+	}
+
+	/* set slave flag before open to prevent IPv6 addrconf */
+	vf_netdev->flags |= IFF_SLAVE;
+
+	schedule_work(&ndev_ctx->vf_takeover);
+
+	netdev_info(vf_netdev, "joined to %s\n", ndev->name);
+
+        return 0;
+
+rx_handler_failed:
+
+	return ret;
+}
+
+static void __netvsc_vf_setup(struct net_device *ndev,
+			      struct net_device *vf_netdev)
+{
+	int ret;
+
+	call_netdevice_notifiers(NETDEV_JOIN, vf_netdev);
+
+	/* Align MTU of VF with master */
+	ret = dev_set_mtu(vf_netdev, ndev->mtu);
+	if (ret)
+		netdev_warn(vf_netdev,
+			    "unable to change mtu to %u\n", ndev->mtu);
+
+	if (netif_running(ndev)) {
+		ret = dev_open(vf_netdev);
+		if (ret)
+			netdev_warn(vf_netdev,
+				    "unable to open: %d\n", ret);
+	}
+}
+
+/* Setup VF as slave of the synthetic device.
+ * Runs in workqueue to avoid recursion in netlink callbacks.
+ */
+static void netvsc_vf_setup(struct work_struct *w)
+{
+	struct net_device_context *ndev_ctx
+		= container_of(w, struct net_device_context, vf_takeover);
+	struct net_device *ndev = hv_get_drvdata(ndev_ctx->device_ctx);
+	struct net_device *vf_netdev;
+
+        if(!rtnl_trylock()) {
+		schedule_work(w);
+		return;
+	}
+	vf_netdev = rtnl_dereference(ndev_ctx->vf_netdev);
+	if (vf_netdev)
+		__netvsc_vf_setup(ndev, vf_netdev);
+
+	rtnl_unlock();
+}
+
 static int netvsc_register_vf(struct net_device *vf_netdev)
 {
 	struct net_device *ndev;
 	struct net_device_context *net_device_ctx;
 	struct netvsc_device *netvsc_dev;
+	struct bonding * bond_dev;
 
 	if (vf_netdev->addr_len != ETH_ALEN)
 		return NOTIFY_DONE;
@@ -1399,7 +2186,12 @@ static int netvsc_register_vf(struct net_device *vf_netdev)
 
 	net_device_ctx = netdev_priv(ndev);
 	netvsc_dev = net_device_ctx->nvdev;
+        bond_dev = netdev_priv(ndev) + ALIGN(sizeof(struct net_device_context), NETDEV_ALIGN);
 	if (!netvsc_dev || net_device_ctx->vf_netdev)
+		return NOTIFY_DONE;
+	net_device_ctx->vf_netdev = vf_netdev;
+
+	if (netvsc_vf_join(vf_netdev, ndev) != 0)
 		return NOTIFY_DONE;
 
 	netdev_info(ndev, "VF registering: %s\n", vf_netdev->name);
@@ -1434,89 +2226,59 @@ static int netvsc_vf_up(struct net_device *vf_netdev)
 	struct net_device_context *net_device_ctx;
 
 	ndev = get_netvsc_byref(vf_netdev);
+
 	if (!ndev)
 		return NOTIFY_DONE;
 
 	net_device_ctx = netdev_priv(ndev);
-	netvsc_dev = net_device_ctx->nvdev;
-
-	if (!net_device_ctx->synthetic_data_path)
+	netvsc_dev = rtnl_dereference(net_device_ctx->nvdev);
+	if (!netvsc_dev)
 		return NOTIFY_DONE;
 
-	netdev_info(ndev, "VF up: %s\n", vf_netdev->name);
-	netvsc_inject_enable(net_device_ctx);
-
-	/*
-	 * Open the device before switching data path.
-	 */
+	/* Bump refcount when datapath is acvive - Why? */
 	rndis_filter_open(netvsc_dev);
 
-	/*
-	 * notify the host to switch the data path.
-	 */
+	/* notify the host to switch the data path. */
 	netvsc_switch_datapath(ndev, true);
-	net_device_ctx->synthetic_data_path = false;
 	netdev_info(ndev, "Data path switched to VF: %s\n", vf_netdev->name);
 
-	netif_carrier_off(ndev);
-
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,2))
-	/*
-	 * Now notify peers. We are scheduling work to
-	 * notify peers; take a reference to prevent
-	 * the VF interface from vanishing.
-	 */
-	atomic_inc(&net_device_ctx->vf_use_cnt);
-	net_device_ctx->gwrk.netdev = vf_netdev;
-	net_device_ctx->gwrk.net_device_ctx = net_device_ctx;
-	schedule_work(&net_device_ctx->gwrk.dwrk);
-#else
-	/* Now notify peers through VF device. */
-	call_netdevice_notifiers(NETDEV_NOTIFY_PEERS, vf_netdev);
-#endif
 	return NOTIFY_OK;
 }
 
-static int netvsc_vf_down(struct net_device *vf_netdev, bool rndis_close)
+static int netvsc_vf_down(struct net_device *vf_netdev)
 {
-	struct net_device *ndev;
-	struct netvsc_device *netvsc_dev;
-	struct net_device_context *net_device_ctx;
+        struct net_device_context *net_device_ctx;
+        struct netvsc_device *netvsc_dev;
+        struct net_device *ndev;
 
-	ndev = get_netvsc_byref(vf_netdev);
-	if (!ndev)
-		return NOTIFY_DONE;
+        ndev = get_netvsc_byref(vf_netdev);
+        if (!ndev)
+                return NOTIFY_DONE;
 
-	net_device_ctx = netdev_priv(ndev);
-	netvsc_dev = net_device_ctx->nvdev;
+        net_device_ctx = netdev_priv(ndev);
+        netvsc_dev = rtnl_dereference(net_device_ctx->nvdev);
+        if (!netvsc_dev)
+                return NOTIFY_DONE;
 
-	if (net_device_ctx->synthetic_data_path)
-		return NOTIFY_DONE;
+        netvsc_switch_datapath(ndev, false);
+        netdev_info(ndev, "Data path switched from VF: %s\n", vf_netdev->name);
+        rndis_filter_close(netvsc_dev);
 
-	netdev_info(ndev, "VF down: %s\n", vf_netdev->name);
-	netvsc_inject_disable(net_device_ctx);
-	netvsc_switch_datapath(ndev, false);
-	netdev_info(ndev, "Data path switched from VF: %s\n", vf_netdev->name);
-	net_device_ctx->synthetic_data_path = true;
-	if (rndis_close)
-		rndis_filter_close(netvsc_dev);
-	netif_carrier_on(ndev);
-
-#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,2))
-	/*
-	 * Notify peers.
+	#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,2))
+        /*
+	 *          * Notify peers.
 	 */
-	atomic_inc(&net_device_ctx->vf_use_cnt);
-	net_device_ctx->gwrk.netdev = ndev;
-	net_device_ctx->gwrk.net_device_ctx = net_device_ctx;
-	schedule_work(&net_device_ctx->gwrk.dwrk);
-#else
-	/* Now notify peers through netvsc device. */
-	call_netdevice_notifiers(NETDEV_NOTIFY_PEERS, ndev);
-#endif
-
-	return NOTIFY_OK;
+       		atomic_inc(&net_device_ctx->vf_use_cnt);
+	        net_device_ctx->gwrk.netdev = ndev;
+	        net_device_ctx->gwrk.net_device_ctx = net_device_ctx;
+	        schedule_work(&net_device_ctx->gwrk.dwrk);
+	#else
+        	/* Now notify peers through netvsc device. */
+	        //call_netdevice_notifiers(NETDEV_NOTIFY_PEERS, ndev);
+	#endif
+        return NOTIFY_OK;
 }
+
 
 static int netvsc_unregister_vf(struct net_device *vf_netdev)
 {
@@ -1528,13 +2290,17 @@ static int netvsc_unregister_vf(struct net_device *vf_netdev)
 		return NOTIFY_DONE;
 
 	net_device_ctx = netdev_priv(ndev);
-
-	netvsc_vf_down(vf_netdev, false);
+	cancel_work_sync(&net_device_ctx->vf_takeover);
+ 
+	netvsc_vf_down(vf_netdev);
 
 	netdev_info(ndev, "VF unregistering: %s\n", vf_netdev->name);
+	
+	netdev_upper_dev_unlink(vf_netdev, ndev);
+
 	netvsc_inject_disable(net_device_ctx);
 	net_device_ctx->vf_netdev = NULL;
-	dev_put(vf_netdev);
+    dev_put(vf_netdev);
 	module_put(THIS_MODULE);
 	return NOTIFY_OK;
 }
@@ -1546,12 +2312,17 @@ static int netvsc_probe(struct hv_device *dev,
 	struct net_device_context *net_device_ctx;
 	struct netvsc_device_info device_info;
 	struct netvsc_device *nvdev;
-	int ret;
+	struct bonding *bond_dev;
+	unsigned int size_all;
+	int ret = -ENOMEM;
 
-	net = alloc_etherdev_mq(sizeof(struct net_device_context),
+        size_all = ALIGN(sizeof(struct net_device_context), NETDEV_ALIGN)+ \
+		           ALIGN(sizeof(struct bonding), NETDEV_ALIGN);
+
+	net = alloc_etherdev_mq(size_all,
 				VRSS_CHANNEL_MAX);
 	if (!net)
-		return -ENOMEM;
+		goto no_net;
 
 	netif_carrier_off(net);
 
@@ -1560,6 +2331,8 @@ static int netvsc_probe(struct hv_device *dev,
 	net_device_ctx = netdev_priv(net);
 	net_device_ctx->device_ctx = dev;
 	net_device_ctx->msg_enable = netif_msg_init(debug, default_msg);
+	bond_dev = netdev_priv(net) + ALIGN(sizeof(struct net_device_context), NETDEV_ALIGN);
+	bond_dev->dev = net;
 	if (netif_msg_probe(net_device_ctx))
 		netdev_dbg(net, "netvsc msg_enable: %d\n",
 			net_device_ctx->msg_enable);
@@ -1574,6 +2347,12 @@ static int netvsc_probe(struct hv_device *dev,
 #endif
 	spin_lock_init(&net_device_ctx->lock);
 	INIT_LIST_HEAD(&net_device_ctx->reconfig_events);
+	INIT_WORK(&net_device_ctx->vf_takeover, netvsc_vf_setup);
+
+	net_device_ctx->vf_stats
+		= alloc_percpu(struct netvsc_vf_pcpu_stats);
+	if (!net_device_ctx->vf_stats)
+		goto no_stats;
 
 	atomic_set(&net_device_ctx->vf_use_cnt, 0);
 	net_device_ctx->vf_netdev = NULL;
@@ -1597,9 +2376,7 @@ static int netvsc_probe(struct hv_device *dev,
 	if (IS_ERR(nvdev)) {
 		ret = PTR_ERR(nvdev);
 		netdev_err(net, "unable to add netvsc device (ret %d)\n", ret);
-		free_netdev(net);
-		hv_set_drvdata(dev, NULL);
-		return ret;
+		goto rndis_failed;
 	}
 	memcpy(net->dev_addr, device_info.mac_adr, ETH_ALEN);
 
@@ -1623,10 +2400,19 @@ static int netvsc_probe(struct hv_device *dev,
 	ret = register_netdev(net);
 	if (ret != 0) {
 		pr_err("Unable to register netdev.\n");
-		rndis_filter_device_remove(dev, nvdev);
-		free_netdev(net);
+		goto register_failed;
 	}
 
+	return ret;
+
+register_failed:
+	rndis_filter_device_remove(dev, nvdev);
+rndis_failed:
+	free_percpu(net_device_ctx->vf_stats);
+no_stats:
+	hv_set_drvdata(dev, NULL);
+	free_netdev(net);
+no_net:
 	return ret;
 }
 
@@ -1661,6 +2447,7 @@ static int netvsc_remove(struct hv_device *dev)
 
 	hv_set_drvdata(dev, NULL);
 
+	free_percpu(ndev_ctx->vf_stats);
 	free_netdev(net);	
 	return 0;
 }
@@ -1696,22 +2483,23 @@ static int netvsc_netdev_event(struct notifier_block *this,
 #else
 	struct net_device *event_dev = ptr;
 #endif
+
 	/* Skip our own events */
 	if (event_dev->netdev_ops == &device_ops)
-		return NOTIFY_DONE;
+	    return NOTIFY_DONE;
 
 	/* Avoid non-Ethernet type devices */
 	if (event_dev->type != ARPHRD_ETHER)
-		return NOTIFY_DONE;
+	    return NOTIFY_DONE;
 
 	/* Avoid Vlan dev with same MAC registering as VF */
 	if (is_vlan_dev(event_dev))
-		return NOTIFY_DONE;
+	    return NOTIFY_DONE;
 
 	/* Avoid Bonding master dev with same MAC registering as VF */
 	if ((event_dev->priv_flags & IFF_BONDING) &&
 	    (event_dev->flags & IFF_MASTER))
-		return NOTIFY_DONE;
+	    return NOTIFY_DONE;
 
 	switch (event) {
 	case NETDEV_REGISTER:
@@ -1721,7 +2509,7 @@ static int netvsc_netdev_event(struct notifier_block *this,
 	case NETDEV_UP:
 		return netvsc_vf_up(event_dev);
 	case NETDEV_DOWN:
-		return netvsc_vf_down(event_dev, true);
+		return netvsc_vf_down(event_dev);
 	default:
 		return NOTIFY_DONE;
 	}
@@ -1748,7 +2536,6 @@ static int __init netvsc_drv_init(void)
 			ring_size);
 	}
 	ret = vmbus_driver_register(&netvsc_drv);
-
 	if (ret)
 		return ret;
 
