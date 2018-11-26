@@ -4,6 +4,7 @@ then
 	KERNEL_VERSION=$(uname -r)
 fi
 
+rm -rf /lib/modules/$KERNEL_VERSION/extra/lis-mlx
 rm -rf  /lib/modules/$KERNEL_VERSION/extra/hv_*.ko
 rm -rf  /lib/modules/$KERNEL_VERSION/extra/hid-hyperv.ko
 rm -rf  /lib/modules/$KERNEL_VERSION/extra/hyperv_fb.ko
