@@ -948,10 +948,6 @@ static int netvsc_detach(struct net_device *ndev,
 	struct hv_device *hdev = ndev_ctx->device_ctx;
 	int ret;
 
-	/* A temporary workaround for the deadlock issue */
-	while (ndev_ctx->initial_work_ongoing)
-		msleep(1);
-
 	/* Don't try continuing to try and setup sub channels */
 	if (cancel_work_sync(&nvdev->subchan_work))
 		nvdev->num_chn = 1;
@@ -2094,10 +2090,8 @@ static int netvsc_probe(struct hv_device *dev,
 	 */
 	rtnl_lock();
 
-	if (nvdev->num_chn > 1) {
-		net_device_ctx->initial_work_ongoing = true;
+	if (nvdev->num_chn > 1)
 		schedule_work(&nvdev->subchan_work);
-	}
 
 	/* hw_features computed in rndis_netdev_set_hwcaps() */
 	net->features = net->hw_features |
