@@ -1327,8 +1327,11 @@ struct netvsc_device *rndis_filter_device_add(struct hv_device *dev,
 		netif_napi_add(net, &net_device->chan_table[i].napi,
 				netvsc_poll, NAPI_POLL_WEIGHT);
 
+#if 0
+	Note: we moved this into netvsc_probe() with rtnl_lock held.
 	if (net_device->num_chn > 1)
 		schedule_work(&net_device->subchan_work);
+#endif
 
 out:
 	/* if unavailable, just proceed with one queue */
