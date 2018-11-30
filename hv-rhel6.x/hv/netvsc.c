@@ -1160,7 +1160,7 @@ static void netvsc_send_table(struct net_device *ndev,
 		      nvmsg->msg.v5_msg.send_table.offset);
 
 	for (i = 0; i < count; i++)
-		net_device_ctx->tx_send_table[i] = tab[i];
+		net_device_ctx->tx_table[i] = tab[i];
 }
 
 static void netvsc_send_vf(struct net_device *ndev,

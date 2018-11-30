@@ -31,6 +31,12 @@ ifeq ($(buildrdma),0)
 	 endif
 endif
 
+#Make it conditional for PCI driver to build 6.7 and above. 
+build_pci=$(shell test $(rhel_release_code) -ge 1543; echo $$?)
+ifeq ($(build_pci),0)
+        obj-m	+= pci-hyperv.o
+endif
+
 ccflags-y += -I$(M)/include/ -I$(M)/arch/$(SRCARCH)/include -I$(M)/arch/$(SRCARCH)/include/uapi
 
 # Get extra kernel version information beyond LINUX_VERSION_CODE or RHEL_RELEASE_CODE.
