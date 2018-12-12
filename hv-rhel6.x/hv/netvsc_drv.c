@@ -43,13 +43,19 @@
 #include <net/checksum.h>
 #include <net/ip6_checksum.h>
 #include <net/flow_keys.h>
-#include <net/bonding.h>
-
 #include <linux/rtnetlink.h>
 #include <linux/netpoll.h>
 
 #include "include/linux/hyperv.h"
 #include "hyperv_net.h"
+
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(6,7))
+#include <net/bonding.h>
+#endif
+
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(6,7))
+#include "hyperv_bonding.h"
+#endif
 
 #define RING_SIZE_MIN 64
 #define LINKCHANGE_INT (2 * HZ)
