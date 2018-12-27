@@ -367,7 +367,14 @@ struct vmbus_connection {
 	struct list_head chn_list;
 	struct mutex channel_mutex;
 
+	/*
+	 * An offer message is handled first on the work_queue, and then
+	 * is further handled on handle_primary_chan_wq or
+	 * handle_sub_chan_wq.
+	 */
 	struct workqueue_struct *work_queue;
+	struct workqueue_struct *handle_primary_chan_wq;
+	struct workqueue_struct *handle_sub_chan_wq;
 };
 
 
@@ -417,6 +424,8 @@ void vmbus_device_unregister(struct hv_device *device_obj);
 struct vmbus_channel *relid2channel(u32 relid);
 
 void vmbus_free_channels(void);
+
+int vmbus_add_channel_kobj(struct hv_device *dev, struct vmbus_channel *channel);
 
 /* Connection interface */
 
