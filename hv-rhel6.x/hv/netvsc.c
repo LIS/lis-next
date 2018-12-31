@@ -62,6 +62,42 @@ void netvsc_switch_datapath(struct net_device *ndev, bool vf)
 	net_device_ctx->datapath = vf;
 }
 
+/* Worker to setup sub channels on initial setup
+ * Initial hotplug event occurs in softirq context
+ * and can't wait for channels.
+ */
+static void netvsc_subchan_work(struct work_struct *w)
+{
+	struct netvsc_device *nvdev =
+		container_of(w, struct netvsc_device, subchan_work);
+	struct rndis_device *rdev;
+	int i, ret;
+
+	/* Avoid deadlock with device removal already under RTNL */
+	if (!rtnl_trylock()) {
+		schedule_work(w);
+		return;
+	}
+
+	rdev = nvdev->extension;
+	if (rdev) {
+		ret = rndis_set_subchannel(rdev->ndev, nvdev);
+		if (ret == 0) {
+			netif_device_attach(rdev->ndev);
+		} else {
+			/* fallback to only primary channel */
+			for (i = 1; i < nvdev->num_chn; i++)
+				netif_napi_del(&nvdev->chan_table[i].napi);
+
+			nvdev->max_chn = 1;
+			nvdev->num_chn = 1;
+		}
+	}
+
+	rtnl_unlock();
+}
+
+
 static struct netvsc_device *alloc_net_device(void)
 {
 	struct netvsc_device *net_device;
@@ -79,7 +115,7 @@ static struct netvsc_device *alloc_net_device(void)
 	net_device->max_pkt = RNDIS_MAX_PKT_DEFAULT;
 	net_device->pkt_align = RNDIS_PKT_ALIGN_DEFAULT;
 	init_completion(&net_device->channel_init_wait);
-	INIT_WORK(&net_device->subchan_work, rndis_set_subchannel);
+	INIT_WORK(&net_device->subchan_work, netvsc_subchan_work);
 
 	return net_device;
 }
@@ -562,8 +598,6 @@ void netvsc_device_remove(struct hv_device *device)
 		= rtnl_dereference(net_device_ctx->nvdev);
 	int i;
 
-	cancel_work_sync(&net_device->subchan_work);
-
 	netvsc_disconnect_vsp(device);
 
 	net_device_ctx->nvdev = NULL;
@@ -643,15 +677,19 @@ static void netvsc_send_tx_complete(struct net_device *ndev,
 	queue_sends =
 		atomic_dec_return(&net_device->chan_table[q_idx].queue_sends);
 
-	if (net_device->destroy && queue_sends == 0)
-		wake_up(&net_device->wait_drain);
-
-	if (netif_tx_queue_stopped(netdev_get_tx_queue(ndev, q_idx)) &&
-	    (hv_ringbuf_avail_percent(&channel->outbound) > RING_AVAIL_PERCENT_HIWATER ||
-	     queue_sends < 1)) {
-		netif_tx_wake_queue(netdev_get_tx_queue(ndev, q_idx));
-		ndev_ctx->eth_stats.wake_queue++;
-	}
+        if (unlikely(net_device->destroy)) {
+                if (queue_sends == 0)
+                        wake_up(&net_device->wait_drain);
+        } else {
+                struct netdev_queue *txq = netdev_get_tx_queue(ndev, q_idx);
+ 
+                if (netif_tx_queue_stopped(txq) &&
+                    (hv_ringbuf_avail_percent(&channel->outbound) > RING_AVAIL_PERCENT_HIWATER ||
+                     queue_sends < 1)) {
+                        netif_tx_wake_queue(txq);
+                        ndev_ctx->eth_stats.wake_queue++;
+                }
+        }
 }
 
 static void netvsc_send_completion(struct net_device *ndev,
