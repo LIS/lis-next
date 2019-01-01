@@ -620,7 +620,9 @@ static void vmbus_chan_release(struct kobject *kobj)
 	struct vmbus_channel *channel
 		= container_of(kobj, struct vmbus_channel, kobj);
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,4))
 	kfree_rcu(channel, rcu);
+#endif
 }
 
 #define VMBUS_CHAN_ATTR(_name, _mode, _show, _store) \
