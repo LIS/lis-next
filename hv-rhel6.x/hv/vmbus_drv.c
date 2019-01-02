@@ -569,10 +569,12 @@ struct vmbus_chan_attribute {
  */
 static void vmbus_chan_release(struct kobject *kobj)
 {
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,4))
 	struct vmbus_channel *channel
 		= container_of(kobj, struct vmbus_channel, kobj);
 
 	kfree_rcu(channel, rcu);
+#endif
 }
 
 #define VMBUS_CHAN_ATTR(_name, _mode, _show, _store) \
@@ -665,6 +667,8 @@ static ssize_t vmbus_chan_attr_show(struct kobject *kobj,
 
 	if (!attribute->show)
 		return -EIO;
+	if (chan->state != CHANNEL_OPENED_STATE)
+		return -EINVAL;
 
 	return attribute->show(chan, buf);
 }
