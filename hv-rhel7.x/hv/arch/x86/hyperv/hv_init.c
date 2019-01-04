@@ -71,7 +71,7 @@ static u64 read_hv_clock_tsc(struct clocksource *arg)
 }
 
 static struct clocksource hyperv_cs_tsc = {
-	.name		= "lis_hyperv_clocksource_tsc_page",
+	.name		= "lis_hv_clocksource_tsc_page",
 	.rating		= 425,
 	.read		= read_hv_clock_tsc,
 	.mask		= CLOCKSOURCE_MASK(64),
@@ -92,7 +92,7 @@ static u64 read_hv_clock_msr(struct clocksource *arg)
 }
 
 static struct clocksource hyperv_cs_msr = {
-	.name		= "lis_hyperv_clocksource_msr",
+	.name		= "lis_hv_clocksource_msr",
 	.rating		= 425,
 	.read		= read_hv_clock_msr,
 	.mask		= CLOCKSOURCE_MASK(64),
