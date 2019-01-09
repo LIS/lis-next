@@ -7,7 +7,7 @@ fi
 make -C /lib/modules/$KERNEL_VERSION/build M=`pwd` clean
 [ $? -eq 0 ] || exit 1
 
-make -C /lib/modules/$KERNEL_VERSION/build M=`pwd` modules
+make -C /lib/modules/$KERNEL_VERSION/build M=`pwd` modules -j$(nproc)
 [ $? -eq 0 ] || exit 1
 
 echo "Installing Modules"
