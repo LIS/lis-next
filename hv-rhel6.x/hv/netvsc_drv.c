@@ -300,8 +300,11 @@ static int netvsc_vf_xmit(struct net_device *net, struct net_device *vf_netdev,
 		pcpu_stats->tx_packets++;
 		pcpu_stats->tx_bytes += len;
 		u64_stats_update_end(&pcpu_stats->syncp);
+		net->stats.tx_packets++;
+		net->stats.tx_bytes += len;
 	} else {
 		this_cpu_inc(ndev_ctx->vf_stats->tx_dropped);
+		net->stats.tx_dropped++;
 	}
 
 	return rc;
@@ -534,6 +537,8 @@ static rx_handler_result_t netvsc_vf_handle_frame(struct sk_buff **pskb)
 	pcpu_stats->rx_packets++;
 	pcpu_stats->rx_bytes += skb->len;
 	u64_stats_update_end(&pcpu_stats->syncp);
+	ndev->stats.rx_packets++;
+	ndev->stats.rx_bytes += skb->len;
 
 	return RX_HANDLER_ANOTHER;
 }
