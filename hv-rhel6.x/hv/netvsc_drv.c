@@ -1360,48 +1360,10 @@ int netvsc_recv_callback(struct net_device *net,
 	u16 q_idx = channel->offermsg.offer.sub_channel_index;
 	struct netvsc_channel *nvchan = &net_device->chan_table[q_idx];
 	struct sk_buff *skb;
-	struct sk_buff *vf_skb;
 	struct netvsc_stats *rx_stats;
-	int ret = 0;
 
-	if (!net || net->reg_state != NETREG_REGISTERED)
+	if (net->reg_state != NETREG_REGISTERED)
 		return NVSP_STAT_FAIL;
-
-	if (READ_ONCE(net_device_ctx->vf_inject)) {
-		atomic_inc(&net_device_ctx->vf_use_cnt);
-		if (!READ_ONCE(net_device_ctx->vf_inject)) {
-			/*
-			 * We raced; just move on.
-			 */
-			atomic_dec(&net_device_ctx->vf_use_cnt);
-			goto vf_injection_done;
-		}
-
-		/*
-		 * Inject this packet into the VF inerface.
-		 * On Hyper-V, multicast and brodcast packets
-		 * are only delivered on the synthetic interface
-		 * (after subjecting these to policy filters on
-		 * the host). Deliver these via the VF interface
-		 * in the guest.
-		 */
-		vf_skb = netvsc_alloc_recv_skb(net_device_ctx->vf_netdev,
-					       csum_info, vlan, data, len);
-		if (vf_skb != NULL) {
-			++net_device_ctx->vf_netdev->stats.rx_packets;
-			net_device_ctx->vf_netdev->stats.rx_bytes +=
-				len;
-			netif_receive_skb(vf_skb);
-		} else {
-			++net->stats.rx_dropped;
-			ret = NVSP_STAT_FAIL;
-		}
-		atomic_dec(&net_device_ctx->vf_use_cnt);
-		return ret;
-	}
-
-vf_injection_done:
-	rx_stats = &nvchan->rx_stats;
 
 	/* Allocate a skb - TODO direct I/O to pages? */
 	skb = netvsc_alloc_recv_skb(net, csum_info, vlan, data, len);
@@ -1411,6 +1373,12 @@ vf_injection_done:
 	}
 	skb_record_rx_queue(skb, q_idx);
 
+	/*
+	 * Even if injecting the packet, record the statistics
+	 * on the synthetic device because modifying the VF device
+	 * statistics will not work correctly.
+	 */
+	rx_stats = &nvchan->rx_stats;
 	u64_stats_update_begin(&rx_stats->syncp);
 	rx_stats->packets++;
 	rx_stats->bytes += len;
@@ -2138,8 +2106,6 @@ static void netvsc_notify_peers(struct work_struct *wrk)
 	gwrk = container_of(wrk, struct garp_wrk, dwrk);
 
 	netif_notify_peers(gwrk->netdev);
-
-	atomic_dec(&gwrk->net_device_ctx->vf_use_cnt);
 }
 #endif
 
@@ -2234,20 +2200,6 @@ static int netvsc_register_vf(struct net_device *vf_netdev)
 	return NOTIFY_OK;
 }
 
-static void netvsc_inject_enable(struct net_device_context *net_device_ctx)
-{
-	net_device_ctx->vf_inject = true;
-}
-
-static void netvsc_inject_disable(struct net_device_context *net_device_ctx)
-{
-	net_device_ctx->vf_inject = false;
-
-	/* Wait for currently active users to drain out. */
-	while (atomic_read(&net_device_ctx->vf_use_cnt) != 0)
-		udelay(50);
-}
-
 static int netvsc_vf_up(struct net_device *vf_netdev)
 {
 	struct net_device *ndev;
@@ -2297,7 +2249,6 @@ static int netvsc_vf_down(struct net_device *vf_netdev)
         /*
 	 *          * Notify peers.
 	 */
-       		atomic_inc(&net_device_ctx->vf_use_cnt);
 	        net_device_ctx->gwrk.netdev = ndev;
 	        net_device_ctx->gwrk.net_device_ctx = net_device_ctx;
 	        schedule_work(&net_device_ctx->gwrk.dwrk);
@@ -2327,9 +2278,8 @@ static int netvsc_unregister_vf(struct net_device *vf_netdev)
 	
 	netdev_upper_dev_unlink(vf_netdev, ndev);
 
-	netvsc_inject_disable(net_device_ctx);
 	net_device_ctx->vf_netdev = NULL;
-    dev_put(vf_netdev);
+	dev_put(vf_netdev);
 	module_put(THIS_MODULE);
 	return NOTIFY_OK;
 }
@@ -2391,9 +2341,7 @@ static int netvsc_probe(struct hv_device *dev,
 	if (!net_device_ctx->vf_stats)
 		goto no_stats;
 #endif
-	atomic_set(&net_device_ctx->vf_use_cnt, 0);
 	net_device_ctx->vf_netdev = NULL;
-	net_device_ctx->vf_inject = false;
 
 	net->netdev_ops = &device_ops;
 	net->ethtool_ops = &ethtool_ops;
