@@ -4,6 +4,21 @@ then
 	KERNEL_VERSION=$(uname -r)
 fi
 
+rhel_major=$(grep -Eoh [0-9]+\.[0-9]+ /etc/{issue,*release} | head -1 | awk -F'.' '{ print $1 }')
+rhel_minor=$(grep -Eoh [0-9]+\.[0-9]+ /etc/{issue,*release} | head -1 | awk -F'.' '{ print $2 }')
+rhel_release_code=$((rhel_major << 8 | rhel_minor))
+if [ $rhel_release_code -ge 1795 ] && [ $rhel_release_code -lt 1798 ]; then
+	echo "Building & installing MLX OFED ..."
+	rm -rf mlnx-ofa_kernel-4.5
+	tar zxf mlnx-ofa_kernel-4.5.tgz
+	cd mlnx-ofa_kernel-4.5
+	./configure --with-mlx5-core-and-en-mod --with-mlx4_en-mod -j$(nproc)
+	make -j$(nproc)
+	mkdir -p /lib/modules/$KERNEL_VERSION/extra/lis-mlx
+	find . -name *.ko -exec cp {} /lib/modules/$KERNEL_VERSION/extra/lis-mlx \;
+	cd ..
+fi
+
 echo "Cleaning up from any previous builds"
 make -C /lib/modules/$KERNEL_VERSION/build M=`pwd` clean
 [ $? -eq 0 ] || exit 1
