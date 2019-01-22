@@ -910,8 +910,6 @@ struct net_device_context {
 
 	/* State to manage the associated VF interface. */
 	struct net_device *vf_netdev;
-	bool vf_inject;
-	atomic_t vf_use_cnt;
 
 	struct netvsc_vf_pcpu_stats __percpu *vf_stats;
 	struct work_struct vf_takeover;
