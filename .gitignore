@@ -17,3 +17,4 @@ modules.order
 *.img
 *.unsigned
 *.code-workspace
+*.cmd
