@@ -749,16 +749,11 @@ int hv_setup_msi_irqs(struct pci_dev *pdev, int nvec, int type)
 {
 	struct msi_desc *msidesc;
 	struct irq_chip *chip;
-	int ret;
 
 	/*
 	 * Call the base function which will do everything related to setting up
 	 * the tracking structures.
 	 */
-// ???
-//	ret = arch_setup_msi_irqs(pdev, nvec, type);
-//	if (ret)
-//		return ret;
 
 	list_for_each_entry(msidesc, &pdev->msi_list, list) {
 		if (msidesc->irq) {
@@ -2315,10 +2310,10 @@ static int sym_callback(void *data, const char *name, struct module *mod, unsign
 		text_poke_ptr = (void *)addr;
 	} else if (strcmp("msi_chip", name) == 0) {
 		printk(KERN_ERR "msi_chip: %p\n", (void*) addr);
-		msi_chip_ptr = addr;
+		msi_chip_ptr = (void *)addr;
 	} else if (strcmp("msi_ir_chip", name) == 0) {
 		printk(KERN_ERR "msi_ir_chip: %p\n", (void*) addr);
-		msi_ir_chip_ptr = addr;
+		msi_ir_chip_ptr = (void *)addr;
         }
 	return 0;
 }
