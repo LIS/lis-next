@@ -266,8 +266,14 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 	rcu_read_lock();
 	vf_netdev = rcu_dereference(ndc->vf_netdev);
 	if (vf_netdev) {
-		txq = skb_rx_queue_recorded(skb) ? skb_get_rx_queue(skb) : 0;
-		qdisc_skb_cb(skb)->slave_dev_queue_mapping = skb->queue_mapping;
+		const struct net_device_ops *vf_ops = vf_netdev->netdev_ops;
+
+		if (vf_ops->ndo_select_queue)
+			txq = vf_ops->ndo_select_queue(vf_netdev, skb);
+		else
+			txq = 0;
+
+		qdisc_skb_cb(skb)->slave_dev_queue_mapping = txq;
 	} else {
 		txq = netvsc_pick_tx(ndev, skb);
 	}
@@ -1072,8 +1078,9 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	 */
 	vf_netdev = rcu_dereference_bh(net_device_ctx->vf_netdev);
 	if (vf_netdev && netif_running(vf_netdev) &&
-	    !netpoll_tx_running(net))
-	return netvsc_vf_xmit(net, vf_netdev, skb);
+	    !netpoll_tx_running(net) && !in_serving_softirq()) {
+		return netvsc_vf_xmit(net, vf_netdev, skb);
+	}
 #endif
 
 	/* We will atmost need two pages to describe the rndis
