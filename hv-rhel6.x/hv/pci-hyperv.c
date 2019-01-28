@@ -2264,17 +2264,17 @@ static void __exit exit_hv_pci_drv(void)
 {
 	vmbus_driver_unregister(&hv_pci_drv);
 }
+
 static void *(*text_poke_ptr)(void *addr, const void *opcode, size_t len);
 static void hook_func(void *old, void *new)
 {
-    unsigned char trampoline[6];
-
+	unsigned char trampoline[6];
 	memcpy(trampoline, "\x68\x00\x00\x00\x00\xc3", 6);
 
-    //using only the low 32 bits of "new" ?
-    *((unsigned int *)&trampoline[1]) = new;
+	//using only the low 32 bits of "new" ?
+	*((unsigned int *)&trampoline[1]) = (unsigned long) new;
 
-    text_poke_ptr(old, trampoline, 6);
+	text_poke_ptr(old, trampoline, 6);
 }
 
 static void *smi;
