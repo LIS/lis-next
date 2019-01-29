@@ -569,11 +569,10 @@ struct vmbus_chan_attribute {
  */
 static void vmbus_chan_release(struct kobject *kobj)
 {
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,4))
 	struct vmbus_channel *channel
 		= container_of(kobj, struct vmbus_channel, kobj);
-#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,4))
-	kfree(channel);
-#else
+
 	kfree_rcu(channel, rcu);
 #endif
 }
