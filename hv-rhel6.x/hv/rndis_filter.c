@@ -1133,7 +1133,7 @@ void rndis_set_subchannel(struct work_struct *w)
 #ifdef NOTYET
 	netif_set_real_num_rx_queues(ndev, nvdev->num_chn);
 #endif
-
+	netif_device_attach(ndev);
 	rtnl_unlock();
 	return;
 
@@ -1144,6 +1144,8 @@ failed:
 
 	nvdev->max_chn = 1;
 	nvdev->num_chn = 1;
+
+	netif_device_attach(ndev);
 unlock:
 	rtnl_unlock();
 }
@@ -1337,6 +1339,10 @@ out:
 		net_device->num_chn = 1;
 	}
 
+	/* No sub channels, device is ready */
+	if (net_device->num_chn == 1)
+		netif_device_attach(net);
+
 	return net_device;
 
 err_dev_remv:
@@ -1378,9 +1384,4 @@ int rndis_filter_close(struct netvsc_device *nvdev)
 		return 0;
 
 	return rndis_filter_close_device(nvdev->extension);
-}
-
-bool rndis_filter_opened(const struct netvsc_device *nvdev)
-{
-	return atomic_read(&nvdev->open_cnt) > 0;
 }
