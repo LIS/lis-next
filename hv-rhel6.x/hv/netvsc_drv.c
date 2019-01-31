@@ -83,6 +83,8 @@ static int debug = -1;
 module_param(debug, int, 0444);
 MODULE_PARM_DESC(debug, "Debug level (0=none,...,16=all)");
 
+static LIST_HEAD(netvsc_dev_list);
+
 static void netvsc_set_multicast_list(struct net_device *net)
 {
 	struct net_device_context *net_device_ctx = netdev_priv(net);
@@ -2182,13 +2184,10 @@ static void netvsc_notify_peers(struct work_struct *wrk)
 
 static struct net_device *get_netvsc_bymac(const u8 *mac)
 {
-	struct net_device *dev;
+	struct net_device_context *ndev_ctx;
 
-	ASSERT_RTNL();
-
-	for_each_netdev(&init_net, dev) {
-		if (dev->netdev_ops != &device_ops)
-			continue;	/* not a netvsc device */
+	list_for_each_entry(ndev_ctx, &netvsc_dev_list, list) {
+		struct net_device *dev = hv_get_drvdata(ndev_ctx->device_ctx);
 
 		/* deviation from upstream - we are using dev_addr, not perm_addr */
 		if (ether_addr_equal(mac, dev->dev_addr))
@@ -2453,15 +2452,26 @@ static int netvsc_probe(struct hv_device *dev,
 	dev_info(&dev->device, "real num tx,rx queues:%u, %u\n",
 		 net->real_num_tx_queues, nvdev->num_chn);
 
-	ret = register_netdev(net);
+	rtnl_lock();
+
+	if (strchr(net->name, '%')) {
+                ret = dev_alloc_name(net, net->name);
+                if (ret < 0)
+                        goto register_failed;
+        }
+
+	ret = register_netdevice(net);
 	if (ret != 0) {
 		pr_err("Unable to register netdev.\n");
 		goto register_failed;
 	}
 
-	return ret;
+	list_add(&net_device_ctx->list, &netvsc_dev_list);
+	rtnl_unlock();
+	return 0;
 
 register_failed:
+	rtnl_unlock();
 	rndis_filter_device_remove(dev, nvdev);
 rndis_failed:
 	free_percpu(net_device_ctx->vf_stats);
@@ -2508,6 +2518,7 @@ static int netvsc_remove(struct hv_device *dev)
                 rndis_filter_device_remove(dev, nvdev);
 	
 	unregister_netdevice(net);
+	list_del(&ndev_ctx->list);
 	
 	rtnl_unlock();
 	rcu_read_unlock();
