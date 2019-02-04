@@ -52,6 +52,7 @@ echo "Copying scripts for IP injection"
 echo "Copying lsvmbus tool"
 \cp -f ./tools/lsvmbus /usr/sbin/
 [ $? -eq 0 ] || exit 1
+chmod +x /usr/sbin/lsvmbus
 
 echo "Generating initramfs"
 dracut --force  "initramfs-$KERNEL_VERSION.img" $KERNEL_VERSION
