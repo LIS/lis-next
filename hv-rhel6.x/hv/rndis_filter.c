@@ -1077,29 +1077,15 @@ static void netvsc_sc_open(struct vmbus_channel *new_sc)
  * This breaks overlap of processing the host message for the
  * new primary channel with the initialization of sub-channels.
  */
-void rndis_set_subchannel(struct work_struct *w)
+int rndis_set_subchannel(struct net_device *ndev, struct netvsc_device *nvdev)
 {
-	struct netvsc_device *nvdev
-		= container_of(w, struct netvsc_device, subchan_work);
 	struct nvsp_message *init_packet = &nvdev->channel_init_pkt;
-	struct net_device_context *ndev_ctx;
-	struct rndis_device *rdev;
-	struct net_device *ndev;
-	struct hv_device *hv_dev;
-	int i, ret;
+	struct net_device_context *ndev_ctx = netdev_priv(ndev);
+	struct hv_device *hv_dev = ndev_ctx->device_ctx;
+	struct rndis_device *rdev = nvdev->extension;
+	int ret;
 
-	if (!rtnl_trylock()) {
-		schedule_work(w);
-		return;
-	}
-
-	rdev = nvdev->extension;
-	if (!rdev)
-		goto unlock;	/* device was removed */
-
-	ndev = rdev->ndev;
-	ndev_ctx = netdev_priv(ndev);
-	hv_dev = ndev_ctx->device_ctx;
+	ASSERT_RTNL();
 
 	memset(init_packet, 0, sizeof(struct nvsp_message));
 	init_packet->hdr.msg_type = NVSP_MSG5_TYPE_SUBCHANNEL;
@@ -1113,13 +1099,13 @@ void rndis_set_subchannel(struct work_struct *w)
 			       VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED);
 	if (ret) {
 		netdev_err(ndev, "sub channel allocate send failed: %d\n", ret);
-		goto failed;
+		return ret;
 	}
 
 	wait_for_completion(&nvdev->channel_init_wait);
 	if (init_packet->msg.v5_msg.subchn_comp.status != NVSP_STAT_SUCCESS) {
 		netdev_err(ndev, "sub channel request failed\n");
-		goto failed;
+		return -EIO;
 	}
 
 	nvdev->num_chn = 1 +
@@ -1133,21 +1119,7 @@ void rndis_set_subchannel(struct work_struct *w)
 #ifdef NOTYET
 	netif_set_real_num_rx_queues(ndev, nvdev->num_chn);
 #endif
-	netif_device_attach(ndev);
-	rtnl_unlock();
-	return;
-
-failed:
-	/* fallback to only primary channel */
-	for (i = 1; i < nvdev->num_chn; i++)
-		netif_napi_del(&nvdev->chan_table[i].napi);
-
-	nvdev->max_chn = 1;
-	nvdev->num_chn = 1;
-
-	netif_device_attach(ndev);
-unlock:
-	rtnl_unlock();
+	return 0;
 }
 
 struct netvsc_device *rndis_filter_device_add(struct hv_device *dev,
@@ -1329,22 +1301,11 @@ struct netvsc_device *rndis_filter_device_add(struct hv_device *dev,
 		netif_napi_add(net, &net_device->chan_table[i].napi,
 				netvsc_poll, NAPI_POLL_WEIGHT);
 
-	if (net_device->num_chn > 1)
-		schedule_work(&net_device->subchan_work);
-
-out:
-	/* if unavailable, just proceed with one queue */
-	if (ret) {
-		net_device->max_chn = 1;
-		net_device->num_chn = 1;
-	}
-
-	/* No sub channels, device is ready */
-	if (net_device->num_chn == 1)
-		netif_device_attach(net);
-
 	return net_device;
-
+out:
+	/* setting up multiple channels failed */
+	net_device->max_chn = 1;
+	net_device->num_chn = 1;
 err_dev_remv:
 	rndis_filter_device_remove(dev, net_device);
 	return ERR_PTR(ret);
