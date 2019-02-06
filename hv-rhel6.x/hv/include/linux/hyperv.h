@@ -917,7 +917,13 @@ struct vmbus_channel {
 	enum hv_numa_policy affinity_policy;
 
 	bool probe_done;
-
+	/*
+	 * We must offload the handling of the primary/sub channels
+	 * from the single-threaded vmbus_connection.work_queue to
+	 * two different workqueue, otherwise we can block
+	 * vmbus_connection.work_queue and hang: see vmbus_process_offer().
+	 */
+	struct work_struct add_channel_work;
 };
 
 static inline bool is_hvsock_channel(const struct vmbus_channel *c)
