@@ -167,8 +167,11 @@ static int netvsc_wait_until_empty(struct netvsc_device  *nvdev)
 
 		if (++retry > RETRY_MAX)
 			return -ETIMEDOUT;
-
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,3))
 		usleep_range(RETRY_US_LO, RETRY_US_HI);
+#else
+		msleep(RETRY_US_HI/1000);
+#endif
 	}
 }
 
