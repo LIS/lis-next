@@ -862,8 +862,6 @@ struct netvsc_vf_pcpu_stats {
 	u32	tx_dropped;
 };
 
-#define netvsc_ndev_get_rcu(dev) \
-        ((struct slave *) rcu_dereference(netdev_extended(dev)->rx_handler_data))
 struct netvsc_reconfig {
 	struct list_head list;
 	u32 event;
