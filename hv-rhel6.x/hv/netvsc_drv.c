@@ -551,7 +551,7 @@ out:
 static rx_handler_result_t netvsc_vf_handle_frame(struct sk_buff **pskb)
 {
 	struct sk_buff *skb = *pskb;
-	struct net_device *ndev = rcu_dereference(skb->dev->master);
+	struct net_device *ndev = rcu_dereference(netdev_extended(skb->dev)->rx_handler_data);
 	struct net_device_context *ndev_ctx = netdev_priv(ndev);
 	struct netvsc_vf_pcpu_stats *pcpu_stats
 		 = this_cpu_ptr(ndev_ctx->vf_stats);
@@ -859,21 +859,20 @@ static int netvsc_vf_join(struct net_device *vf_netdev,
 	struct net_device_context *ndev_ctx = netdev_priv(ndev);
 	int ret;
 
-	ret = netvsc_bond_enslave(ndev, vf_netdev);
-    rcu_assign_pointer(netdev_extended(vf_netdev)->dev, vf_netdev);
-
-	if(ret != 0){
-		netdev_err(vf_netdev,
-			   "can not bond_enslave (err = %d)\n",
-			   ret);
-		goto rx_handler_failed;
-	}	
-	
+	ret = netdev_rx_handler_register(vf_netdev, netvsc_vf_handle_frame, ndev);
 	if (ret != 0) {
 		netdev_err(vf_netdev,
 			   "can not register netvsc VF receive handler (err = %d)\n",
 			   ret);
 		goto rx_handler_failed;
+	}
+
+	ret = netdev_set_master(vf_netdev, ndev);
+	if (ret != 0) {
+		netdev_err(vf_netdev,
+			   "can not set master device %s (err = %d)\n",
+			   ndev->name, ret);
+		goto upper_link_failed;
 	}
 
 	/* set slave flag before open to prevent IPv6 addrconf */
@@ -884,6 +883,9 @@ static int netvsc_vf_join(struct net_device *vf_netdev,
 	netdev_info(vf_netdev, "joined to %s\n", ndev->name);
 
         return 0;
+
+upper_link_failed:
+	netdev_rx_handler_unregister(vf_netdev);
 
 rx_handler_failed:
 
@@ -2248,7 +2250,6 @@ static int netvsc_register_vf(struct net_device *vf_netdev)
 	struct net_device *ndev;
 	struct net_device_context *net_device_ctx;
 	struct netvsc_device *netvsc_dev;
-	struct bonding * bond_dev;
 
 	if (vf_netdev->addr_len != ETH_ALEN)
 		return NOTIFY_DONE;
@@ -2265,7 +2266,6 @@ static int netvsc_register_vf(struct net_device *vf_netdev)
 
 	net_device_ctx = netdev_priv(ndev);
 	netvsc_dev = net_device_ctx->nvdev;
-        bond_dev = netdev_priv(ndev) + ALIGN(sizeof(struct net_device_context), NETDEV_ALIGN);
 	if (!netvsc_dev || net_device_ctx->vf_netdev)
 		return NOTIFY_DONE;
 
@@ -2379,13 +2379,7 @@ static int netvsc_probe(struct hv_device *dev,
 	struct netvsc_device *nvdev;
 	int ret = -ENOMEM;
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,7)) 
-	struct bonding *bond_dev;
-	unsigned int size_all;
-        size_all = ALIGN(sizeof(struct net_device_context), NETDEV_ALIGN)+ \
-		           ALIGN(sizeof(struct bonding), NETDEV_ALIGN);
-
-	net = alloc_etherdev_mq(size_all,
-				VRSS_CHANNEL_MAX);
+	net = alloc_etherdev_mq(sizeof(struct net_device_context), VRSS_CHANNEL_MAX);
 #else
 	net = alloc_etherdev_mq(sizeof(struct net_device_context),
 				VRSS_CHANNEL_MAX);
@@ -2401,8 +2395,6 @@ static int netvsc_probe(struct hv_device *dev,
 	net_device_ctx->device_ctx = dev;
 	net_device_ctx->msg_enable = netif_msg_init(debug, default_msg);
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,7)) 
-	bond_dev = netdev_priv(net) + ALIGN(sizeof(struct net_device_context), NETDEV_ALIGN);
-	bond_dev->dev = net;
 #endif
 	if (netif_msg_probe(net_device_ctx))
 		netdev_dbg(net, "netvsc msg_enable: %d\n",
