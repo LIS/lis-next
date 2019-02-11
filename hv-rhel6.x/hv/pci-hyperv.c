@@ -464,7 +464,6 @@ struct hv_pcibus_device {
 	/* hypercall arg, must not cross page boundary */
 	struct retarget_msi_interrupt retarget_msi_interrupt_params;
 	spinlock_t retarget_msi_interrupt_lock;
-	struct work_struct wrk;
 };
 
 /*
