@@ -2237,7 +2237,12 @@ static struct net_device *get_netvsc_byref(const struct net_device *vf_netdev)
 static void netdev_upper_dev_unlink(struct net_device *vf_netdev,
                                   struct net_device *ndev)
 {
+	char linkname[IFNAMSIZ+7];
+	sprintf(linkname, "slave_%s", vf_netdev->name);
+
         netdev_set_master(vf_netdev, NULL);
+	
+	sysfs_remove_link(&(ndev->dev.kobj), linkname);
 }
 
 static int netvsc_register_vf(struct net_device *vf_netdev)
