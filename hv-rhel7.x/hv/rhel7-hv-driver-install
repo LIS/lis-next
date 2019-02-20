@@ -17,6 +17,8 @@ if [ $rhel_release_code -ge 1795 ] && [ $rhel_release_code -lt 1798 ]; then
 	mkdir -p /lib/modules/$KERNEL_VERSION/extra/lis-mlx
 	find . -name *.ko -exec cp {} /lib/modules/$KERNEL_VERSION/extra/lis-mlx \;
 	cd ..
+	echo "Installing modprobe blacklist conf"
+	cp -f ./hyperv_mod_blacklist.conf /etc/modprobe.d/
 fi
 
 echo "Cleaning up from any previous builds"
