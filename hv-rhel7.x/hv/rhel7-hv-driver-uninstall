@@ -14,6 +14,7 @@ rm -rf  /lib/modules/$KERNEL_VERSION/extra/uio_hv_generic.ko
 
 rm -rf  /lib/modules/$KERNEL_VERSION/extra/microsoft-hyper-v/hv_*.ko
 rm -rf /etc/modprobe.d/hyperv_pvdrivers.conf
+rm -f /etc/modprobe.d/hyperv_mod_blacklist.conf
 
 echo "Get rid of ip injection scripts"
 rm -rf /usr/sbin/hv_get_dns_info
