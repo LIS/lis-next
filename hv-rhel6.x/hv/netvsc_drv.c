@@ -1749,11 +1749,13 @@ static int netvsc_register_vf(struct net_device *vf_netdev)
 	return NOTIFY_OK;
 }
 
-static int netvsc_vf_up(struct net_device *vf_netdev)
+/* VF up/down change detected, schedule to change data path */
+static int netvsc_vf_changed(struct net_device *vf_netdev)
 {
 	struct net_device *ndev;
 	struct netvsc_device *netvsc_dev;
 	struct net_device_context *net_device_ctx;
+	bool vf_is_up = netif_running(vf_netdev);
 
 	ndev = get_netvsc_byref(vf_netdev);
 
@@ -1765,34 +1767,9 @@ static int netvsc_vf_up(struct net_device *vf_netdev)
 	if (!netvsc_dev)
 		return NOTIFY_DONE;
 
-	/* Bump refcount when datapath is acvive - Why? */
-	rndis_filter_open(netvsc_dev);
-
-	/* notify the host to switch the data path. */
-	netvsc_switch_datapath(ndev, true);
-	netdev_info(ndev, "Data path switched to VF: %s\n", vf_netdev->name);
-
-	return NOTIFY_OK;
-}
-
-static int netvsc_vf_down(struct net_device *vf_netdev)
-{
-        struct net_device_context *net_device_ctx;
-        struct netvsc_device *netvsc_dev;
-        struct net_device *ndev;
-
-        ndev = get_netvsc_byref(vf_netdev);
-        if (!ndev)
-                return NOTIFY_DONE;
-
-        net_device_ctx = netdev_priv(ndev);
-        netvsc_dev = rtnl_dereference(net_device_ctx->nvdev);
-        if (!netvsc_dev)
-                return NOTIFY_DONE;
-
-        netvsc_switch_datapath(ndev, false);
-        netdev_info(ndev, "Data path switched from VF: %s\n", vf_netdev->name);
-        rndis_filter_close(netvsc_dev);
+	netvsc_switch_datapath(ndev, vf_is_up);
+	netdev_info(ndev, "Data path switched %s VF: %s\n",
+			vf_is_up ? "to" : "from", vf_netdev->name);
 
 	#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,2))
         /*
@@ -1821,8 +1798,6 @@ static int netvsc_unregister_vf(struct net_device *vf_netdev)
 	net_device_ctx = netdev_priv(ndev);
 	cancel_work_sync(&net_device_ctx->vf_takeover);
  
-	netvsc_vf_down(vf_netdev);
-
 	netdev_info(ndev, "VF unregistering: %s\n", vf_netdev->name);
 	
 	netdev_upper_dev_unlink(vf_netdev, ndev);
@@ -2053,9 +2028,8 @@ static int netvsc_netdev_event(struct notifier_block *this,
 	case NETDEV_UNREGISTER:
 		return netvsc_unregister_vf(event_dev);
 	case NETDEV_UP:
-		return netvsc_vf_up(event_dev);
 	case NETDEV_DOWN:
-		return netvsc_vf_down(event_dev);
+		return netvsc_vf_changed(event_dev);
 	default:
 		return NOTIFY_DONE;
 	}
