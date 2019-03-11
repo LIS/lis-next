@@ -315,7 +315,7 @@ static int netvsc_vf_xmit(struct net_device *net, struct net_device *vf_netdev,
 static rx_handler_result_t netvsc_vf_handle_frame(struct sk_buff **pskb)
 {
 	struct sk_buff *skb = *pskb;
-	struct net_device *ndev = rcu_dereference(netdev_extended(skb->dev)->rx_handler_data);
+	struct net_device *ndev = rcu_dereference(skb->dev->master);
 	struct net_device_context *ndev_ctx = netdev_priv(ndev);
 	struct netvsc_vf_pcpu_stats *pcpu_stats
 		 = this_cpu_ptr(ndev_ctx->vf_stats);
@@ -337,7 +337,7 @@ static int netvsc_vf_join(struct net_device *vf_netdev,
 	struct net_device_context *ndev_ctx = netdev_priv(ndev);
 	int ret;
 
-	ret = netdev_rx_handler_register(vf_netdev, netvsc_vf_handle_frame, ndev);
+	ret = netdev_rx_handler_register(vf_netdev, netvsc_vf_handle_frame, NULL);
 	if (ret != 0) {
 		netdev_err(vf_netdev,
 			   "can not register netvsc VF receive handler (err = %d)\n",
