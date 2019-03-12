@@ -321,6 +321,16 @@ static rx_handler_result_t netvsc_vf_handle_frame(struct sk_buff **pskb)
 	return RX_HANDLER_ANOTHER;
 }
 
+static void netvsc_set_master(struct net_device *slave, struct net_device *master)
+{
+	slave->master = master;
+
+	if (master)
+		slave->flags |= IFF_SLAVE;
+	else
+		slave->flags &= ~IFF_SLAVE;
+}
+
 static int netvsc_vf_join(struct net_device *vf_netdev,
 			  struct net_device *ndev)
 {
@@ -332,33 +342,18 @@ static int netvsc_vf_join(struct net_device *vf_netdev,
 		netdev_err(vf_netdev,
 			   "can not register netvsc VF receive handler (err = %d)\n",
 			   ret);
-		goto rx_handler_failed;
+		return ret;
 	}
 
-	ret = netdev_set_master(vf_netdev, ndev);
-	if (ret != 0) {
-		netdev_err(vf_netdev,
-			   "can not set master device %s (err = %d)\n",
-			   ndev->name, ret);
-		goto upper_link_failed;
-	}
-
-	/* set slave flag before open to prevent IPv6 addrconf */
-	vf_netdev->flags |= IFF_SLAVE;
+	netvsc_set_master(vf_netdev, ndev);
 
 	schedule_work(&ndev_ctx->vf_takeover);
 
 	netdev_info(vf_netdev, "joined to %s\n", ndev->name);
 
         return 0;
-
-upper_link_failed:
-	netdev_rx_handler_unregister(vf_netdev);
-
-rx_handler_failed:
-
-	return ret;
 }
+
 static void __netvsc_vf_setup(struct net_device *ndev,
 			      struct net_device *vf_netdev)
 {
@@ -1702,13 +1697,6 @@ static struct net_device *get_netvsc_byref(const struct net_device *vf_netdev)
 	return NULL;
 }
 
-
-static void netdev_upper_dev_unlink(struct net_device *vf_netdev,
-                                  struct net_device *ndev)
-{
-        netdev_set_master(vf_netdev, NULL);
-}
-
 static int netvsc_register_vf(struct net_device *vf_netdev)
 {
 	struct net_device *ndev;
@@ -1801,7 +1789,7 @@ static int netvsc_unregister_vf(struct net_device *vf_netdev)
  
 	netdev_info(ndev, "VF unregistering: %s\n", vf_netdev->name);
 	
-	netdev_upper_dev_unlink(vf_netdev, ndev);
+	netvsc_set_master(vf_netdev, NULL);
 
 	net_device_ctx->vf_netdev = NULL;
 	dev_put(vf_netdev);
