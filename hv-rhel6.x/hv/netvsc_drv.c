@@ -305,6 +305,9 @@ static int netvsc_vf_xmit(struct net_device *net, struct net_device *vf_netdev,
 		net->stats.tx_dropped++;
 	}
 
+	if (rc > 0)
+		rc = net_xmit_errno(rc);
+
 	return rc;
 }
 
