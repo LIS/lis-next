@@ -218,6 +218,16 @@ static void *init_ppi_data(struct rndis_message *msg, u32 ppi_size,
 	return ppi;
 }
 
+static void netvsc_set_master(struct net_device *slave, struct net_device *master)
+{
+	slave->master = master;
+
+	if (master)
+		slave->flags |= IFF_SLAVE;
+	else
+		slave->flags &= ~IFF_SLAVE;
+}
+
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,7))
 static u16 netvsc_pick_tx(struct net_device *ndev, struct sk_buff *skb)
 {
@@ -319,16 +329,6 @@ static rx_handler_result_t netvsc_vf_handle_frame(struct sk_buff **pskb)
 	ndev->stats.rx_bytes += skb->len;
 
 	return RX_HANDLER_ANOTHER;
-}
-
-static void netvsc_set_master(struct net_device *slave, struct net_device *master)
-{
-	slave->master = master;
-
-	if (master)
-		slave->flags |= IFF_SLAVE;
-	else
-		slave->flags &= ~IFF_SLAVE;
 }
 
 static int netvsc_vf_join(struct net_device *vf_netdev,
@@ -1906,8 +1906,10 @@ register_failed:
 	rtnl_unlock();
 	rndis_filter_device_remove(dev, nvdev);
 rndis_failed:
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,7))
 	free_percpu(net_device_ctx->vf_stats);
 no_stats:
+#endif
 	hv_set_drvdata(dev, NULL);
 	free_netdev(net);
 no_net:
