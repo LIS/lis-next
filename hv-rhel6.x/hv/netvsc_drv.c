@@ -567,8 +567,7 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	 */
 	vf_netdev = rcu_dereference_bh(net_device_ctx->vf_netdev);
 	if (vf_netdev && netif_running(vf_netdev) &&
-		!netpoll_tx_running(net) && !in_serving_softirq() &&
-		!netif_queue_stopped(vf_netdev)) {
+		!netpoll_tx_running(net)) {
 		return netvsc_vf_xmit(net, vf_netdev, skb);
 	}
 #endif
