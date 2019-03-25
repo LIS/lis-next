@@ -253,19 +253,14 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 {
 	struct net_device_context *ndc = netdev_priv(ndev);
 	struct net_device *vf_netdev;
-	u16 txq;
+	u16 txq = 0;
 
 	rcu_read_lock();
 	vf_netdev = rcu_dereference(ndc->vf_netdev);
 	if (vf_netdev) {
 		const struct net_device_ops *vf_ops = vf_netdev->netdev_ops;
-
 		if (vf_ops->ndo_select_queue)
 			txq = vf_ops->ndo_select_queue(vf_netdev, skb);
-		else
-			txq = 0;
-
-		qdisc_skb_cb(skb)->slave_dev_queue_mapping = txq;
 	} else {
 		txq = netvsc_pick_tx(ndev, skb);
 	}
@@ -277,6 +272,21 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 	return txq;
 }
 
+
+static int netvsc_txq_stopped_or_frozen(struct net_device *vf_netdev, struct sk_buff *skb)
+{
+	u16 txq_index = 0;
+	struct netdev_queue *txq;
+	const struct net_device_ops *vf_ops = vf_netdev->netdev_ops;
+
+	if (vf_ops->ndo_select_queue)
+		txq_index = vf_ops->ndo_select_queue(vf_netdev, skb);
+
+	qdisc_skb_cb(skb)->slave_dev_queue_mapping = txq_index;
+	txq = netdev_get_tx_queue(vf_netdev, txq_index);
+
+	return (netif_tx_queue_stopped(txq) || netif_tx_queue_frozen(txq));
+}
 
 /* Send skb on the slave VF device. */
 static int netvsc_vf_xmit(struct net_device *net, struct net_device *vf_netdev,
@@ -567,8 +577,7 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	 */
 	vf_netdev = rcu_dereference_bh(net_device_ctx->vf_netdev);
 	if (vf_netdev && netif_running(vf_netdev) &&
-		!netpoll_tx_running(net) && !in_serving_softirq() &&
-		!netif_queue_stopped(vf_netdev)) {
+		!netpoll_tx_running(net) && !netvsc_txq_stopped_or_frozen(vf_netdev, skb)) {
 		return netvsc_vf_xmit(net, vf_netdev, skb);
 	}
 #endif
