@@ -9,6 +9,7 @@
 #define CN_VSS_VAL	0x1
 
 #define HV_DRV_VERSION  "master1"
+#define _HV_DRV_VERSION 0x1AE
 
 #ifndef O_CLOEXEC
 #define O_CLOEXEC       02000000        /* set close_on_exec */
