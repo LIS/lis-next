@@ -272,19 +272,23 @@ static u16 netvsc_select_queue(struct net_device *ndev, struct sk_buff *skb)
 	return txq;
 }
 
-
-static int netvsc_txq_stopped_or_frozen(struct net_device *vf_netdev, struct sk_buff *skb)
+static int netvsc_vf_select_queue(struct net_device *vf_netdev,
+		struct sk_buff *skb)
 {
 	u16 txq_index = 0;
-	struct netdev_queue *txq;
 	const struct net_device_ops *vf_ops = vf_netdev->netdev_ops;
 
 	if (vf_ops->ndo_select_queue)
 		txq_index = vf_ops->ndo_select_queue(vf_netdev, skb);
-
 	qdisc_skb_cb(skb)->slave_dev_queue_mapping = txq_index;
-	txq = netdev_get_tx_queue(vf_netdev, txq_index);
 
+	return txq_index;
+}
+
+static inline int netvsc_txq_stopped_or_frozen(struct net_device *vf_netdev,
+		u16 txq_index)
+{
+	struct netdev_queue *txq = netdev_get_tx_queue(vf_netdev, txq_index);
 	return (netif_tx_queue_stopped(txq) || netif_tx_queue_frozen(txq));
 }
 
@@ -572,13 +576,16 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,7)) 
 	struct net_device *vf_netdev;
+	u16 txq_index = 0;
 	/* if VF is present and up then redirect packets
 	 * already called with rcu_read_lock_bh
 	 */
 	vf_netdev = rcu_dereference_bh(net_device_ctx->vf_netdev);
 	if (vf_netdev && netif_running(vf_netdev) &&
-		!netpoll_tx_running(net) && !netvsc_txq_stopped_or_frozen(vf_netdev, skb)) {
-		return netvsc_vf_xmit(net, vf_netdev, skb);
+		!netpoll_tx_running(net)) {
+		txq_index = netvsc_vf_select_queue(vf_netdev, skb);
+		if(!netvsc_txq_stopped_or_frozen(vf_netdev, txq_index))
+			return netvsc_vf_xmit(net, vf_netdev, skb);
 	}
 #endif
 
