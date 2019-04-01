@@ -1083,7 +1083,7 @@ int rndis_set_subchannel(struct net_device *ndev, struct netvsc_device *nvdev)
 	struct net_device_context *ndev_ctx = netdev_priv(ndev);
 	struct hv_device *hv_dev = ndev_ctx->device_ctx;
 	struct rndis_device *rdev = nvdev->extension;
-	int ret;
+	int ret, i=0;
 
 	ASSERT_RTNL();
 
@@ -1119,6 +1119,9 @@ int rndis_set_subchannel(struct net_device *ndev, struct netvsc_device *nvdev)
 #ifdef NOTYET
 	netif_set_real_num_rx_queues(ndev, nvdev->num_chn);
 #endif
+	for (i = 0; i < VRSS_SEND_TAB_SIZE; i++)
+		ndev_ctx->tx_table[i] = i % nvdev->num_chn;
+
 	return 0;
 }
 
