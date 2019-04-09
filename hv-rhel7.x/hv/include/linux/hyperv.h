@@ -1131,6 +1131,7 @@ struct hv_device {
 	u16 device_id;
 
 	struct device device;
+	char *driver_override; /* Driver name to force a match */
 
 	struct vmbus_channel *channel;
 	struct kset	     *channels_kset;
