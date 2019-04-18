@@ -664,7 +664,7 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 	bool perf_chn = vmbus_devs[dev_type].perf_device;
 	struct vmbus_channel *primary = channel->primary_channel;
 	int next_node;
-	struct cpumask available_mask;
+	cpumask_var_t available_mask;
 	struct cpumask *alloced_mask;
 
 #if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7,3))
@@ -673,12 +673,14 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 #endif
 
 	if ((vmbus_proto_version == VERSION_WS2008) ||
-	    (vmbus_proto_version == VERSION_WIN7) || (!perf_chn)) {
+		(vmbus_proto_version == VERSION_WIN7) || (!perf_chn) ||
+		!alloc_cpumask_var(&available_mask, GFP_KERNEL)) {
 		/*
 		 * Prior to win8, all channel interrupts are
 		 * delivered on cpu 0.
 		 * Also if the channel is not a performance critical
 		 * channel, bind it to cpu 0.
+		 * In case alloc_cpumask_var() fails, bind it to cpu 0.
 		 */
 		channel->numa_node = 0;
 		channel->target_cpu = 0;
@@ -720,7 +722,7 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 		cpumask_clear(alloced_mask);
         }
 
-	cpumask_xor(&available_mask, alloced_mask,
+	cpumask_xor(available_mask, alloced_mask,
                    cpumask_of_node(primary->numa_node));
 
 	cur_cpu = -1;
@@ -750,10 +752,10 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 #endif
 
 	while (true) {
-		cur_cpu = cpumask_next(cur_cpu, &available_mask);
+		cur_cpu = cpumask_next(cur_cpu, available_mask);
 		if (cur_cpu >= nr_cpu_ids) {
 			cur_cpu = -1;
-			cpumask_copy(&available_mask,
+			cpumask_copy(available_mask,
 				     cpumask_of_node(primary->numa_node));
 			continue;
 		}
@@ -763,7 +765,7 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 			cpu_sibling_mask = topology_sibling_cpumask(cur_cpu);
 			cpumask_and(cpu_thread_tmp_mask,
 				    cpu_sibling_mask,
-				    &available_mask);
+				    available_mask);
 			if (!cpumask_equal(cpu_thread_tmp_mask, cpu_sibling_mask)) {
 				/*
 				 * NOTE: The thread sibling of this CPU has been
@@ -804,6 +806,8 @@ static void init_vp_index(struct vmbus_channel *channel, u16 dev_type)
 
 	channel->target_cpu = cur_cpu;
 	channel->target_vp = hv_cpu_number_to_vp_number(cur_cpu);
+
+	free_cpumask_var(available_mask);
 
 	spin_unlock(&bind_channel_to_cpu_lock);
 
