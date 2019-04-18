@@ -36,9 +36,7 @@
 
 
 /* The one and only */
-struct hv_context hv_context = {
-	.synic_initialized	= false,
-};
+struct hv_context hv_context;
 
 #define HV_TIMER_FREQUENCY (10 * 1000 * 1000) /* 100ns period */
 #define HV_MAX_MAX_DELTA_TICKS 0xffffffff
@@ -377,8 +375,6 @@ void hv_synic_init(void *arg)
 
 	hv_set_synic_state(sctrl.as_uint64);
 
-	hv_context.synic_initialized = true;
-
 	hv_cpu_init(cpu);
 
 #ifdef NOTYET
@@ -430,7 +426,8 @@ void hv_synic_cleanup(void *arg)
 	unsigned int cpu = smp_processor_id();
 #endif
 
-	if (!hv_context.synic_initialized)
+	hv_get_synic_state(sctrl.as_uint64);
+	if (sctrl.enable != 1)
 		return;
 
 /*	Upstream referecen: 6ffc4b85358f6b7d252420cfa5862312cf5f83d8
@@ -472,7 +469,6 @@ void hv_synic_cleanup(void *arg)
 
 	hv_set_siefp(siefp.as_uint64);
 	/* Disable the global synic bit */
-	hv_get_synic_state(sctrl.as_uint64);
 	sctrl.enable = 0;
 	hv_set_synic_state(sctrl.as_uint64);
 }
