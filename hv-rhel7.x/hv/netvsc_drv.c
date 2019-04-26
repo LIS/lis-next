@@ -841,7 +841,6 @@ static void netvsc_comp_ipcsum(struct sk_buff *skb)
 static struct sk_buff *netvsc_alloc_recv_skb(struct net_device *net,
 					     struct netvsc_channel *nvchan)
 {
-	struct napi_struct *napi = &nvchan->napi;
 	const struct ndis_pkt_8021q_info *vlan = nvchan->rsc.vlan;
 	const struct ndis_tcp_ip_checksum_info *csum_info =
 						nvchan->rsc.csum_info;
@@ -849,6 +848,7 @@ static struct sk_buff *netvsc_alloc_recv_skb(struct net_device *net,
 	int i;
 
 #if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,1))
+	struct napi_struct *napi = &nvchan->napi;
 	skb = napi_alloc_skb(napi, nvchan->rsc.pktlen);
 #else
 	skb = netdev_alloc_skb_ip_align(net, nvchan->rsc.pktlen);
