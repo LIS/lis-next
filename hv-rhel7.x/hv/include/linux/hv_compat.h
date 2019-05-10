@@ -91,7 +91,12 @@
 
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 #define skb_vlan_tag_present(__skb)	((__skb)->vlan_tci & VLAN_TAG_PRESENT)
+#define skb_vlan_tag_get(__skb)		((__skb)->vlan_tci & ~VLAN_TAG_PRESENT)
+#define skb_vlan_tag_get_id(__skb)	((__skb)->vlan_tci & VLAN_VID_MASK)
 #endif
+
+#define skb_vlan_tag_get_cfi(__skb)	(!!((__skb)->vlan_tci & VLAN_CFI_MASK))
+#define skb_vlan_tag_get_prio2(__skb)	(((__skb)->vlan_tci & VLAN_PRIO_MASK) >> VLAN_PRIO_SHIFT)
 
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,3))
 #define napi_consume_skb(skb, budget)     dev_consume_skb_any(skb)
