@@ -89,6 +89,12 @@
 #define DID_TARGET_FAILURE	0x10
 #endif
 
+#ifndef __smp_wmb
+#define __smp_wmb()     wmb()
+#endif
+
+#define virt_wmb() __smp_wmb()
+
 #if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,2))
 #define skb_vlan_tag_present(__skb)	((__skb)->vlan_tci & VLAN_TAG_PRESENT)
 #define skb_vlan_tag_get(__skb)		((__skb)->vlan_tci & ~VLAN_TAG_PRESENT)
