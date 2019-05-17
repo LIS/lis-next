@@ -275,7 +275,6 @@ extern int hv_synic_cpu_used(unsigned int cpu);
 
 /* Interface */
 
-void hv_ringbuffer_pre_init(struct vmbus_channel *channel);
 
 int hv_ringbuffer_init(struct hv_ring_buffer_info *ring_info,
 		       struct page *pages, u32 pagecnt);
