@@ -811,12 +811,11 @@ struct irq_cfg *irqd_cfg(struct irq_data *irq_data)
 }
 
 /* Interrupt management hooks */
-static int hv_set_affinity(struct irq_data *data, const struct cpumask *mask,
+static int hv_set_affinity(struct irq_data *data, const struct cpumask *dest,
 			   bool force)
 {
 	struct msi_desc *msi_desc = data->msi_desc;
 	struct irq_cfg *cfg = irqd_cfg(data);
-	const struct cpumask *dest;
 	struct retarget_msi_interrupt *params;
 	struct hv_pcibus_device *hbus;
 	struct pci_bus *pbus;
@@ -827,10 +826,6 @@ static int hv_set_affinity(struct irq_data *data, const struct cpumask *mask,
 	u64 res;
 	u32 var_size = 0;
 
-	if (cpumask_equal(mask, cpu_online_mask))
-		dest = cfg->domain;
-	else
-		dest = mask;
 	ret = __ioapic_set_affinity(data, dest, &dest_id);
 	if (ret)
 		return ret;
@@ -880,7 +875,7 @@ static int hv_set_affinity(struct irq_data *data, const struct cpumask *mask,
 		 */
 		var_size = 1 + HV_VP_SET_BANK_COUNT_MAX;
 
-		for_each_cpu_and(cpu, dest, cpu_online_mask) {
+		for_each_cpu_and(cpu, cfg->domain, cpu_online_mask) {
 			cpu_vmbus = hv_cpu_number_to_vp_number(cpu);
 
 			if (cpu_vmbus >= HV_VP_SET_BANK_COUNT_MAX * 64) {
@@ -894,7 +889,7 @@ static int hv_set_affinity(struct irq_data *data, const struct cpumask *mask,
 				(1ULL << (cpu_vmbus & 63));
 		}
 	} else {
-		for_each_cpu_and(cpu, dest, cpu_online_mask) {
+		for_each_cpu_and(cpu, cfg->domain, cpu_online_mask) {
 			params->int_target.vp_mask |=
 				(1ULL << hv_cpu_number_to_vp_number(cpu));
 		}
