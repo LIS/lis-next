@@ -407,7 +407,7 @@ enum storvsc_request_type {
  */
 
 #define STORVSC_MIN_BUF_NR				64
-static int storvsc_ringbuffer_size = (256 * PAGE_SIZE);
+static int storvsc_ringbuffer_size = (128 * 1024);
 static u32 max_outstanding_req_per_channel;
 
 static int storvsc_vcpus_per_sub_channel = 4;
