@@ -2487,6 +2487,7 @@ static void __exit vmbus_exit(void)
 
 
 MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("Microsoft Hyper-V VMBus Driver");
 MODULE_VERSION(HV_DRV_VERSION);
 
 subsys_initcall(hv_acpi_init);
