@@ -615,6 +615,7 @@ static void __exit mousevsc_exit(void)
 }
 
 MODULE_LICENSE("GPL");
+MODULE_DESCRIPTION("Microsoft Hyper-V Synthetic HID Driver");
 MODULE_VERSION(HV_DRV_VERSION);
 
 module_init(mousevsc_init);
