@@ -10,15 +10,19 @@ obj-m	+= hyperv-keyboard.o
 # Get machine bit length
 arch=$(shell getconf LONG_BIT)
 
-# RDMA should only build on 64 bits arch
-ifeq ($(arch), 64)
-        obj-m += hv_network_direct.o
-endif
-
 # Get RHEL/CentOS version information
 rhel_major=$(shell grep -Eoh [0-9]+\.[0-9]+ /etc/{issue,*release} | head -1 | awk -F'.' '{ print $$1 }')
 rhel_minor=$(shell grep -Eoh [0-9]+\.[0-9]+ /etc/{issue,*release} | head -1 | awk -F'.' '{ print $$2 }')
 rhel_release_code=$(shell echo $$(($(rhel_major) << 8 | $(rhel_minor))))
+
+# RDMA should only build on 64 bits arch
+ifeq ($(arch), 64)
+	# Network direct driver in LIS is supported for RHEL/CentOS <= 7.6
+	build_hv_network_direct=$(shell test $(rhel_release_code) -lt 1799; echo $$?)
+	ifeq ($(build_hv_network_direct),0)
+		obj-m += hv_network_direct.o
+	endif
+endif
 
 # Kernel support for Hyper-V Sockets driver was introduced in RHEL/CentOS 7.4
 # Only build the hv_sock driver on RHEL 7.4 and newer.
