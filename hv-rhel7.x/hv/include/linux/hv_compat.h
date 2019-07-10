@@ -519,11 +519,12 @@ static inline bool sk_fullsock(const struct sock *sk)
 }
 #endif
 
+#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,6))
 static inline struct cpumask *irq_data_get_affinity_mask(struct irq_data *d)
 {
 	return d->affinity;
 }
-
+#endif
 
 #define timespec64 timespec
 #define ns_to_timespec64 ns_to_timespec
@@ -566,6 +567,7 @@ static inline enum blk_eh_timer_return fc_eh_timed_out(struct scsi_cmnd *scmd)
  */
 #define FC_PORT_ROLE_FCP_DUMMY_INITIATOR        0x08
 
+#if (RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7,6))
 /**
  * refcount_t - variant of atomic_t specialized for reference counts
  * @refs: atomic_t counter field
@@ -611,6 +613,7 @@ static inline void refcount_set(refcount_t *r, unsigned int n)
 {
 	atomic_set(&r->refs, n);
 }
+#endif
 
 #define netdev_lockdep_set_classes(dev)				\
 {								\
