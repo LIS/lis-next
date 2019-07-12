@@ -24,8 +24,10 @@
 
 #include "include/linux/hyperv.h"
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5))
 /* vsock-specific sock->sk_state constants */
 #define VSOCK_SS_LISTEN 255
+#endif
 
 /* The host side's design of the feature requires 6 exact 4KB pages for
  * recv/send rings respectively -- this is suboptimal considering memory
@@ -316,7 +318,11 @@ static void hvs_close_connection(struct vmbus_channel *chan)
 
 	lock_sock(sk);
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5))
 	sk->sk_state = SS_UNCONNECTED;
+#else
+	sk->sk_state = TCP_CLOSE;
+#endif
 	sock_set_flag(sk, SOCK_DONE);
 	vsk->peer_shutdown |= SEND_SHUTDOWN | RCV_SHUTDOWN;
 
@@ -354,8 +360,13 @@ static void hvs_open_connection(struct vmbus_channel *chan)
 
 	lock_sock(sk);
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5))
 	if ((conn_from_host && sk->sk_state != VSOCK_SS_LISTEN) ||
 	    (!conn_from_host && sk->sk_state != SS_CONNECTING))
+#else
+	if ((conn_from_host && sk->sk_state != TCP_LISTEN) ||
+	    (!conn_from_host && sk->sk_state != TCP_SYN_SENT))
+#endif
 		goto out;
 
 	if (conn_from_host) {
@@ -367,7 +378,11 @@ static void hvs_open_connection(struct vmbus_channel *chan)
 		if (!new)
 			goto out;
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5))
 		new->sk_state = SS_CONNECTING;
+#else
+		new->sk_state = TCP_SYN_SENT;
+#endif
 		vnew = vsock_sk(new);
 		hvs_new = vnew->trans;
 		hvs_new->chan = chan;
@@ -394,7 +409,11 @@ static void hvs_open_connection(struct vmbus_channel *chan)
 	vmbus_set_chn_rescind_callback(chan, hvs_close_connection);
 
 	if (conn_from_host) {
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5))
 		new->sk_state = SS_CONNECTED;
+#else
+		new->sk_state = TCP_ESTABLISHED;
+#endif
 		sk->sk_ack_backlog++;
 
 		hvs_addr_init(&vnew->local_addr, if_type);
@@ -407,7 +426,11 @@ static void hvs_open_connection(struct vmbus_channel *chan)
 
 		vsock_enqueue_accept(sk, new);
 	} else {
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5))
 		sk->sk_state = SS_CONNECTED;
+#else
+		sk->sk_state = TCP_ESTABLISHED;
+#endif
 		sk->sk_socket->state = SS_CONNECTED;
 
 		vsock_insert_connected(vsock_sk(sk));
@@ -492,7 +515,11 @@ static void hvs_release(struct vsock_sock *vsk)
 
 	lock_sock(sk);
 
+#if defined(RHEL_RELEASE_VERSION) && (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(7,5))
 	sk->sk_state = SS_DISCONNECTING;
+#else
+	sk->sk_state = TCP_CLOSING;
+#endif
 	vsock_remove_sock(vsk);
 
 	release_sock(sk);
