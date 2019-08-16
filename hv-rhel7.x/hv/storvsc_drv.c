@@ -425,6 +425,9 @@ module_param(ring_avail_percent_lowater, int, S_IRUGO);
 MODULE_PARM_DESC(ring_avail_percent_lowater,
 		"Select a channel if available ring size > this in percent");
 
+#if (RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(7, 0))
+u32 hv_reciprocal_value;
+#endif
 /*
  * Timeout in seconds for all devices managed by this driver.
  */
@@ -2481,6 +2484,9 @@ static int __init storvsc_drv_init(void)
 {
 	int ret;
 
+#if (RHEL_RELEASE_CODE == RHEL_RELEASE_VERSION(7, 0))
+	hv_set_reciprocal_value(storvsc_ringbuffer_size);
+#endif
 	/*
 	 * Divide the ring buffer data size (which is 1 page less
 	 * than the ring buffer size since that page is reserved for
