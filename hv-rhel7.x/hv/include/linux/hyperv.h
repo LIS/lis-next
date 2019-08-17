@@ -36,9 +36,7 @@
 #include <linux/device.h>
 #include <linux/mod_devicetable.h>
 #include <linux/interrupt.h>
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7, 0))
 #include <linux/reciprocal_div.h>
-#endif
 
 #define MAX_PAGE_BUFFER_COUNT				32
 #define MAX_MULTIPAGE_BUFFER_COUNT			32 /* 128K */
@@ -143,6 +141,8 @@ struct hv_ring_buffer_info {
 	u32 ring_size;			/* Include the shared header */
 #if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7,0))
 	struct reciprocal_value ring_size_div10_reciprocal;
+#else
+	u32 ring_size_div10_reciprocal;
 #endif
 	spinlock_t ring_lock;
 
@@ -183,16 +183,13 @@ static inline u32 hv_get_bytes_to_write(const struct hv_ring_buffer_info *rbi)
 	return write;
 }
 
-#if (RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7, 0))
 static inline u32 hv_get_avail_to_write_percent(const struct hv_ring_buffer_info *rbi)
 {
 	u32 avail_write = hv_get_bytes_to_write(rbi);
 
-	return reciprocal_divide(
-		(avail_write << 3) + (avail_write << 1),
-		rbi->ring_size_div10_reciprocal);
+	return reciprocal_divide((avail_write << 3) + (avail_write << 1),
+					rbi->ring_size_div10_reciprocal);
 }
-#endif
 
 	/*
  * VMBUS version is 32 bit entity broken up into
