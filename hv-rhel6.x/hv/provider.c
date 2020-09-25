@@ -2778,6 +2778,7 @@ static int start_bind_nic(void)
 			continue;
 		for (ifa = (idev)->ifa_list; ifa && !(ifa->ifa_flags&IFA_F_SECONDARY); ifa = ifa->ifa_next)
 			hvnd_try_bind_nic(dev->dev_addr, ifa->ifa_address);
+		in_dev_put(idev);
 	}
 	rtnl_unlock();
 
