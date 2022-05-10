@@ -504,6 +504,11 @@ struct storvsc_device {
 	 */
 	u64 node_name;
 	u64 port_name;
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,5))
+#if IS_ENABLED(CONFIG_SCSI_FC_ATTRS)
+	struct fc_rport *rport;
+#endif
+#endif
 };
 
 struct stor_mem_pools {
@@ -2297,19 +2302,40 @@ static int storvsc_probe(struct hv_device *device,
 		target = (device->dev_instance.b[5] << 8 |
 			 device->dev_instance.b[4]);
 		ret = scsi_add_device(host, 0, target, 0);
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,5))
+		if (ret)
+			goto err_out3;
+#else
 		if (ret) {
 			scsi_remove_host(host);
 			goto err_out2;
 		}
+#endif
 	}
 #if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 	if (host->transportt == fc_transport_template) {
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,5))
+		struct fc_rport_identifiers ids = {
+			.roles = FC_PORT_ROLE_FCP_DUMMY_INITIATOR,
+		};
+#endif
+
 		fc_host_node_name(host) = stor_device->node_name;
 		fc_host_port_name(host) = stor_device->port_name;
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,5))
+		stor_device->rport = fc_remote_port_add(host, 0, &ids);
+		if (!stor_device->rport)
+			goto err_out3;
+#endif
 	}
 #endif
 	mutex_unlock(&probe_mutex);
 	return 0;
+
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,5))
+err_out3:
+	scsi_remove_host(host);
+#endif
 
 err_out2:
 	/*
@@ -2337,8 +2363,12 @@ static int storvsc_remove(struct hv_device *dev)
 	struct Scsi_Host *host = stor_device->host;
 
 #if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
-	if (host->transportt == fc_transport_template)
+	if (host->transportt == fc_transport_template) {
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,5))
+		fc_remote_port_delete(stor_device->rport);
+#endif
 		fc_remove_host(host);
+	}
 #endif
 	scsi_remove_host(host);
 	storvsc_dev_remove(dev);
