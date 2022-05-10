@@ -519,6 +519,7 @@ struct hv_host_device {
 	unsigned int port;
 	unsigned char path;
 	unsigned char target;
+	struct workqueue_struct *handle_error_wq;
 	struct mutex host_mutex;
 };
 
@@ -1228,7 +1229,10 @@ static void storvsc_handle_error(struct vmscsi_request *vm_srb,
 	 * Addresses an error handling bug on older kernels.
 	 */
 	struct hv_host_device *host_dev = shost_priv(scmnd->device->host);
-	int error_handling_cpu = host_dev->dev->channel->target_cpu;
+	/* 
+	 * Remove error_handling_cpu assignment to handle unused variable
+	 * warning with backport of 436ad941335386c5fc7faa915a8fbdfe8c908084
+	 */
 
 	switch (SRB_STATUS(vm_srb->srb_status)) {
 	case SRB_STATUS_ERROR:
@@ -1294,7 +1298,7 @@ static void storvsc_handle_error(struct vmscsi_request *vm_srb,
 	wrk->lun = vm_srb->lun;
 	wrk->tgt_id = vm_srb->target_id;
 	INIT_WORK(&wrk->work, process_err_fn);
-	schedule_work_on(error_handling_cpu, &wrk->work);
+	queue_work(host_dev->handle_error_wq, &wrk->work);
 }
 
 
@@ -2186,6 +2190,8 @@ static int storvsc_probe(struct hv_device *device,
 	int max_targets;
 	int max_channels;
 	int max_sub_channels = 0;
+	/* Required for 436ad941335386c5fc7faa915a8fbdfe8c908084 */
+	char wq_name[25];
 
 	mutex_lock(&probe_mutex);
 	/*
@@ -2289,10 +2295,22 @@ static int storvsc_probe(struct hv_device *device,
 		host->nr_hw_queues = stor_device->num_sc + 1;
 #endif
 
+	/*
+	 * Set the error handler work queue.
+	 * Divergence from upstream with backport of commit
+	 * id - 436ad941335386c5fc7faa915a8fbdfe8c908084
+	 * since alloc_ordered_workqueue takes only two args here.
+	 */
+	sprintf(wq_name, "storvsc_error_wq_%d", host->host_no);
+        host_dev->handle_error_wq =
+                        alloc_ordered_workqueue(wq_name,
+                                                WQ_MEM_RECLAIM);
+	if (!host_dev->handle_error_wq)
+		goto err_out2;
 	/* Register the HBA and start the scsi bus scan */
 	ret = scsi_add_host(host, &device->device);
 	if (ret != 0)
-		goto err_out2;
+		goto err_out3;
 
 	if (!dev_is_ide) {
 		scsi_scan_host(host);
@@ -2301,7 +2319,7 @@ static int storvsc_probe(struct hv_device *device,
 			 device->dev_instance.b[4]);
 		ret = scsi_add_device(host, 0, target, 0);
 		if (ret)
-			goto err_out3;
+			goto err_out4;
 	}
 #if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 	if (host->transportt == fc_transport_template) {
@@ -2313,14 +2331,17 @@ static int storvsc_probe(struct hv_device *device,
 		fc_host_port_name(host) = stor_device->port_name;
 		stor_device->rport = fc_remote_port_add(host, 0, &ids);
 		if (!stor_device->rport)
-			goto err_out3;
+			goto err_out4;
 	}
 #endif
 	mutex_unlock(&probe_mutex);
 	return 0;
 
-err_out3:
+err_out4:
 	scsi_remove_host(host);
+
+err_out3:
+	destroy_workqueue(host_dev->handle_error_wq);
 
 err_out2:
 	/*
@@ -2346,6 +2367,7 @@ static int storvsc_remove(struct hv_device *dev)
 {
 	struct storvsc_device *stor_device = hv_get_drvdata(dev);
 	struct Scsi_Host *host = stor_device->host;
+	struct hv_host_device *host_dev = shost_priv(host);
 
 #if defined(CONFIG_SCSI_FC_ATTRS) || defined(CONFIG_SCSI_FC_ATTRS_MODULE)
 	if (host->transportt == fc_transport_template) {
@@ -2353,6 +2375,7 @@ static int storvsc_remove(struct hv_device *dev)
 		fc_remove_host(host);
 	}
 #endif
+	destroy_workqueue(host_dev->handle_error_wq);
 	scsi_remove_host(host);
 	storvsc_dev_remove(dev);
 	scsi_host_put(host);
