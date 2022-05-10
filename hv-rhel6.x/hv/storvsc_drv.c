@@ -525,6 +525,10 @@ struct hv_host_device {
 	struct workqueue_struct *handle_error_wq;
 #endif
 	struct mutex host_mutex;
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,5))
+	struct work_struct host_scan_work;
+	struct Scsi_Host *host;
+#endif
 };
 
 struct storvsc_scan_work {
@@ -574,13 +578,19 @@ static void storvsc_bus_scan(struct Scsi_Host *host)
 
 static void storvsc_host_scan(struct work_struct *work)
 {
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,5))
 	struct storvsc_scan_work *wrk;
+#endif
 	struct Scsi_Host *host;
 	struct scsi_device *sdev;
-
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,5))
+	struct hv_host_device *host_device =
+		container_of(work, struct hv_host_device, host_scan_work);
+	host = host_device->host;
+#else
 	wrk = container_of(work, struct storvsc_scan_work, work);
 	host = wrk->host;
-
+#endif
 	/*
 	 * Before scanning the host, first check to see if any of the
 	 * currrently known devices have been hot removed. We issue a
@@ -600,8 +610,9 @@ static void storvsc_host_scan(struct work_struct *work)
 	 * Now scan the host to discover LUNs that may have been added.
 	 */
 	storvsc_bus_scan(host);
-
+#if (RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(6,5))
 	kfree(wrk);
+#endif
 }
 
 static void storvsc_remove_lun(struct work_struct *work)
@@ -1479,8 +1490,11 @@ static void storvsc_on_receive(struct storvsc_device *stor_device,
 			     struct vstor_packet *vstor_packet,
 			     struct storvsc_cmd_request *request)
 {
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,5))
+	struct hv_host_device *host_dev;
+#else
 	struct storvsc_scan_work *work;
-
+#endif
 	switch (vstor_packet->operation) {
 	case VSTOR_OPERATION_COMPLETE_IO:
 		storvsc_on_io_completion(stor_device, vstor_packet, request);
@@ -1488,6 +1502,11 @@ static void storvsc_on_receive(struct storvsc_device *stor_device,
 
 	case VSTOR_OPERATION_REMOVE_DEVICE:
 	case VSTOR_OPERATION_ENUMERATE_BUS:
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,5))
+		host_dev = shost_priv(stor_device->host);
+		queue_work(
+			host_dev->handle_error_wq, &host_dev->host_scan_work);
+#else
 		work = kmalloc(sizeof(struct storvsc_scan_work), GFP_ATOMIC);
 		if (!work)
 			return;
@@ -1495,6 +1514,7 @@ static void storvsc_on_receive(struct storvsc_device *stor_device,
 		INIT_WORK(&work->work, storvsc_host_scan);
 		work->host = stor_device->host;
 		schedule_work(&work->work);
+#endif
 		break;
 	case VSTOR_OPERATION_FCHBA_DATA:
 		cache_wwn(stor_device, vstor_packet);
@@ -2239,6 +2259,9 @@ static int storvsc_probe(struct hv_device *device,
 
 	host_dev->port = host->host_no;
 	host_dev->dev = device;
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,5))
+	host_dev->host = host;
+#endif
 	mutex_init(&host_dev->host_mutex);
 
 
@@ -2319,6 +2342,7 @@ static int storvsc_probe(struct hv_device *device,
 	*/
 	if (!host_dev->handle_error_wq)
 		goto err_out2;
+	INIT_WORK(&host_dev->host_scan_work, storvsc_host_scan);
 #endif
 
 	/* Register the HBA and start the scsi bus scan */
