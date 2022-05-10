@@ -1276,10 +1276,17 @@ static void storvsc_handle_error(struct vmscsi_request *vm_srb,
 		case TEST_UNIT_READY:
 			break;
 		default:
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,5))
+			set_host_byte(scmnd, DID_ERROR);
+#else
 			set_host_byte(scmnd, DID_TARGET_FAILURE);
+#endif
 		}
 		break;
 	case SRB_STATUS_INVALID_LUN:
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,5))
+		set_host_byte(scmnd, DID_NO_CONNECT);
+#endif
 		do_work = true;
 		process_err_fn = storvsc_remove_lun;
 		break;
