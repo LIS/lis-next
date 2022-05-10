@@ -704,6 +704,13 @@ fc_eh_timed_out(struct scsi_cmnd *scmd)
 	return BLK_EH_NOT_HANDLED;
 }
 
+#if (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6,5))
+/**
+ *  required for daf0cd445a218314f9461d67d4f2b9c24cdd534b
+ */
+#define FC_PORT_ROLE_FCP_DUMMY_INITIATOR        0x08
+#endif
+
 /**
  * refcount_t - variant of atomic_t specialized for reference counts
  * @refs: atomic_t counter field
